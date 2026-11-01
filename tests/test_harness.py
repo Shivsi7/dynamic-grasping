@@ -15,12 +15,14 @@ def test_naive_controller_grasps_without_obstacles():
     assert r.log is not None and len(r.log["t"]) > 100
 
 
-def test_tall_blocker_hits_a_parked_robot_and_is_reported():
-    r = run_episode(S.tall_blocker(0.1, 0.2), HoldController())
-    assert r.outcome == "collision" and r.collided and not r.success
-    assert r.collision_category == "obstacle" and "blocker" in r.collision_with
-    assert r.t_first_collision is not None and r.t_end < r.scenario_summary["duration"]
-    assert r.min_clearance_obstacles <= 0.005
+def test_blockers_hit_a_parked_robot_and_a_naive_grasp():
+    for preset in (S.tall_blocker, S.wall_blocker):
+        for ctrl in (HoldController(), NaiveInterceptController()):
+            r = run_episode(preset(0.1, 0.2), ctrl)
+            assert r.outcome == "collision" and r.collided and not r.success, (preset.__name__, ctrl.name, r.outcome)
+            assert r.collision_category == "obstacle" and "blocker" in r.collision_with
+            assert r.t_first_collision is not None and r.t_end < r.scenario_summary["duration"]
+            assert r.min_clearance_obstacles <= 0.005
 
 
 def test_velocity_commands_are_integrated_and_clipped():

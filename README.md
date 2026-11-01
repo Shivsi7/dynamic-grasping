@@ -72,8 +72,12 @@ Frames (see `objects.py`): **U** = upright object frame (footprint centre on the
 cart surface, z up), **G** = WSG body frame (fingers along +y, close along x,
 pads at y = 0.108). `WorldModel.grasp_pose(t)` = `X_WU(t) @ X_UG_grasp`.
 
-Named presets: `scenario.no_obstacles(speed)` and `scenario.tall_blocker(speed,
-obstacle_speed)` (the "initial test" from the proposal). Random sets:
+Named presets: `scenario.no_obstacles(speed)`, `scenario.tall_blocker(speed,
+obstacle_speed, t_cross)` (the "initial test" from the proposal: a 0.8 m post
+the arm can pass sideways) and `scenario.wall_blocker(...)` (a 0.27 x 0.05 x
+0.9 m wall spanning the corridor: the arm must go over it or wait). Both cross
+the robot's line to the cart one second after the target becomes reachable
+unless `t_cross` says otherwise. Random sets:
 `generate_scenario_set(seed, n)`; save/load with `save_scenario_set` /
 `load_scenario_set`. `scenarios/dev_v0.yaml` is the shared development set.
 
@@ -123,7 +127,8 @@ Register the controller in `scripts/run_eval.py`'s `CONTROLLERS` dict.
 python scripts/run_eval.py --n 20 --seed 0 --out results/dev           # random set, all controllers
 python scripts/run_eval.py --scenarios scenarios/dev_v0.yaml --controllers naive --out results/naive
 python scripts/run_eval.py --sweep --seeds-per-cell 5 --out results/sweep   # speed x obstacle grid
-python scripts/run_eval.py --tall-blocker --out results/blocker
+python scripts/run_eval.py --tall-blocker --out results/post       # post: speed x speed x crossing time
+python scripts/run_eval.py --wall-blocker --out results/wall
 python scripts/summarize.py results/sweep                               # summary.md + png figures
 ```
 

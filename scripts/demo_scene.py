@@ -37,12 +37,13 @@ def pick_scenario(args) -> S.ScenarioSpec:
         )
     if args.preset == "no_obstacles":
         return S.no_obstacles(args.target_speed or 0.1, object=args.object)
-    return S.tall_blocker(args.target_speed or 0.1, args.obstacle_speed, object=args.object)
+    preset = S.wall_blocker if args.preset == "wall_blocker" else S.tall_blocker
+    return preset(args.target_speed or 0.1, args.obstacle_speed, object=args.object)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--preset", choices=["tall_blocker", "no_obstacles"], default="tall_blocker")
+    ap.add_argument("--preset", choices=["tall_blocker", "wall_blocker", "no_obstacles"], default="tall_blocker")
     ap.add_argument("--random", action="store_true", help="sample a random scenario instead of a preset")
     ap.add_argument("--scenario", help="YAML scenario set (from run_eval.py / save_scenario_set)")
     ap.add_argument("--index", type=int, default=0, help="which scenario of the set")

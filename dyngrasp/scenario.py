@@ -392,32 +392,51 @@ def no_obstacles(target_speed: float = 0.1, object: str = "soup_can", direction:
     )
 
 
+def _blocker_scenario(name, shape_dims, x, speed, t_cross, target_speed, object, color=None):
+    """A box crossing the corridor along -y, through x at height centre z = 0.5 * height + 0.05."""
+    cart = make_cart(target_speed, 1.0)
+    if t_cross is None:
+        # One second after the target becomes reachable: in the way of a direct grasp.
+        t_cross = cart.t_enter + 1.0
+    blocker = make_obstacle(
+        "blocker", "box", shape_dims, [x, 0.0, 0.5 * shape_dims[2] + 0.05], 0.0, speed, t_cross, -1.0, "linear",
+        color or OBSTACLE_COLORS[0],
+    )
+    return ScenarioSpec(
+        name=f"{name}_v{target_speed:.2f}_o{speed:.2f}_t{t_cross:.1f}",
+        target=TargetSpec(object=object),
+        cart=cart,
+        obstacles=[blocker],
+        duration=episode_duration(cart),
+    )
+
+
 def tall_blocker(
     target_speed: float = 0.1,
     obstacle_speed: float = 0.2,
     t_cross: float | None = None,
     object: str = "soup_can",
 ) -> ScenarioSpec:
-    """The initial test from the proposal: a tall box sliding across the corridor."""
-    cart = make_cart(target_speed, 1.0)
-    if t_cross is None:
-        t_cross = cart.t_closest
-    blocker = make_obstacle(
-        "blocker",
-        "box",
-        [0.12, 0.12, 0.80],
-        [0.28, 0.0, 0.45],
-        0.0,
-        obstacle_speed,
-        t_cross,
-        -1.0,
-        "linear",
-        OBSTACLE_COLORS[0],
-    )
-    return ScenarioSpec(
-        name=f"tall_blocker_v{target_speed:.2f}_o{obstacle_speed:.2f}",
-        target=TargetSpec(object=object),
-        cart=cart,
-        obstacles=[blocker],
-        duration=episode_duration(cart),
+    """The initial test from the proposal: a tall post (0.12 x 0.12 x 0.8 m) sliding across the corridor.
+
+    By default it crosses the robot's line to the cart one second after the target
+    becomes reachable, i.e. exactly when a direct grasp would be happening.  The arm
+    can pass it sideways; see `wall_blocker` for one it cannot.
+    """
+    return _blocker_scenario("tall_blocker", [0.12, 0.12, 0.80], 0.28, obstacle_speed, t_cross, target_speed, object)
+
+
+def wall_blocker(
+    target_speed: float = 0.1,
+    obstacle_speed: float = 0.2,
+    t_cross: float | None = None,
+    object: str = "soup_can",
+) -> ScenarioSpec:
+    """A wall (0.27 m wide in x, 0.05 m thick, 0.9 m tall) sliding across the corridor.
+
+    It spans the whole gap between the fixed base keep-out and the cart lane, so
+    the arm cannot go around it: it must go over (top at z = 0.95 m) or wait.
+    """
+    return _blocker_scenario(
+        "wall_blocker", [0.27, 0.05, 0.90], 0.30, obstacle_speed, t_cross, target_speed, object, OBSTACLE_COLORS[2]
     )

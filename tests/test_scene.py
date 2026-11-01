@@ -18,7 +18,7 @@ def test_scripted_bodies_track_their_paths():
     scene.station.GetInputPort("wsg.position").FixValue(scene.station.GetMyContextFromRoot(ctx), [0.1])
     world = WorldModel(spec)
     # (only before the blocker reaches the parked robot, which it cannot push through)
-    for t in [1.0, 2.0, 3.0, 4.0]:
+    for t in [1.0, 2.0, 3.0]:
         sim.AdvanceTo(t)
         cart = scene.plant.EvalBodyPoseInWorld(pc, scene.cart_top_body).translation()
         assert np.allclose(cart, world.cart_pose(t).translation(), atol=2e-3), (t, cart)
@@ -58,7 +58,7 @@ def test_kinematic_diagram_reports_robot_collisions_only():
     qo = kin.scene_graph.get_query_output_port().Eval(sg_ctx)
     assert roles.robot_collisions(qo) == []
     assert not qo.HasCollisions()  # object-on-cart and cart-over-floor are filtered
-    world.set_kinematic_state(kin, ctx, spec.cart.t_closest, np.array(spec.q0))
+    world.set_kinematic_state(kin, ctx, spec.cart.t_enter + 1.0, np.array(spec.q0))  # blocker crossing time
     qo = kin.scene_graph.get_query_output_port().Eval(sg_ctx)
     hits = roles.robot_collisions(qo)
     assert hits and all(h[2] == "obstacle" for h in hits)
