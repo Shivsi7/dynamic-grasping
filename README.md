@@ -1,0 +1,152 @@
+# Grasping a Moving Object Among Moving Obstacles
+
+6.4212 (Robotic Manipulation, Fall 2026) final project: a 7-DoF KUKA iiwa with a
+WSG gripper picks a known YCB object off a moving cart while scripted obstacles
+cross its workspace. We compare a **reactive** controller (A, differential IK as
+a QP with collision constraints) against a **deliberative** space–time planner
+(B, RRT-Connect in (q, t)) on identical randomized scenarios using ground-truth
+state. The proposal (with milestones and the division of work) is on Gradescope;
+drop a copy in `docs/` when convenient.
+
+This repository holds the shared infrastructure: the Drake scene, the
+`WorldModel` (predicted state), the controller API, the evaluation harness and
+two reference controllers. (A) and (B) plug into the `Controller` API below.
+
+## Setup
+
+Requires Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/).
+
+```bash
+git clone <this repo> && cd dynamic-grasping
+uv sync --extra dev            # creates .venv with drake 1.57, manipulation, pandas, ...
+source .venv/bin/activate
+pytest                         # ~1 min, 34 tests
+python scripts/demo_scene.py   # opens Meshcat: tall blocker vs. the naive controller
+```
+
+`HEADLESS=1` disables Meshcat (no browser wait, no real-time pacing); use it for
+batch runs and for checking that something works.
+
+## Layout
+
+```
+dyngrasp/
+  paths.py       LinearPath / ParabolicPath: p(t), v(t), parked outside [t_start, t_end]
+  objects.py     YCB registry: rest pose on the cart, nominal top-down grasp X_UG, sizes
+  scenario.py    ScenarioSpec (YAML-serialisable), random generator, presets
+  scene.py       builds the HardwareStation for a spec; kinematic diagram for planners
+  world.py       WorldModel: predicted target / obstacle state at any time t
+  controller.py  Controller API, RobotState, Command, RobotModel, Drake wrapper
+  baselines.py   HoldController, NaiveInterceptController (no avoidance)
+  monitor.py     EpisodeMonitor: collisions, clearance, grasp / lift / success
+  harness.py     run_episode, run_batch (-> pandas), aggregate
+  viz.py         Meshcat helper
+scripts/
+  demo_scene.py  watch one scenario in Meshcat
+  run_eval.py    batch evaluation -> results/<name>/results.csv + scenarios.yaml
+  summarize.py   tables (markdown) and figures from results.csv
+scenarios/       shared scenario sets (YAML), so everyone runs the same episodes
+tests/           pytest
+```
+
+## The world
+
+World frame W: iiwa base at the origin, home configuration faces +x, floor at z = 0.
+
+* **Cart**: runs along y in a lane at x ≈ 0.60 m, top surface at z = 0.20 m.
+  Speed 0.05–0.30 m/s. It always enters the robot's reach (|y| < 0.5) at
+  t = 3 s and the target is reachable for 1/speed seconds.
+* **Target**: one of `soup_can`, `sugar_box`, `gelatin_box`, `potted_meat_can`,
+  `cracker_box`, `mustard`, upright on the cart, riding along (free body, friction).
+* **Obstacles**: 0–4 spheres (r 5–10 cm) or boxes (10–20 cm) on linear or
+  parabolic (lob) paths crossing the corridor between the robot and the lane,
+  mostly along y, at 0.1–0.5 m/s, timed to cross while the target is reachable.
+  Sampled paths never hit the cart, the fixed robot base or the floor, so every
+  scenario is solvable by a robot that gets out of the way. Obstacles are
+  dynamic bodies driven by stiff PD joints: they follow their script to ~mm but
+  a collision is physical.
+* **Robot**: `iiwa7_with_box_collision` + `schunk_wsg_50_with_tip`, driven as in
+  the course's HardwareStation (position-controlled iiwa, Schunk WSG driver).
+
+Frames (see `objects.py`): **U** = upright object frame (footprint centre on the
+cart surface, z up), **G** = WSG body frame (fingers along +y, close along x,
+pads at y = 0.108). `WorldModel.grasp_pose(t)` = `X_WU(t) @ X_UG_grasp`.
+
+Named presets: `scenario.no_obstacles(speed)` and `scenario.tall_blocker(speed,
+obstacle_speed)` (the "initial test" from the proposal). Random sets:
+`generate_scenario_set(seed, n)`; save/load with `save_scenario_set` /
+`load_scenario_set`. `scenarios/dev_v0.yaml` is the shared development set.
+
+## Writing a controller
+
+```python
+from dyngrasp import Controller, Command, RobotState, WorldModel, WSG_OPEN, WSG_CLOSED
+
+class MyController(Controller):
+    name = "reactive_qp"
+    period = 0.01                                   # update() runs at 100 Hz
+
+    def reset(self, world: WorldModel, robot, state: RobotState):
+        self.robot = robot                          # RobotModel: fk(q), jacobian(q), limits
+
+    def update(self, state: RobotState, world: WorldModel) -> Command:
+        t = state.t
+        X_WG_des = world.grasp_pose(t + 0.5)        # where the grasp will be in 0.5 s
+        v_obj = world.target_velocity(t)
+        for o in world.obstacle_states(t + 0.2):    # predicted obstacles (p, v, radius, shape, dims)
+            ...
+        caps = world.swept_capsules(t, t + 0.2)     # (p0, p1, radius) per obstacle
+        v = ...                                     # your QP here
+        return Command(v=v, gripper=WSG_OPEN, info={"phase": "approach"})
+```
+
+`RobotState` carries `q`, `v`, `X_WG` (measured), `wsg_width`, and the last
+command. `Command.q` (positions) or `Command.v` (velocities, integrated at
+`period` and clipped to joint limits) plus a gripper opening. `info` is logged.
+
+For planners that need collision checks at a hypothetical (q, t):
+
+```python
+from dyngrasp.scene import build_kinematic_diagram, BodyRoles
+diagram, kin = build_kinematic_diagram(spec)
+roles, ctx = BodyRoles(kin), diagram.CreateDefaultContext()
+world.set_kinematic_state(kin, ctx, t, q)
+qo = kin.scene_graph.get_query_output_port().Eval(kin.scene_graph.GetMyContextFromRoot(ctx))
+roles.robot_collisions(qo)   # [] if free;  roles.robot_clearance(qo) -> (d_obstacles, d_cart_floor)
+```
+
+Register the controller in `scripts/run_eval.py`'s `CONTROLLERS` dict.
+
+## Evaluation
+
+```bash
+python scripts/run_eval.py --n 20 --seed 0 --out results/dev           # random set, all controllers
+python scripts/run_eval.py --scenarios scenarios/dev_v0.yaml --controllers naive --out results/naive
+python scripts/run_eval.py --sweep --seeds-per-cell 5 --out results/sweep   # speed x obstacle grid
+python scripts/run_eval.py --tall-blocker --out results/blocker
+python scripts/summarize.py results/sweep                               # summary.md + png figures
+```
+
+One row per episode in `results.csv`:
+
+| column | meaning |
+|---|---|
+| `outcome` | `collision` / `success` / `dropped` / `timeout` (collision takes precedence) |
+| `success`, `collided` | separately, so "grasped despite a collision" is visible |
+| `t_grasp`, `t_lift`, `t_success` | first in-hand, first in-hand-and-lifted, held 0.5 s |
+| `t_first_collision`, `collision_with`, `collision_category` | obstacle / cart / floor / target |
+| `min_clearance_obstacles` (+ time), `min_clearance_environment` | signed distance, robot to obstacles / cart+floor |
+| `n_cycles`, `compute_mean_ms`, `compute_max_ms`, `compute_p95_ms` | wall time of `update()` per cycle |
+| `target_speed`, `n_obstacles`, `obstacle_speed_mean/max`, `object`, `seed` | scenario parameters |
+
+Definitions (see `monitor.py`): a **collision** is any contact between a robot
+body (iiwa links 1–7, WSG) and an obstacle, the cart, the floor, or the target,
+except the gripper touching the target. The object is **in hand** when the
+finger-pad point lies inside its bounding box and the gripper is not open;
+**success** is in-hand and ≥ 5 cm above the rest height for 0.5 s. By default an
+episode stops at the first collision (`--keep-going` to continue).
+
+Baselines on `no_obstacles`: `naive` grasps the soup can, gelatin box, potted
+meat can and sugar box; it is too slow to converge for the cracker box and the
+mustard bottle (grasp selection is the job of (A)/(B), not of this baseline).
+Simulation runs at roughly 2–3x real time headless.

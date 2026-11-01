@@ -1,0 +1,34 @@
+[project]
+name = "dyngrasp"
+version = "0.1.0"
+description = "Grasping a moving object among moving obstacles: Drake scene, controller API and evaluation harness (6.4212 project)."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "drake==1.57.0",
+    "manipulation>=2026.9.17",
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "matplotlib>=3.9",
+    "pandas>=2.2",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "tabulate>=0.10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dyngrasp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
