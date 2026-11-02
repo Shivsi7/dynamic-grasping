@@ -73,11 +73,14 @@ cart surface, z up), **G** = WSG body frame (fingers along +y, close along x,
 pads at y = 0.108). `WorldModel.grasp_pose(t)` = `X_WU(t) @ X_UG_grasp`.
 
 Named presets: `scenario.no_obstacles(speed)`, `scenario.tall_blocker(speed,
-obstacle_speed, t_cross)` (the "initial test" from the proposal: a 0.8 m post
-the arm can pass sideways) and `scenario.wall_blocker(...)` (a 0.27 x 0.05 x
-0.9 m wall spanning the corridor: the arm must go over it or wait). Both cross
-the robot's line to the cart one second after the target becomes reachable
-unless `t_cross` says otherwise. Random sets:
+obstacle_speed, t_cross)` (the "initial test" from the proposal: a 0.12 x 0.12
+x 0.8 m post standing on the floor) and `scenario.plank_blocker(...)` (a thin
+0.20 x 0.04 x 0.9 m plank). Both slide across the corridor between the robot
+and the cart and, by default, cross the robot's line to the cart one second
+after the target becomes reachable, i.e. when a direct grasp would happen. They
+cannot be ignored (a straight-in grasp collides) but can be passed on either
+side or over the top: a collision-free grasp configuration exists wherever
+they stand. Random sets:
 `generate_scenario_set(seed, n)`; save/load with `save_scenario_set` /
 `load_scenario_set`. `scenarios/dev_v0.yaml` is the shared development set.
 
@@ -119,6 +122,11 @@ qo = kin.scene_graph.get_query_output_port().Eval(kin.scene_graph.GetMyContextFr
 roles.robot_collisions(qo)   # [] if free;  roles.robot_clearance(qo) -> (d_obstacles, d_cart_floor)
 ```
 
+The kinematic diagram filters the pairs that are not collisions (object on
+cart, cart over floor, gripper vs. target, and iiwa links 5/7 whose collision
+boxes nearly touch at ordinary wrist angles), so `qo.HasCollisions()` and a
+`MinimumDistanceLowerBoundConstraint` in `InverseKinematics` can be used directly.
+
 Register the controller in `scripts/run_eval.py`'s `CONTROLLERS` dict.
 
 ## Evaluation
@@ -127,8 +135,8 @@ Register the controller in `scripts/run_eval.py`'s `CONTROLLERS` dict.
 python scripts/run_eval.py --n 20 --seed 0 --out results/dev           # random set, all controllers
 python scripts/run_eval.py --scenarios scenarios/dev_v0.yaml --controllers naive --out results/naive
 python scripts/run_eval.py --sweep --seeds-per-cell 5 --out results/sweep   # speed x obstacle grid
-python scripts/run_eval.py --tall-blocker --out results/post       # post: speed x speed x crossing time
-python scripts/run_eval.py --wall-blocker --out results/wall
+python scripts/run_eval.py --tall-blocker --out results/post       # post: target speed x obstacle speed x crossing time
+python scripts/run_eval.py --plank-blocker --out results/plank     # same grid, thin plank
 python scripts/summarize.py results/sweep                               # summary.md + png figures
 ```
 

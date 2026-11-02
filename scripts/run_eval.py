@@ -10,9 +10,9 @@
     # re-use a saved scenario set (identical scenarios for a new controller)
     python scripts/run_eval.py --scenarios results/dev/scenarios.yaml --controllers naive --out results/dev_naive
 
-    # the "initial test": the tall post / the wall, at several speeds and crossing times
+    # the "initial test": the tall post / the plank, at several speeds and crossing times
     python scripts/run_eval.py --tall-blocker --out results/post
-    python scripts/run_eval.py --wall-blocker --out results/wall
+    python scripts/run_eval.py --plank-blocker --out results/plank
 
 Add a controller: import it and put it in CONTROLLERS (name -> factory).
 """
@@ -44,8 +44,8 @@ SWEEP_N_OBSTACLES = [0, 1, 2, 4]
 def build_specs(args) -> list[S.ScenarioSpec]:
     if args.scenarios:
         return S.load_scenario_set(args.scenarios)
-    if args.tall_blocker or args.wall_blocker:
-        preset = S.wall_blocker if args.wall_blocker else S.tall_blocker
+    if args.tall_blocker or args.plank_blocker:
+        preset = S.plank_blocker if args.plank_blocker else S.tall_blocker
         return [
             preset(v, o, t_cross=S.WARMUP + dt)
             for v, o, dt in itertools.product([0.05, 0.1, 0.2, 0.3], [0.1, 0.2, 0.3, 0.5], args.cross_offsets)
@@ -80,7 +80,7 @@ def main():
     ap.add_argument("--sweep", action="store_true", help="target speed x obstacle count grid")
     ap.add_argument("--seeds-per-cell", type=int, default=5)
     ap.add_argument("--tall-blocker", action="store_true", help="tall post: target speed x obstacle speed x crossing time")
-    ap.add_argument("--wall-blocker", action="store_true", help="same grid with the wall that cannot be passed sideways")
+    ap.add_argument("--plank-blocker", action="store_true", help="same grid with the thin plank (wider sweep of the corridor)")
     ap.add_argument("--cross-offsets", nargs="+", type=float, default=[0.5, 1.0, 2.0],
                     help="blocker crossing times, seconds after the target becomes reachable")
     ap.add_argument("--controllers", nargs="+", default=sorted(CONTROLLERS), choices=sorted(CONTROLLERS))

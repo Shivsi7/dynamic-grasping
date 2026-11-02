@@ -506,10 +506,17 @@ def build_kinematic_diagram(spec: ScenarioSpec, time_step: float = 0.0) -> tuple
     obstacles = {o.name: plant.GetModelInstanceByName(o.name) for o in spec.obstacles}
     _set_defaults(plant, spec, cart, obstacles)
     plant.Finalize()
-    # The object rests on the cart and the cart rides just above the floor:
-    # those contacts are not collisions a planner should care about.
+    # The object rests on the cart, the cart rides just above the floor, and the
+    # gripper has to touch the object to grasp it: none of those pairs is a
+    # collision a planner should care about (same rule as the monitor).
     target_model = plant.GetModelInstanceByName("target")
     floor_model = plant.GetModelInstanceByName("floor")
+    wsg_model = plant.GetModelInstanceByName("wsg")
+    iiwa_model = plant.GetModelInstanceByName("iiwa")
+    # The iiwa's box collision model leaves links 5 and 7 ~1 cm apart at ordinary
+    # wrist angles (link 6 sits between them), which would defeat any minimum
+    # distance constraint; the real links cannot touch there.
+    link = lambda name: GeometrySet(list(plant.GetCollisionGeometriesForBody(plant.GetBodyByName(name, iiwa_model))))
 
     def geoms(model):
         ids = []
@@ -518,7 +525,11 @@ def build_kinematic_diagram(spec: ScenarioSpec, time_step: float = 0.0) -> tuple
         return GeometrySet(ids)
 
     scene_graph.collision_filter_manager().Apply(
-        CollisionFilterDeclaration().ExcludeBetween(geoms(cart), geoms(target_model)).ExcludeBetween(geoms(cart), geoms(floor_model))
+        CollisionFilterDeclaration()
+        .ExcludeBetween(geoms(cart), geoms(target_model))
+        .ExcludeBetween(geoms(cart), geoms(floor_model))
+        .ExcludeBetween(geoms(wsg_model), geoms(target_model))
+        .ExcludeBetween(link("iiwa_link_5"), link("iiwa_link_7"))
     )
     diagram = rb.Build()
     scene = Scene(

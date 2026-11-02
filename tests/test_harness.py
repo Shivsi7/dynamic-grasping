@@ -16,7 +16,7 @@ def test_naive_controller_grasps_without_obstacles():
 
 
 def test_blockers_hit_a_parked_robot_and_a_naive_grasp():
-    for preset in (S.tall_blocker, S.wall_blocker):
+    for preset in (S.tall_blocker, S.plank_blocker):
         for ctrl in (HoldController(), NaiveInterceptController()):
             r = run_episode(preset(0.1, 0.2), ctrl)
             assert r.outcome == "collision" and r.collided and not r.success, (preset.__name__, ctrl.name, r.outcome)
