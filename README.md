@@ -56,18 +56,21 @@ tests/           pytest
 
 World frame W: iiwa base at the origin, home configuration faces +x, floor at z = 0.
 
-* **Cart**: runs along y in a lane at x ≈ 0.60 m, top surface at z = 0.20 m.
-  Speed 0.05–0.30 m/s. It always enters the robot's reach (|y| < 0.5) at
+* **Conveyor** ("treadmill"): a static frame along y in a lane at x ≈ 0.63 m,
+  with a carrier plate moving along it, top surface at z = 0.20 m. Speed
+  0.05–0.30 m/s. The carrier always enters the robot's reach (|y| < 0.5) at
   t = 3 s and the target is reachable for 1/speed seconds.
 * **Target**: one of `soup_can`, `sugar_box`, `gelatin_box`, `potted_meat_can`,
-  `cracker_box`, `mustard`, upright on the cart, riding along (free body, friction).
-* **Obstacles**: 0–4 spheres (r 5–10 cm) or boxes (10–20 cm) on linear or
-  parabolic (lob) paths crossing the corridor between the robot and the lane,
-  mostly along y, at 0.1–0.5 m/s, timed to cross while the target is reachable.
-  Sampled paths never hit the cart, the fixed robot base or the floor, so every
-  scenario is solvable by a robot that gets out of the way. Obstacles are
-  dynamic bodies driven by stiff PD joints: they follow their script to ~mm but
-  a collision is physical.
+  `cracker_box`, `mustard`, upright on the carrier, riding along (free body, friction).
+* **Obstacles**: 0–4 spheres (r 5–10 cm) or boxes (10–20 cm), each on a mast on
+  a small wheeled rig (`mount: cart`), driving along the corridor between the
+  robot's pedestal and the conveyor at 0.1–0.5 m/s on a straight (`linear`) or
+  curving (`parabolic`) ground path, timed to cross while the target is
+  reachable. `mount: float` gives a free-flying shape on a 3D path (lobs)
+  instead. Sampled paths never hit the conveyor, the carrier, the fixed robot
+  base or the floor, so every scenario is solvable by a robot that gets out of
+  the way. Obstacles are dynamic bodies driven by stiff PD joints: they follow
+  their script to ~mm but a collision is physical.
 * **Robot**: `iiwa7_with_box_collision` + `schunk_wsg_50_with_tip`, driven as in
   the course's HardwareStation (position-controlled iiwa, Schunk WSG driver).
 
@@ -77,9 +80,9 @@ pads at y = 0.108). `WorldModel.grasp_pose(t)` = `X_WU(t) @ X_UG_grasp`.
 
 Named presets: `scenario.no_obstacles(speed)`, `scenario.tall_blocker(speed,
 obstacle_speed, t_cross)` (the "initial test" from the proposal: a 0.12 x 0.12
-x 0.8 m post standing on the floor) and `scenario.plank_blocker(...)` (a thin
-0.20 x 0.04 x 0.9 m plank). Both slide across the corridor between the robot
-and the cart and, by default, cross the robot's line to the cart one second
+x 0.8 m post on a wheeled rig) and `scenario.plank_blocker(...)` (a thin
+0.20 x 0.04 x 0.9 m plank). Both drive across the corridor between the robot
+and the conveyor and, by default, cross the robot's line to the cart one second
 after the target becomes reachable, i.e. when a direct grasp would happen. They
 cannot be ignored (a straight-in grasp collides) but can be passed on either
 side or over the top: a collision-free grasp configuration exists wherever
@@ -150,7 +153,7 @@ One row per episode in `results.csv`:
 | `outcome` | `collision` / `success` / `dropped` / `timeout` (collision takes precedence) |
 | `success`, `collided` | separately, so "grasped despite a collision" is visible |
 | `t_grasp`, `t_lift`, `t_success` | first in-hand, first in-hand-and-lifted, held 0.5 s |
-| `t_first_collision`, `collision_with`, `collision_category` | obstacle / cart / floor / target |
+| `t_first_collision`, `collision_with`, `collision_category` | obstacle / cart (carrier or conveyor) / floor / target |
 | `min_clearance_obstacles` (+ time), `min_clearance_environment` | signed distance, robot to obstacles / cart+floor |
 | `n_cycles`, `compute_mean_ms`, `compute_max_ms`, `compute_p95_ms` | wall time of `update()` per cycle |
 | `target_speed`, `n_obstacles`, `obstacle_speed_mean/max`, `object`, `seed` | scenario parameters |

@@ -3,10 +3,12 @@
 The simulation is a course-style `HardwareStation` (iiwa driven in position
 mode with an inverse-dynamics controller, WSG driven by the Schunk driver) plus:
 
-* a cart: two PD-controlled prismatic joints (x, y) carrying a box whose top
-  surface is the frame C; the target YCB object rests on it as a free body;
+* a conveyor: a static frame along the lane, and a carrier plate on two
+  PD-controlled prismatic joints (x, y) whose top surface is the frame C; the
+  target YCB object rests on it as a free body;
 * obstacles: three PD-controlled prismatic joints (x, y, z) each, carrying a
-  sphere or a box with collision geometry;
+  sphere or a box with collision geometry -- on a mast on a wheeled rig
+  (`mount: cart`), or free-flying (`mount: float`);
 * a floor.
 
 Each PD joint chain is fed [q(t); v(t)] from the scenario's scripted path by a
@@ -61,7 +63,7 @@ from pydrake.all import (
 
 from dyngrasp.objects import ObjectInfo, get_object
 from dyngrasp.paths import Path
-from dyngrasp.scenario import CartSpec, ObstacleSpec, ScenarioSpec
+from dyngrasp.scenario import RIG_PLATE, RIG_TOP, CartSpec, ObstacleSpec, ScenarioSpec
 
 IIWA_URL = "package://drake_models/iiwa_description/sdf/iiwa7_with_box_collision.sdf"
 WSG_URL = "package://manipulation/hydro/schunk_wsg_50_with_tip.sdf"
@@ -105,10 +107,26 @@ def _prismatic(name: str, parent: str, child: str, axis: str, gains) -> str:
 
 
 def cart_sdf(cart: CartSpec) -> str:
+    """Conveyor frame (fixed to the world) + carrier plate on x/y prismatic joints."""
     sx, sy, sz = cart.size
+    frame_h = cart.top_z - sz - 0.005  # the carrier plate rides 5 mm above the frame
+    L = cart.conveyor_length
     return f"""<?xml version="1.0"?>
 <sdf version="1.7">
 <model name="cart">
+  <link name="conveyor">
+    <pose>{cart.x} 0 0 0 0 0</pose>
+    {_inertial(50.0, 1.0)}
+    <visual name="frame"><pose>0 0 {frame_h / 2} 0 0 0</pose>
+      <geometry><box><size>{sx} {L} {frame_h}</size></box></geometry>
+      <material><diffuse>0.80 0.80 0.80 1</diffuse></material></visual>
+    <visual name="belt"><pose>0 0 {frame_h + 0.001} 0 0 0</pose>
+      <geometry><box><size>{sx - 0.02} {L} 0.002</size></box></geometry>
+      <material><diffuse>0.70 0.70 0.70 1</diffuse></material></visual>
+    <collision name="frame_collision"><pose>0 0 {frame_h / 2} 0 0 0</pose>
+      <geometry><box><size>{sx} {L} {frame_h}</size></box></geometry></collision>
+  </link>
+  <joint name="conveyor_weld" type="fixed"><parent>world</parent><child>conveyor</child></joint>
   <link name="x_slider">{_inertial(0.1)}</link>
   {_prismatic("cart_x", "world", "x_slider", "1 0 0", CART_GAINS)}
   <link name="top">
@@ -116,7 +134,7 @@ def cart_sdf(cart: CartSpec) -> str:
     {_inertial(8.0, 0.2)}
     <visual name="top_visual"><pose>0 0 {-sz / 2} 0 0 0</pose>
       <geometry><box><size>{sx} {sy} {sz}</size></box></geometry>
-      <material><diffuse>0.25 0.28 0.33 1</diffuse></material></visual>
+      <material><diffuse>0.55 0.56 0.58 1</diffuse></material></visual>
     <collision name="top_collision"><pose>0 0 {-sz / 2} 0 0 0</pose>
       <geometry><box><size>{sx} {sy} {sz}</size></box></geometry>
       <drake:proximity_properties>
@@ -129,6 +147,38 @@ def cart_sdf(cart: CartSpec) -> str:
 """
 
 
+def _rig_elements(o: ObstacleSpec, z_centre: float) -> str:
+    """Wheeled rig under a shape whose centre is z_centre above the floor (link origin)."""
+    plate_t = 0.03
+    z_plate = RIG_TOP - plate_t / 2 - z_centre
+    z_wheel = 0.035 - z_centre
+    mast_len = max(z_centre - o.half_height - RIG_TOP, 0.0)
+    z_mast = RIG_TOP + mast_len / 2 - z_centre
+    dark = "<material><diffuse>0.22 0.22 0.24 1</diffuse></material>"
+    half = RIG_PLATE / 2 - 0.04
+    wheels = "".join(
+        f'<visual name="wheel{i}"><pose>{sx * half} {sy * half} {z_wheel} 0 0 0</pose>'
+        f"<geometry><sphere><radius>0.035</radius></sphere></geometry>{dark}</visual>"
+        for i, (sx, sy) in enumerate([(1, 1), (1, -1), (-1, 1), (-1, -1)])
+    )
+    mast = ""
+    if mast_len > 0.005:
+        mast = (
+            f'<visual name="mast"><pose>0 0 {z_mast} 0 0 0</pose>'
+            f"<geometry><cylinder><radius>0.02</radius><length>{mast_len}</length></cylinder></geometry>{dark}</visual>"
+            f'<collision name="mast_collision"><pose>0 0 {z_mast} 0 0 0</pose>'
+            f"<geometry><cylinder><radius>0.02</radius><length>{mast_len}</length></cylinder></geometry></collision>"
+        )
+    return (
+        f'<visual name="plate"><pose>0 0 {z_plate} 0 0 0</pose>'
+        f"<geometry><box><size>{RIG_PLATE} {RIG_PLATE} {plate_t}</size></box></geometry>{dark}</visual>"
+        f'<collision name="plate_collision"><pose>0 0 {z_plate} 0 0 0</pose>'
+        f"<geometry><box><size>{RIG_PLATE} {RIG_PLATE} {plate_t}</size></box></geometry></collision>"
+        + wheels
+        + mast
+    )
+
+
 def obstacle_sdf(o: ObstacleSpec) -> str:
     if o.shape == "sphere":
         geom = f"<sphere><radius>{o.dims[0]}</radius></sphere>"
@@ -137,6 +187,7 @@ def obstacle_sdf(o: ObstacleSpec) -> str:
     else:
         raise ValueError(f"unknown obstacle shape {o.shape!r}")
     r, g, b, a = o.color
+    rig = _rig_elements(o, float(o.get_path().position(o.get_path().t_start)[2])) if o.mount == "cart" else ""
     return f"""<?xml version="1.0"?>
 <sdf version="1.7">
 <model name="{o.name}">
@@ -149,6 +200,7 @@ def obstacle_sdf(o: ObstacleSpec) -> str:
     <visual name="visual"><geometry>{geom}</geometry>
       <material><diffuse>{r} {g} {b} {a}</diffuse></material></visual>
     <collision name="collision"><geometry>{geom}</geometry></collision>
+    {rig}
   </link>
   {_prismatic(f"{o.name}_z", "y_slider", o.name, "0 0 1", OBSTACLE_GAINS)}
 </model>
@@ -161,8 +213,8 @@ FLOOR_SDF = """<?xml version="1.0"?>
 <model name="floor">
   <link name="floor_link">
     <visual name="visual"><pose>0 0 -0.03 0 0 0</pose>
-      <geometry><box><size>4 4 0.04</size></box></geometry>
-      <material><diffuse>0.85 0.85 0.85 1</diffuse></material></visual>
+      <geometry><box><size>5 5 0.04</size></box></geometry>
+      <material><diffuse>0.96 0.96 0.96 1</diffuse></material></visual>
     <collision name="collision"><pose>0 0 -0.03 0 0 0</pose>
       <geometry><box><size>4 4 0.04</size></box></geometry></collision>
   </link>
@@ -245,6 +297,7 @@ def look_at_camera(name: str, p_WC, p_WT, width: int = 640, height: int = 480, f
         "height": height,
         "fov_y_deg": float(fov_y_deg),
         "depth": False,
+        "background": [0.97, 0.97, 0.97, 1.0],
         "X_PB": {"base_frame": "world", "translation": p_WC.tolist(), "rotation": {"_tag": "!Rpy", "deg": rpy_deg}},
     }
 
@@ -262,6 +315,12 @@ def _cameras_yaml(cameras: dict[str, dict] | None) -> str:
             f"        height: {c['height']}",
             f"        focal: !FovDegrees {{ y: {c['fov_y_deg']} }}",
             f"        depth: {str(c['depth']).lower()}",
+            f"        background: {{ rgba: {list(c['background'])} }}",
+            "        renderer_class: !RenderEngineVtkParams",
+            f"            default_clear_color: {list(c['background'][:3])}",
+            "            lights:",
+            "            - { type: directional, frame: world, direction: [0.4, 0.3, -1.0], intensity: 1.3 }",
+            "            - { type: directional, frame: world, direction: [-0.5, -0.6, -0.4], intensity: 0.7 }",
             "        X_PB:",
             f"            base_frame: {X['base_frame']}",
             f"            translation: {X['translation']}",
