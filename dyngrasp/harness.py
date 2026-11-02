@@ -96,8 +96,9 @@ def build_episode(
     meshcat: Meshcat | None = None,
     stop_on_collision: bool = True,
     monitor_hz: float = 100.0,
+    cameras: dict | None = None,
 ) -> EpisodeHandles:
-    scene = build_station(spec, meshcat)
+    scene = build_station(spec, meshcat, cameras)
     world = WorldModel(spec)
     robot = shared_robot_model()
 

@@ -53,6 +53,7 @@ from pydrake.all import (
     RigidTransform,
     RobotDiagram,
     RobotDiagramBuilder,
+    RollPitchYaw,
     RotationMatrix,
     SceneGraph,
     SpatialVelocity,
@@ -225,9 +226,55 @@ def scene_directives(spec: ScenarioSpec) -> str:
     return "directives:" + "".join(lines)
 
 
-def scenario_yaml(spec: ScenarioSpec) -> str:
+def look_at_camera(name: str, p_WC, p_WT, width: int = 640, height: int = 480, fov_y_deg: float = 50.0) -> dict:
+    """A CameraConfig (as a dict for the scenario YAML) at p_WC looking at p_WT, image up = world up."""
+    p_WC, p_WT = np.asarray(p_WC, float), np.asarray(p_WT, float)
+    z = p_WT - p_WC
+    z /= np.linalg.norm(z)
+    up = np.array([0.0, 0.0, 1.0])
+    if abs(np.dot(z, up)) > 0.999:  # looking straight down: image up = +x
+        up = np.array([1.0, 0.0, 0.0])
+    y = -(up - np.dot(up, z) * z)
+    y /= np.linalg.norm(y)
+    x = np.cross(y, z)
+    R = RotationMatrix(np.column_stack([x, y, z]))
+    rpy_deg = np.rad2deg(RollPitchYaw(R).vector()).tolist()
+    return {
+        "name": name,
+        "width": width,
+        "height": height,
+        "fov_y_deg": float(fov_y_deg),
+        "depth": False,
+        "X_PB": {"base_frame": "world", "translation": p_WC.tolist(), "rotation": {"_tag": "!Rpy", "deg": rpy_deg}},
+    }
+
+
+def _cameras_yaml(cameras: dict[str, dict] | None) -> str:
+    if not cameras:
+        return ""
+    lines = ["cameras:"]
+    for name, c in cameras.items():
+        X = c["X_PB"]
+        lines += [
+            f"    {name}:",
+            f"        name: {c['name']}",
+            f"        width: {c['width']}",
+            f"        height: {c['height']}",
+            f"        focal: !FovDegrees {{ y: {c['fov_y_deg']} }}",
+            f"        depth: {str(c['depth']).lower()}",
+            "        X_PB:",
+            f"            base_frame: {X['base_frame']}",
+            f"            translation: {X['translation']}",
+            f"            rotation: !Rpy {{ deg: {X['rotation']['deg']} }}",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def scenario_yaml(spec: ScenarioSpec, cameras: dict[str, dict] | None = None) -> str:
     return (
         scene_directives(spec)
+        + "\n"
+        + _cameras_yaml(cameras)
         + f"""
 plant_config:
     time_step: {spec.time_step}
@@ -443,9 +490,13 @@ def _set_defaults(plant: MultibodyPlant, spec: ScenarioSpec, cart: ModelInstance
             plant.GetJointByName(f"{o.name}_{ax}", obstacles[o.name]).set_default_translation(p0[k])
 
 
-def build_station(spec: ScenarioSpec, meshcat: Meshcat | None = None) -> Scene:
-    """The simulated HardwareStation for `spec` (see the module docstring)."""
-    scenario = LoadScenario(data=scenario_yaml(spec))
+def build_station(spec: ScenarioSpec, meshcat: Meshcat | None = None, cameras: dict[str, dict] | None = None) -> Scene:
+    """The simulated HardwareStation for `spec` (see the module docstring).
+
+    `cameras` (name -> look_at_camera(...)) adds RGB cameras; the station then has
+    output ports `<name>.rgb_image` (see scripts/render.py).
+    """
+    scenario = LoadScenario(data=scenario_yaml(spec, cameras))
     handles: dict = {}
 
     def prefinalize(parser: Parser) -> None:

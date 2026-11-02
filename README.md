@@ -25,7 +25,9 @@ python scripts/demo_scene.py   # opens Meshcat: tall blocker vs. the naive contr
 ```
 
 `HEADLESS=1` disables Meshcat (no browser wait, no real-time pacing); use it for
-batch runs and for checking that something works.
+batch runs and for checking that something works. `python scripts/render.py
+--gif` writes annotated snapshots and GIFs of the presets to `results/renders/`
+from fixed cameras, with scripted vs. simulated positions printed under each row.
 
 ## Layout
 
@@ -45,6 +47,7 @@ scripts/
   demo_scene.py  watch one scenario in Meshcat
   run_eval.py    batch evaluation -> results/<name>/results.csv + scenarios.yaml
   summarize.py   tables (markdown) and figures from results.csv
+  render.py      headless PNG contact sheets / GIFs of scenarios (no browser needed)
 scenarios/       shared scenario sets (YAML), so everyone runs the same episodes
 tests/           pytest
 ```
