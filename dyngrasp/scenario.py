@@ -13,11 +13,12 @@ Workspace layout (world frame, metres)
   (0.20).  The carrier starts out of reach and enters the robot's reach
   (|y| < REACH_Y) at t = WARMUP seconds whatever its speed.
 * Obstacles are shapes (sphere or box) on a mast on a small wheeled rig
-  (`mount: cart`), driving along the corridor between the robot's pedestal and
-  the conveyor while the target is reachable, through a crossing point in
-  CROSSING_BOX, mostly along y, on a straight ("linear") or curving
-  ("parabolic") ground path.  `mount: float` gives the old free-flying shape on
-  a 3D path.  A sampled path is rejected if the rig or the shape would hit the
+  (`mount: cart`).  Each one either drives along y through the corridor between
+  the robot's pedestal and the conveyor (crossing point in CROSSING_BOX, on a
+  straight "linear" or curving "parabolic" ground path) or along x in a band
+  beside the robot (X_BAND), in from behind the robot to just short of the
+  conveyor and back out.  All cross while the target is reachable, and never
+  run into each other.  `mount: float` gives the old free-flying shape on a 3D path.  A sampled path is rejected if the rig or the shape would hit the
   conveyor, the carrier (and the column above it where the object rides), or
   the fixed robot base: the scenario must be solvable by a robot that gets out
   of the way.
@@ -56,6 +57,12 @@ BASE_RADIUS = 0.14  # cylinder around the z axis ...
 BASE_HEIGHT = 0.40  # ... up to this height (iiwa links 0-1 cannot move away)
 OBJECT_COLUMN = 0.45  # height above the carrier reserved for the object + grasp
 LANE_X = (0.60, 0.66)
+# Obstacles driving along x (towards / away from the conveyor) use a band beside the robot.
+X_CROSSER_FRACTION = 0.4
+X_BAND = (0.28, 0.50)  # |y| of an x-crosser's lane
+X_START = -0.9  # where an x-crosser starts (behind the robot) ...
+X_CROSS = 0.20  # ... and the x at which its t_cross is defined
+OBSTACLE_GAP = 0.03  # minimum clearance between two obstacles (shapes, and rigs)
 # Wheeled rig under an obstacle: square plate, and the height of its top.
 RIG_PLATE = 0.16
 RIG_TOP = 0.10
@@ -247,20 +254,21 @@ def episode_duration(cart: CartSpec, margin: float = 1.5) -> float:
 
 
 def linear_crossing(
-    p_cross, heading_deg: float, speed: float, t_cross: float, direction: float = 1.0
+    p_cross, heading_deg: float, speed: float, t_cross: float, direction: float = 1.0, half_length: float | None = None
 ) -> dict:
     """Straight path through p_cross at t_cross, moving mostly along +-y."""
     th = np.deg2rad(heading_deg)
     d = np.array([np.sin(th), np.cos(th), 0.0]) * direction
     p_cross = np.asarray(p_cross, float)
-    L = PATH_HALF_LENGTH
+    L = half_length or PATH_HALF_LENGTH
     return LinearPath(
         p_cross - d * L, p_cross + d * L, t_cross - L / speed, t_cross + L / speed
     ).to_dict()
 
 
 def parabolic_crossing(
-    p_cross, heading_deg: float, speed: float, t_cross: float, direction: float = 1.0, deviation: float | None = None
+    p_cross, heading_deg: float, speed: float, t_cross: float, direction: float = 1.0, deviation: float | None = None,
+    half_length: float | None = None,
 ) -> dict:
     """A curving ground path: through p_cross at t_cross with the given heading,
     bending sideways by `deviation` (CURVE_DEVIATION, random sign) at both ends."""
@@ -268,7 +276,7 @@ def parabolic_crossing(
     d = np.array([np.sin(th), np.cos(th), 0.0]) * direction
     n = np.array([d[1], -d[0], 0.0])
     p_cross = np.asarray(p_cross, float)
-    L = PATH_HALF_LENGTH
+    L = half_length or PATH_HALF_LENGTH
     tau = L / speed
     dev = CURVE_DEVIATION if deviation is None else deviation
     return ParabolicPath(
@@ -289,6 +297,33 @@ def lob_crossing(p_cross, heading_deg: float, speed: float, t_cross: float, dire
     ).to_dict()
 
 
+def x_crossing(y: float, z: float, speed: float, t_cross: float, x_stop: float) -> dict:
+    """Ground path along x at lateral offset y: in from behind the robot (X_START)
+    with constant deceleration, turning round just short of the conveyor
+    (x_stop), and back out -- so it never parks in the corridor.  `speed` is
+    the speed at x = X_CROSS, reached inbound at t_cross."""
+    a = speed**2 / (2.0 * (x_stop - X_CROSS))  # deceleration
+    t_apex = t_cross + speed / a
+    T = np.sqrt(2.0 * (x_stop - X_START) / a)  # time from X_START to the apex
+    return ParabolicPath([x_stop, y, z], [0.0, 0.0, 0.0], [-a, 0.0, 0.0], t_apex, t_apex - T, t_apex + T).to_dict()
+
+
+def x_stop_for(cart: CartSpec) -> float:
+    return cart.x - cart.size[0] / 2 - RIG_RADIUS - 0.03
+
+
+def obstacles_clear(a: ObstacleSpec, b: ObstacleSpec, duration: float, n_samples: int = 200) -> bool:
+    """True if the two obstacles (shapes and, if wheeled, rigs) never touch during the episode."""
+    pa, pb = a.get_path(), b.get_path()
+    for t in np.linspace(0.0, duration, n_samples):
+        d = pa.position(t) - pb.position(t)
+        if np.linalg.norm(d) < a.bounding_radius + b.bounding_radius + OBSTACLE_GAP:
+            return False
+        if a.mount == "cart" and b.mount == "cart" and np.linalg.norm(d[:2]) < 2 * RIG_RADIUS + OBSTACLE_GAP:
+            return False
+    return True
+
+
 def make_obstacle(
     name: str,
     shape: str,
@@ -302,13 +337,14 @@ def make_obstacle(
     color=None,
     mount: str = "cart",
     deviation: float | None = None,
+    half_length: float | None = None,
 ) -> ObstacleSpec:
     if kind == "linear":
-        path = linear_crossing(p_cross, heading_deg, speed, t_cross, direction)
+        path = linear_crossing(p_cross, heading_deg, speed, t_cross, direction, half_length)
     elif kind == "parabolic" and mount == "float":
         path = lob_crossing(p_cross, heading_deg, speed, t_cross, direction)
     else:
-        path = parabolic_crossing(p_cross, heading_deg, speed, t_cross, direction, deviation)
+        path = parabolic_crossing(p_cross, heading_deg, speed, t_cross, direction, deviation, half_length)
     return ObstacleSpec(
         name=name,
         shape=shape,
@@ -381,46 +417,63 @@ def sample_scenario(
     cart = make_cart(target_speed, direction, x=float(rng.uniform(*LANE_X)))
     target = TargetSpec(object=str(rng.choice(list(objects))), yaw=float(rng.uniform(-0.3, 0.3)))
 
-    obstacles = []
-    for i in range(n_obstacles):
-        for _attempt in range(200):
-            shape = "sphere" if rng.random() < 0.5 else "box"
-            if shape == "sphere":
-                dims = [float(rng.uniform(*SPHERE_RADIUS_RANGE))]
-            else:
-                dims = list(2 * rng.uniform(*BOX_HALF_RANGE, size=3))
-            p_cross = rng.uniform(CROSSING_BOX[:, 0], CROSSING_BOX[:, 1])
-            heading = float(rng.uniform(-MAX_HEADING_DEG, MAX_HEADING_DEG))
-            speed = float(rng.uniform(*obstacle_speed_range))
-            t_cross = float(rng.uniform(cart.t_enter, cart.t_exit))
-            kind = "parabolic" if rng.random() < parabolic_fraction else "linear"
-            o = make_obstacle(
-                f"obstacle_{i}",
-                shape,
-                dims,
-                p_cross,
-                heading,
-                speed,
-                t_cross,
-                float(rng.choice([-1.0, 1.0])),
-                kind,
-                OBSTACLE_COLORS[i % len(OBSTACLE_COLORS)],
-                mount=mount,
-                deviation=float(rng.choice([-1.0, 1.0]) * CURVE_DEVIATION),
-            )
-            if path_is_admissible(o.get_path(), o.bounding_radius, cart, mount=mount):
-                obstacles.append(o)
-                break
-        else:
-            raise RuntimeError("could not sample an admissible obstacle path")
+    duration = episode_duration(cart)
+    for _restart in range(20):
+        obstacles = _sample_obstacles(rng, cart, n_obstacles, duration, obstacle_speed_range, parabolic_fraction, mount)
+        if obstacles is not None:
+            break
+    else:
+        raise RuntimeError("could not sample an admissible set of obstacle paths")
     return ScenarioSpec(
         name=name,
         seed=seed,
         target=target,
         cart=cart,
         obstacles=obstacles,
-        duration=episode_duration(cart),
+        duration=duration,
     )
+
+
+def _sample_obstacles(rng, cart, n_obstacles, duration, obstacle_speed_range, parabolic_fraction, mount):
+    """One attempt at n mutually clear, admissible obstacles; None if it does not work out."""
+    obstacles: list[ObstacleSpec] = []
+    for i in range(n_obstacles):
+        for _attempt in range(300):
+            shape = "sphere" if rng.random() < 0.5 else "box"
+            if shape == "sphere":
+                dims = [float(rng.uniform(*SPHERE_RADIUS_RANGE))]
+            else:
+                dims = list(2 * rng.uniform(*BOX_HALF_RANGE, size=3))
+            speed = float(rng.uniform(*obstacle_speed_range))
+            t_cross = float(rng.uniform(cart.t_enter, cart.t_exit))
+            direction = float(rng.choice([-1.0, 1.0]))
+            color = OBSTACLE_COLORS[i % len(OBSTACLE_COLORS)]
+            if mount == "cart" and rng.random() < X_CROSSER_FRACTION:
+                # along x, in a band beside the robot, stopping short of the conveyor
+                y = float(rng.choice([-1.0, 1.0]) * rng.uniform(*X_BAND))
+                z = float(rng.uniform(CROSSING_BOX[2, 0], CROSSING_BOX[2, 1]))
+                o = ObstacleSpec(
+                    f"obstacle_{i}", shape, [float(x) for x in dims],
+                    x_crossing(y, z, speed, t_cross, x_stop_for(cart)), color, mount,
+                )
+            else:
+                # along y, through the corridor between the robot and the conveyor
+                p_cross = rng.uniform(CROSSING_BOX[:, 0], CROSSING_BOX[:, 1])
+                heading = float(rng.uniform(-MAX_HEADING_DEG, MAX_HEADING_DEG))
+                kind = "parabolic" if rng.random() < parabolic_fraction else "linear"
+                o = make_obstacle(
+                    f"obstacle_{i}", shape, dims, p_cross, heading, speed, t_cross, direction, kind, color,
+                    mount=mount, deviation=float(rng.choice([-1.0, 1.0]) * CURVE_DEVIATION),
+                    half_length=float(rng.uniform(0.8, 1.3)),
+                )
+            if path_is_admissible(o.get_path(), o.bounding_radius, cart, mount=mount) and all(
+                obstacles_clear(o, other, duration) for other in obstacles
+            ):
+                obstacles.append(o)
+                break
+        else:
+            return None
+    return obstacles
 
 
 def generate_scenario_set(seed: int, n: int, prefix: str = "rand", **kwargs) -> list[ScenarioSpec]:
@@ -456,13 +509,19 @@ def no_obstacles(target_speed: float = 0.1, object: str = "soup_can", direction:
 
 
 def _blocker_scenario(name, shape_dims, x, speed, t_cross, target_speed, object, color=None):
-    """A box standing on a wheeled rig, driving across the corridor along -y through x."""
+    """A box standing on a wheeled rig, driving along -y across the corridor at x.
+
+    At t_cross it sits exactly on the straight line from the robot base to the
+    target (the arm reaches radially, so that line meets x at y = x / x_lane *
+    y_target), i.e. in the way of a direct grasp at that moment.
+    """
     cart = make_cart(target_speed, 1.0)
     if t_cross is None:
-        # One second after the target becomes reachable: in the way of a direct grasp.
+        # One second after the target becomes reachable: when a direct grasp happens.
         t_cross = cart.t_enter + 1.0
+    y_cross = x / cart.x * cart.path.position(t_cross)[1]
     blocker = make_obstacle(
-        "blocker", "box", shape_dims, [x, 0.0, RIG_TOP + 0.5 * shape_dims[2]], 0.0, speed, t_cross, -1.0, "linear",
+        "blocker", "box", shape_dims, [x, y_cross, RIG_TOP + 0.5 * shape_dims[2]], 0.0, speed, t_cross, -1.0, "linear",
         color or OBSTACLE_COLORS[0],
     )
     return ScenarioSpec(
@@ -480,16 +539,18 @@ def tall_blocker(
     t_cross: float | None = None,
     object: str = "soup_can",
 ) -> ScenarioSpec:
-    """The initial test from the proposal: a tall post (0.12 x 0.12 x 0.8 m) on a
-    wheeled rig, driving across the corridor between the robot and the conveyor.
+    """The initial test from the proposal: a post (0.12 x 0.12 x 0.40 m, top at
+    0.50 m) on a wheeled rig, driving across the corridor between the robot and
+    the conveyor.
 
-    By default it crosses the robot's line to the cart one second after the target
-    becomes reachable, i.e. exactly when a direct grasp would be happening, so a
-    controller that goes straight for the object hits it.  It is thin, so the arm
-    can reach around it on either side (or over it, top at z = 0.90 m): a
-    collision-free grasp configuration exists wherever it stands.
+    By default it crosses the robot's line to the target one second after the
+    target becomes reachable, i.e. exactly when a direct grasp would be
+    happening, so a controller that goes straight for the object hits it.  It is
+    thin and low enough that the arm can reach around it on either side or over
+    it: collision-free grasp configurations of both kinds exist (verified with
+    collision-aware IK; over the top stops working above ~0.5 m).
     """
-    return _blocker_scenario("tall_blocker", [0.12, 0.12, 0.80], 0.28, obstacle_speed, t_cross, target_speed, object)
+    return _blocker_scenario("tall_blocker", [0.12, 0.12, 0.40], 0.28, obstacle_speed, t_cross, target_speed, object)
 
 
 def plank_blocker(
@@ -498,11 +559,11 @@ def plank_blocker(
     t_cross: float | None = None,
     object: str = "soup_can",
 ) -> ScenarioSpec:
-    """Like `tall_blocker` but a thin plank: 0.20 m wide (x), 0.04 m thick, 0.9 m tall.
+    """Like `tall_blocker` but a thin plank: 0.20 m wide (x), 0.04 m thick, 0.40 m tall.
 
     Still passable on either side or over the top; it just sweeps more of the
     corridor, so the detour has to be larger.
     """
     return _blocker_scenario(
-        "plank_blocker", [0.20, 0.04, 0.90], 0.30, obstacle_speed, t_cross, target_speed, object, OBSTACLE_COLORS[2]
+        "plank_blocker", [0.20, 0.04, 0.40], 0.30, obstacle_speed, t_cross, target_speed, object, OBSTACLE_COLORS[2]
     )

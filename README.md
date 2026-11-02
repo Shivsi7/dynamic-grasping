@@ -63,13 +63,15 @@ World frame W: iiwa base at the origin, home configuration faces +x, floor at z 
 * **Target**: one of `soup_can`, `sugar_box`, `gelatin_box`, `potted_meat_can`,
   `cracker_box`, `mustard`, upright on the carrier, riding along (free body, friction).
 * **Obstacles**: 0–4 spheres (r 5–10 cm) or boxes (10–20 cm), each on a mast on
-  a small wheeled rig (`mount: cart`), driving along the corridor between the
-  robot's pedestal and the conveyor at 0.1–0.5 m/s on a straight (`linear`) or
-  curving (`parabolic`) ground path, timed to cross while the target is
-  reachable. `mount: float` gives a free-flying shape on a 3D path (lobs)
-  instead. Sampled paths never hit the conveyor, the carrier, the fixed robot
-  base or the floor, so every scenario is solvable by a robot that gets out of
-  the way. Obstacles are dynamic bodies driven by stiff PD joints: they follow
+  a small wheeled rig (`mount: cart`) at 0.1–0.5 m/s. Each one either drives
+  along y through the corridor between the robot's pedestal and the conveyor
+  (straight `linear` or curving `parabolic` ground path) or along x in a band
+  beside the robot, from behind it to just short of the conveyor or back, as in
+  the proposal figure. All are timed to cross while the target is reachable and
+  never run into each other. `mount: float` gives a free-flying shape on a 3D
+  path (lobs) instead. Sampled paths never hit the conveyor, the carrier, the
+  fixed robot base or the floor, so every scenario is solvable by a robot that
+  gets out of the way. Obstacles are dynamic bodies driven by stiff PD joints: they follow
   their script to ~mm but a collision is physical.
 * **Robot**: `iiwa7_with_box_collision` + `schunk_wsg_50_with_tip`, driven as in
   the course's HardwareStation (position-controlled iiwa, Schunk WSG driver).
@@ -80,13 +82,14 @@ pads at y = 0.108). `WorldModel.grasp_pose(t)` = `X_WU(t) @ X_UG_grasp`.
 
 Named presets: `scenario.no_obstacles(speed)`, `scenario.tall_blocker(speed,
 obstacle_speed, t_cross)` (the "initial test" from the proposal: a 0.12 x 0.12
-x 0.8 m post on a wheeled rig) and `scenario.plank_blocker(...)` (a thin
-0.20 x 0.04 x 0.9 m plank). Both drive across the corridor between the robot
-and the conveyor and, by default, cross the robot's line to the cart one second
-after the target becomes reachable, i.e. when a direct grasp would happen. They
-cannot be ignored (a straight-in grasp collides) but can be passed on either
-side or over the top: a collision-free grasp configuration exists wherever
-they stand. Random sets:
+x 0.4 m post on a wheeled rig, top at 0.5 m) and `scenario.plank_blocker(...)`
+(a thin 0.20 x 0.04 x 0.4 m plank). Both drive across the corridor between the
+robot and the conveyor and, at `t_cross` (default: one second after the target
+becomes reachable, when a direct grasp would happen), sit exactly on the
+straight line from the base to the target. They cannot be ignored (a
+straight-in grasp collides) but can be passed on either side or over the top:
+collision-aware IK finds grasp configurations of both kinds, and over-the-top
+stops being possible above a top height of about 0.5 m. Random sets:
 `generate_scenario_set(seed, n)`; save/load with `save_scenario_set` /
 `load_scenario_set`. `scenarios/dev_v0.yaml` is the shared development set.
 

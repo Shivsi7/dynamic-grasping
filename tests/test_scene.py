@@ -48,7 +48,8 @@ def test_every_object_rests_upright_on_the_cart():
 
 
 def test_kinematic_diagram_reports_robot_collisions_only():
-    spec = S.tall_blocker(0.1, 0.2)
+    # a tall post through the parked arm
+    spec = S._blocker_scenario("post", [0.12, 0.12, 0.80], 0.28, 0.2, None, 0.1, "soup_can")
     diagram, kin = build_kinematic_diagram(spec)
     world = WorldModel(spec)
     roles = BodyRoles(kin)
@@ -58,7 +59,8 @@ def test_kinematic_diagram_reports_robot_collisions_only():
     qo = kin.scene_graph.get_query_output_port().Eval(sg_ctx)
     assert roles.robot_collisions(qo) == []
     assert not qo.HasCollisions()  # object-on-cart and cart-over-floor are filtered
-    world.set_kinematic_state(kin, ctx, spec.cart.t_enter + 1.0, np.array(spec.q0))  # blocker crossing time
+    t_hit = spec.obstacles[0].get_path().time_at(1, 0.0)  # when the post passes through the parked arm
+    world.set_kinematic_state(kin, ctx, t_hit, np.array(spec.q0))
     qo = kin.scene_graph.get_query_output_port().Eval(sg_ctx)
     hits = roles.robot_collisions(qo)
     assert hits and all(h[2] == "obstacle" for h in hits)
