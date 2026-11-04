@@ -55,7 +55,10 @@ def _vee(R) -> np.ndarray:
 
 class HybridController(Controller):
     name = "hybrid"
-    period = 0.01
+    # The station's iiwa driver differentiates the position command every 5 ms (its velocity reference);
+    # a command that only changes every 10 ms makes that reference alternate between 2v and 0, and the
+    # torque on the shoulder joints chatter between its limits.  Commanding at 5 ms keeps it smooth.
+    period = 0.005
 
     def __init__(
         self,
@@ -69,6 +72,7 @@ class HybridController(Controller):
         **reactive_kwargs,
     ):
         self.reactive = ReactiveQPController(d_safe=d_safe, d_safe_env=d_safe_env, **reactive_kwargs)
+        self.reactive.period = self.period  # it runs inside this controller's cycle
         self.n_control_points = n_control_points
         self.n_collision_samples = n_collision_samples
         self.d_safe, self.d_safe_env = d_safe, d_safe_env
