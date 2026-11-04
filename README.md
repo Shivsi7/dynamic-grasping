@@ -46,6 +46,7 @@ dyngrasp/
     collision.py   SpaceTimeChecker: is (q, t) / an edge free, with clearance margins
     goals.py       intercept times, pre-grasp IK (+ elbow self-motion), grasp tails
     controller.py  SpaceTimeRRTController (registered as `st_rrt`)
+  grasps.py      grasp candidates (top / tilted / side) from object boxes, geometric validity
   monitor.py     EpisodeMonitor: collisions, clearance, grasp / lift / success
   harness.py     run_episode, run_batch (-> pandas), aggregate
   viz.py         Meshcat helper
@@ -55,6 +56,8 @@ scripts/
   summarize.py   tables (markdown) and figures from results.csv
   render.py      headless PNG contact sheets / GIFs of scenarios (no browser needed)
   stress_planner.py  many generated scenarios in parallel, failure tables
+  grasp_feasibility.py  which grasp candidates are reachable / collision-free / physically hold
+  compare_videos.py  side-by-side MP4s of one scene under several controllers
 scenarios/       shared scenario sets (YAML), so everyone runs the same episodes
 tests/           pytest
 ```

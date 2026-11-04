@@ -31,12 +31,13 @@ import pandas as pd  # noqa: E402
 from dyngrasp import scenario as S  # noqa: E402
 from dyngrasp.baselines import HoldController, NaiveInterceptController  # noqa: E402
 from dyngrasp.harness import aggregate, run_batch  # noqa: E402
-from dyngrasp.planning.controller import SpaceTimeRRTController  # noqa: E402
+from dyngrasp.planning.controller import SpaceTimeRRTController, STRRTConfig  # noqa: E402
 
 CONTROLLERS = {
     "hold": HoldController,
     "naive": NaiveInterceptController,
     "st_rrt": SpaceTimeRRTController,
+    "st_rrt_nominal": lambda: SpaceTimeRRTController(STRRTConfig(grasp_set="nominal")),
 }
 
 SWEEP_TARGET_SPEEDS = [0.05, 0.1, 0.2, 0.3]

@@ -1,6 +1,7 @@
 """(B) SpaceTimeRRTController: deliberative space-time planning with replanning.
 
-Cycle (every `replan_period` s of sim time, until committed to a grasp):
+Cycle (every `replan_period` s of sim time, except while committed to a grasp,
+i.e. from `commit_time` before the intercept until the end of the grasp tail):
 
 1.  Planning starts from where the *executing* trajectory will be when this
     computation is finished: (q_s, t_s) = (traj(t + budget), t + budget).  The
@@ -32,6 +33,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from dyngrasp.controller import WSG_OPEN, Command, Controller, RobotModel, RobotState
+from dyngrasp.grasps import generate_grasps
 from dyngrasp.planning.collision import SpaceTimeChecker
 from dyngrasp.planning.goals import GoalCandidate, GoalGenerator, TailParams
 from dyngrasp.planning.st_rrt import (
@@ -70,6 +72,10 @@ class STRRTConfig:
     joint_margin: float = 0.05  # keep sampled configurations this far inside the joint limits
     rrt: STRRTParams = field(default_factory=STRRTParams)
     tail: TailParams = field(default_factory=TailParams)
+    grasp_set: str = "all"  # "all" (dyngrasp.grasps candidates) | "nominal" (objects.X_UG_grasp only)
+    # Families used with grasp_set="all".  Side grasps are off by default: on this setup they
+    # are rarely reachable and mostly fail physically (scripts/grasp_feasibility.py --execute).
+    grasp_families: tuple[str, ...] = ("top", "top_tilt")
     seed: int | None = None
 
 
@@ -86,7 +92,7 @@ class SpaceTimeRRTController(Controller):
 
     def __init__(self, config: STRRTConfig | None = None, grasps=None):
         self.cfg = config or STRRTConfig()
-        self.grasps = grasps  # list of X_UG grasp frames (default: the object's nominal grasp)
+        self.grasps = grasps  # GraspCandidates or X_UG frames; default: per cfg.grasp_set
 
     # ---- setup (untimed: scene-independent work and model building only) --------------
     def reset(self, world: WorldModel, robot: RobotModel, state: RobotState):
@@ -94,7 +100,10 @@ class SpaceTimeRRTController(Controller):
         self.world, self.robot = world, robot
         self.checker = SpaceTimeChecker(world.spec, world, cfg.margin_obstacle, cfg.margin_env)
         self.v_max = cfg.v_scale * robot.v_limits
-        self.goalgen = GoalGenerator(world, robot, cfg.tail_v_scale * robot.v_limits, cfg.tail, self.grasps)
+        grasps = self.grasps
+        if grasps is None and cfg.grasp_set == "all":
+            grasps = [g for g in generate_grasps(world.object) if g.family in cfg.grasp_families]
+        self.goalgen = GoalGenerator(world, robot, cfg.tail_v_scale * robot.v_limits, cfg.tail, grasps)
         seed = cfg.seed if cfg.seed is not None else (
             world.spec.seed if world.spec.seed is not None else zlib.crc32(world.spec.name.encode())
         )
@@ -108,6 +117,7 @@ class SpaceTimeRRTController(Controller):
         self._budget_now = self.cfg.budget  # running estimate of the wall time to process one intercept time
         self.plans: dict[int, _Plan] = {}  # id(trajectory) -> plan, for trajectories we issued
         self.next_replan = 0.0
+        self.grasp_done = False  # a grasp tail has been executed (only escapes after that)
         self.plan_log: list[dict] = []
 
     # ---- helpers ----------------------------------------------------------------------
@@ -157,7 +167,11 @@ class SpaceTimeRRTController(Controller):
     def update(self, state: RobotState, world: WorldModel) -> Command:
         t = state.t
         current = self._executing(state)
-        committed = current is not None and current.mode == "grasp" and t >= current.goal.T - self.cfg.commit_time
+        # Committed while executing the grasp; afterwards (held, or missed) safety checks resume.
+        committed = (current is not None and current.mode == "grasp"
+                     and current.goal.T - self.cfg.commit_time <= t < current.traj.end_time)
+        self.grasp_done = self.grasp_done or (current is not None and current.mode == "grasp"
+                                              and t >= current.traj.end_time)
         if t + 1e-9 >= self.next_replan and not committed:
             self.next_replan_now = False
             new = self._replan(state, current)
@@ -219,7 +233,7 @@ class SpaceTimeRRTController(Controller):
         )
         log["current_valid"] = current_valid
 
-        if self.pending_T is None or self.pending_T:
+        if not self.grasp_done and (self.pending_T is None or self.pending_T):
             if current_valid and self.pending_T:
                 # Goal-work cycle: the executing plan is safe, so this cycle may run over
                 # its budget (the arm keeps executing meanwhile); it returns no plan.
@@ -233,6 +247,8 @@ class SpaceTimeRRTController(Controller):
             log.update(n_goals=len(self.goals), pending_T=len(self.pending_T), goal_gen_s=time.perf_counter() - wall0)
 
         goals = [g for g in self.goals if g.T - t_s >= min_duration(q_s, g.q, self.v_max) + 1e-6]
+        if self.grasp_done:
+            goals = []  # holding (or missed) the object: only stay safe
         if current_valid and current.mode == "grasp":
             if not cfg.improve:
                 self._log(log, wall0, "keep")
@@ -254,7 +270,7 @@ class SpaceTimeRRTController(Controller):
                 path = JointTrajectory(T, Q, np.full(len(T), WSG_OPEN))
                 traj = JointTrajectory.concatenate([prefix, path, g.tail])
                 result = _Plan(traj, "grasp", g)
-                log.update(T_goal=g.T, knots=len(T))
+                log.update(T_goal=g.T, knots=len(T), grasp=g.grasp_name)
 
         if result is None and not current_valid:
             # No grasp plan and the current one is unsafe (or there is none): get out of the way.
@@ -268,7 +284,8 @@ class SpaceTimeRRTController(Controller):
             if esc.success:
                 parts = [prefix]
                 if len(esc.path_t) > 1:
-                    parts.append(JointTrajectory(esc.path_t, esc.path_q, np.full(len(esc.path_t), WSG_OPEN)))
+                    g = prefix.gripper_at(t_s) if prefix.gripper is not None else WSG_OPEN
+                    parts.append(JointTrajectory(esc.path_t, esc.path_q, np.full(len(esc.path_t), g)))
                 result = _Plan(JointTrajectory.concatenate(parts), "escape" if len(esc.path_t) > 1 else "hold")
 
         if result is not None and result.mode == "grasp":

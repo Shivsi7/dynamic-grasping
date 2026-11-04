@@ -132,6 +132,56 @@ parked at `q0` (for example seed 5034 with 4 obstacles, or float mounts).
 "Solvable by a robot that gets out of the way" still holds, but the
 `HoldController` sanity check only covers the presets.
 
+## Grasp candidates (`dyngrasp/grasps.py`)
+
+Candidates are generated from each object's bounding box. Families:
+
+* top-down grasps along both horizontal axes, each also turned 180 deg (a
+  different wrist);
+* the same grasps tilted +-35 deg about the closing axis;
+* side grasps on each face, plus the diagonals for round objects.
+
+Each is placed as deep as the WSG geometry allows (palm clear of the object,
+fingers above the cart, pads on the object). The planner's collision checker
+cannot test this, because it ignores gripper-target contact. The goal
+generator approaches every grasp along its own direction, tries candidates in
+order of how often they have produced goals and of a prior (from above or
+from the robot's side first), and never tries far-side approaches.
+
+`scripts/grasp_feasibility.py` answers "which grasps are possible?":
+
+| 80 held-out scenes | kinematic (no obstacles) | with obstacles |
+|---|---|---|
+| nominal top-down only | 98 % | 79 % |
+| all candidates | 100 % | 89 % |
+| tilted top family | 100 % | 89 % |
+| side family | 45 % | 26 % |
+
+Executing each candidate alone (`--execute`, 212 episodes, no obstacles):
+top 37/40 held, tilted 50/56, side 2/10 (and 86 side candidates were never
+reachable). So side grasps are off by default (`STRRTConfig.grasp_families`),
+and tilted grasps are excluded for the mustard bottle (0/4 held: it is not a
+box; `grasps.EXCLUDED_FAMILIES`).
+
+Planner on the 80 held-out scenes, all candidates vs nominal grasp only:
+**61 vs 57 successes**, 0 collisions and 0 rejected plans for both, and on
+scenes both solve the grasp happens 0.42 s earlier (4.99 vs 5.41 s). The gains
+are in the hard cases (4 obstacles: 50 % vs 38 %). 18 scenes are solved by
+neither.
+
+This module is the interface to grasp selection (Victor): pass any list of
+`GraspCandidate`s or X_UG transforms as `SpaceTimeRRTController(grasps=...)`.
+
+## Videos
+
+`scripts/compare_videos.py` renders the same scene under several controllers
+side by side (headless VTK, close + top views, live status):
+
+```
+python scripts/compare_videos.py --preset tall_blocker --views close top
+python scripts/compare_videos.py --scenarios <set.yaml> --names mix_0054 --controllers naive st_rrt_nominal st_rrt
+```
+
 ## Known limitations / next steps
 
 1. **Goal coverage** is the bottleneck: grasp candidates from grasp selection,
@@ -152,4 +202,8 @@ parked at `q0` (for example seed 5034 with 4 obstacles, or float mounts).
    parabolic paths as constant velocity). Then `validate=True` triggers real
    replans.
 5. During the lift, the object is not attached to the hand in the collision
-   model (object vs. obstacles is not checked).
+   model (object vs. obstacles is not checked). After a grasp, escape moves
+   can be fast and use the reduced margin; in one video (mix_0034) one passed
+   within 1 mm of an obstacle and the can was dropped after the success had
+   been scored. Escapes while holding an object should be slower and keep the
+   full margin.

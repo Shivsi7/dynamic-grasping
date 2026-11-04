@@ -1,14 +1,18 @@
 """Goal roots for the space-time planner: where the robot must be, and when.
 
-For a candidate intercept time T the goal is a pre-grasp configuration q_g(T)
-(the gripper `hover` above the grasp pose at T), and from there a fixed
-"tail": descend while matching the target's velocity, close, lift, hold.  The
+For a candidate intercept time T and grasp candidate the goal is a pre-grasp
+configuration q_g(T) (the gripper backed off by `hover` along the grasp's
+approach direction: above a top grasp, beside a side grasp), and from there a
+fixed "tail": ride along, approach while matching the target's velocity,
+close, lift, hold.  The
 tail is part of the plan and is collision-checked like everything else, so an
 obstacle crossing *during* the grasp rules that (T, q_g) out.
 
 Everything is computed from `WorldModel` (target pose and velocity at any
-time) and a grasp frame X_UG, so it applies to any scenario and to grasp
-candidates other than the nominal top-down one (pass `grasps`).
+time) and grasp candidates (dyngrasp.grasps, or any X_UG transforms), so it
+applies to any scenario and any grasp set.  Per intercept time, candidates are
+tried in order of how often they have produced goals so far, then of their
+prior score (approach from above / from the robot's side first).
 """
 
 from __future__ import annotations
@@ -19,14 +23,15 @@ import numpy as np
 from pydrake.all import InverseKinematics, RigidTransform, RotationMatrix, Solve
 
 from dyngrasp.controller import NQ, WSG_CLOSED, WSG_OPEN, RobotModel
+from dyngrasp.grasps import GraspCandidate, as_candidate, prior_score
 from dyngrasp.trajectory import JointTrajectory
 from dyngrasp.world import WorldModel
 
 
 @dataclass
 class TailParams:
-    hover: float = 0.08  # pre-grasp height above the grasp pose (m)
-    t_settle: float = 0.3  # ride along at hover height first, so arrival tracking error dies out
+    hover: float = 0.08  # pre-grasp distance from the grasp pose, back along the approach (m)
+    t_settle: float = 0.3  # ride along at the pre-grasp first, so arrival tracking error dies out
     t_descend: float = 0.6
     t_close: float = 0.4
     t_lift: float = 0.6  # lift while slowing down from the target's velocity to rest
@@ -50,6 +55,7 @@ class GoalCandidate:
     tail: JointTrajectory  # T .. T + tail duration, with the gripper schedule
     grasp_index: int
     family: int  # which IK seed family produced it
+    grasp_name: str = ""
 
 
 def _pose_error(X: RigidTransform, X_des: RigidTransform) -> np.ndarray:
@@ -65,7 +71,7 @@ class GoalGenerator:
         robot: RobotModel,
         v_max: np.ndarray,  # joint-velocity limits for the tail (it may use more than the planner)
         tail: TailParams | None = None,
-        grasps: list[RigidTransform] | None = None,
+        grasps: list[GraspCandidate | RigidTransform] | None = None,
         ik_pos_tol: float = 0.003,
         ik_rot_tol: float = 0.02,
     ):
@@ -73,7 +79,11 @@ class GoalGenerator:
         self.robot = robot
         self.v_max = np.asarray(v_max, float)
         self.tp = tail or TailParams()
-        self.grasps = grasps if grasps else [world.object.X_UG_grasp]
+        self.grasps: list[GraspCandidate] = [
+            as_candidate(g, i) for i, g in enumerate(grasps if grasps else [world.object.X_UG_grasp])
+        ]
+        if not grasps:
+            self.grasps[0] = GraspCandidate("nominal", "top", world.object.X_UG_grasp, np.nan, np.nan)
         self.ik_pos_tol, self.ik_rot_tol = ik_pos_tol, ik_rot_tol
         plant = robot.plant
         self._plant = plant
@@ -97,30 +107,34 @@ class GoalGenerator:
 
     # ---- poses -------------------------------------------------------------------
     def grasp_pose(self, t: float, k: int) -> RigidTransform:
-        return self.world.grasp_pose(t, self.grasps[k])
+        return self.world.grasp_pose(t, self.grasps[k].X_UG)
+
+    def approach_W(self, t: float, k: int) -> np.ndarray:
+        """Unit approach direction (gripper +y) of grasp k in W at time t."""
+        return self.grasp_pose(t, k).rotation().matrix()[:, 1]
 
     def hover_pose(self, t: float, k: int) -> RigidTransform:
         X = self.grasp_pose(t, k)
-        return RigidTransform(X.rotation(), X.translation() + [0.0, 0.0, self.tp.hover])
+        return RigidTransform(X.rotation(), X.translation() - self.tp.hover * self.approach_W(t, k))
 
     def tail_pose(self, tau: float, T: float, k: int) -> tuple[RigidTransform, np.ndarray]:
         """Desired gripper pose and translational velocity at T + tau."""
         tp = self.tp
-        if tau < tp.t_settle:  # ride along at hover height
+        if tau < tp.t_settle:  # ride along at the pre-grasp
             t = T + tau
-            X = self.grasp_pose(t, k)
-            return RigidTransform(X.rotation(), X.translation() + [0.0, 0.0, tp.hover]), self.world.target_velocity(t).copy()
+            return self.hover_pose(t, k), self.world.target_velocity(t).copy()
         T, tau = T + tp.t_settle, tau - tp.t_settle  # the rest is timed from the end of the settle phase
         t_grip = tp.t_descend + tp.t_close
         if tau < t_grip:
             t = T + tau
             X = self.grasp_pose(t, k)
             v = self.world.target_velocity(t).copy()
-            dz = 0.0
-            if tau < tp.t_descend:  # descend from hover, riding along with the target
-                dz = tp.hover * (1.0 - tau / tp.t_descend)
-                v[2] -= tp.hover / tp.t_descend
-            return RigidTransform(X.rotation(), X.translation() + [0.0, 0.0, dz]), v
+            off = np.zeros(3)
+            if tau < tp.t_descend:  # approach along the grasp's direction, riding along with the target
+                a = self.approach_W(t, k)
+                off = -tp.hover * (1.0 - tau / tp.t_descend) * a
+                v = v + (tp.hover / tp.t_descend) * a
+            return RigidTransform(X.rotation(), X.translation() + off), v
         # Lift while the horizontal velocity decays linearly from the target's to zero, then hold.
         X0 = self.grasp_pose(T + t_grip, k)
         v0 = self.world.target_velocity(T + t_grip).copy()
@@ -225,13 +239,34 @@ class GoalGenerator:
     def start(self, seeds: list[np.ndarray], rng: np.random.Generator, n_random_seeds: int = 1) -> None:
         """Begin an (incremental) goal search; call `generate_for(T, ...)` for each T after."""
         lo, hi = self.robot.q_lower, self.robot.q_upper
+        self._rng = rng
         family_seeds = [np.asarray(s, float) for s in seeds] + [rng.uniform(lo, hi) for _ in range(n_random_seeds)]
-        self._seeds = {(k, f): s for k in range(len(self.grasps)) for f, s in enumerate(family_seeds)}
+        # random seeds only for the first (nominal) grasp; every grasp gets the given seeds
+        self._seeds = {(k, f): s for k in range(len(self.grasps)) for f, s in enumerate(family_seeds)
+                       if k == 0 or f < len(seeds)}
+        self.grasp_goals = np.zeros(len(self.grasps), int)  # goals found per grasp (ordering)
+        self.grasp_stats = {g.name: {"tried": 0, "ik_ok": 0, "goals": 0, "restarts": 0} for g in self.grasps}
         self.stats = {"tried": 0, "ik_fail": 0, "duplicate": 0, "pregrasp_collides": 0, "tail_infeasible": 0,
                       "tail_collides": 0, "rescued_by_swivel": 0, "goals": 0}
 
+    def _order(self, T: float) -> list[tuple[int, int]]:
+        """(grasp, family) keys for time T: grasps that produced goals first, then by prior."""
+        X_WU = self.world.target_pose(T)
+        p_sh = self._shoulder()
+        prio = {k: prior_score(g, X_WU, p_sh) for k, g in enumerate(self.grasps)}
+        keys = [key for key in self._seeds if prio[key[0]] > -0.2]  # never from the far side
+        return sorted(keys, key=lambda kf: (-self.grasp_goals[kf[0]], kf[0] != 0, -prio[kf[0]], kf[1]))
+
+    def _shoulder(self) -> np.ndarray:
+        if not hasattr(self, "_p_shoulder"):
+            plant, ctx = self.robot.plant, self.robot.context
+            self._p_shoulder = plant.EvalBodyPoseInWorld(
+                ctx, plant.GetBodyByName("iiwa_link_2", self.robot.iiwa)).translation().copy()
+        return self._p_shoulder
+
     def generate_for(self, T: float, tail_free, state_free, max_per_T: int = 3,
-                     swivel_steps: int = 6) -> list[GoalCandidate]:
+                     swivel_steps: int = 6, max_ik_per_T: int = 10, ik_restarts: int = 3,
+                     max_tails: int = 3) -> list[GoalCandidate]:
         """Goal candidates at intercept time T, over grasps and IK families.
 
         Within a family the IK at T is seeded with the family's solution at the
@@ -239,26 +274,44 @@ class GoalGenerator:
         family's pre-grasp or tail collides, its elbow self-motion is searched for a
         posture that is free (the obstacles mostly meet the elbow, not the hand)."""
         st, out = self.stats, []
-        for (k, f), seed in list(self._seeds.items()):
-            if len(out) >= max_per_T:
+        n_ik = 0
+        for k, f in self._order(T):
+            if len(out) >= max_per_T or n_ik >= max_ik_per_T:
                 break
+            seed = self._seeds[(k, f)]
+            gs = self.grasp_stats[self.grasps[k].name]
             st["tried"] += 1
+            gs["tried"] += 1
+            n_ik += 1
             X_hover = self.hover_pose(T, k)
             q = self.solve_ik(X_hover, seed)
+            # A grasp that has never had an IK solution (e.g. a side grasp, far from the home
+            # wrist) gets a few random restarts; afterwards its family seeds carry over in T.
+            # (a budget per grasp, not per T: failing IK is the expensive part)
+            restarts = min(ik_restarts - gs["restarts"], max_ik_per_T - n_ik) if gs["ik_ok"] == 0 else 0
+            while q is None and restarts > 0:
+                restarts -= 1
+                n_ik += 1
+                gs["restarts"] += 1
+                q = self.solve_ik(X_hover, self._rng.uniform(self.robot.q_lower, self.robot.q_upper))
             if q is None:
                 st["ik_fail"] += 1
                 continue
+            gs["ik_ok"] += 1
             self._seeds[(k, f)] = q
             if any(c.grasp_index == k and np.max(np.abs(c.q - q)) < 0.2 for c in out):
                 st["duplicate"] += 1
                 continue
-            reason, cand = None, None
+            reason, cand, n_tails = None, None, 0
             for i, qc in enumerate([q] + self.self_motion(q, X_hover, swivel_steps) if swivel_steps else [q]):
+                if n_tails >= max_tails:
+                    break
                 if any(c.grasp_index == k and np.max(np.abs(c.q - qc)) < 0.2 for c in out):
                     continue
                 if not state_free(qc, T):
                     reason = reason or "pregrasp_collides"
                     continue
+                n_tails += 1
                 tail = self.tail(qc, T, k)
                 if tail is None:
                     reason = reason or "tail_infeasible"
@@ -266,7 +319,8 @@ class GoalGenerator:
                 if not tail_free(tail):
                     reason = reason or "tail_collides"
                     continue
-                cand = GoalCandidate(T=float(T), q=qc, tail=tail, grasp_index=k, family=f)
+                cand = GoalCandidate(T=float(T), q=qc, tail=tail, grasp_index=k, family=f,
+                                     grasp_name=self.grasps[k].name)
                 if i > 0:
                     st["rescued_by_swivel"] += 1
                 break
@@ -274,6 +328,8 @@ class GoalGenerator:
                 st[reason or "duplicate"] += 1
                 continue
             out.append(cand)
+            self.grasp_goals[k] += 1
+            gs["goals"] += 1
         st["goals"] += len(out)
         return out
 

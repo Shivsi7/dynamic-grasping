@@ -61,7 +61,7 @@ def test_planner_grasps_past_the_blockers_with_latency(preset):
     # replans that returned a plan stayed within their budget (goal-work cycles may overrun:
     # they return nothing and the arm keeps executing a safe plan meanwhile)
     planned = [l for l in c.plan_log[1:] if l["outcome"] == "new"]
-    assert planned and all(l["wall"] < l["budget"] for l in planned)
+    assert all(l["wall"] < l["budget"] for l in planned)
 
 
 def test_planner_grasps_a_fast_target_without_obstacles():

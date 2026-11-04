@@ -42,10 +42,15 @@ def mixed_set(seed: int, n: int) -> list:
 def run_one(spec_dict: dict, cname: str, latency) -> dict:
     from dyngrasp.baselines import HoldController, NaiveInterceptController
     from dyngrasp.harness import run_episode
-    from dyngrasp.planning.controller import SpaceTimeRRTController
+    from dyngrasp.planning.controller import SpaceTimeRRTController, STRRTConfig
     from dyngrasp.scenario import ScenarioSpec
 
-    factories = {"st_rrt": SpaceTimeRRTController, "naive": NaiveInterceptController, "hold": HoldController}
+    factories = {
+        "st_rrt": SpaceTimeRRTController,
+        "st_rrt_nominal": lambda: SpaceTimeRRTController(STRRTConfig(grasp_set="nominal")),
+        "naive": NaiveInterceptController,
+        "hold": HoldController,
+    }
     spec = ScenarioSpec.from_dict(spec_dict)
     ctrl = factories[cname]()
     try:
@@ -54,7 +59,8 @@ def run_one(spec_dict: dict, cname: str, latency) -> dict:
         return {"scenario": spec.name, "controller": cname, "outcome": "crash", "error": repr(e)[:300],
                 **spec.summary()}
     row = r.row()
-    if cname == "st_rrt":
+    row["controller"] = cname  # configurations of one controller class share its .name
+    if cname.startswith("st_rrt"):
         logs = ctrl.plan_log
         first = logs[0] if logs else {}
         row.update(
@@ -67,6 +73,9 @@ def run_one(spec_dict: dict, cname: str, latency) -> dict:
             n_escapes=sum(bool(l.get("escape_ok")) for l in logs),
             replan_wall_max=max((l["wall"] for l in logs[1:]), default=np.nan),
             T_goals=",".join(f"{l['T_goal']:.2f}" for l in logs if "T_goal" in l),
+            grasp_used=next((l["grasp"] for l in reversed(logs) if "grasp" in l), ""),
+            grasp_goals=";".join(f"{k}:{v['goals']}" for k, v in getattr(ctrl.goalgen, "grasp_stats", {}).items()
+                                 if v["goals"]),
         )
     return row
 
