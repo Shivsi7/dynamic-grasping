@@ -31,10 +31,12 @@ import pandas as pd  # noqa: E402
 from dyngrasp import scenario as S  # noqa: E402
 from dyngrasp.baselines import HoldController, NaiveInterceptController  # noqa: E402
 from dyngrasp.harness import aggregate, run_batch  # noqa: E402
+from dyngrasp.planning.controller import SpaceTimeRRTController  # noqa: E402
 
 CONTROLLERS = {
     "hold": HoldController,
     "naive": NaiveInterceptController,
+    "st_rrt": SpaceTimeRRTController,
 }
 
 SWEEP_TARGET_SPEEDS = [0.05, 0.1, 0.2, 0.3]
@@ -87,12 +89,18 @@ def main():
     ap.add_argument("--out", default="results/latest")
     ap.add_argument("--keep-going", action="store_true", help="do not stop episodes at the first collision")
     ap.add_argument("--save-logs", action="store_true", help="save per-episode trajectories (npz)")
+    ap.add_argument("--latency", default="measured",
+                    help="'measured' (compute time delays commands in sim time), 'none', or a fixed delay in seconds")
+    ap.add_argument("--compute-scale", type=float, default=1.0,
+                    help="multiply measured compute time (e.g. 0.5 = hardware twice as fast as this machine)")
     args = ap.parse_args()
 
     specs = build_specs(args)
     controllers = {name: CONTROLLERS[name] for name in args.controllers}
     print(f"{len(specs)} scenarios x {list(controllers)} -> {args.out}")
-    df = run_batch(specs, controllers, out_dir=args.out, stop_on_collision=not args.keep_going, save_logs=args.save_logs)
+    latency = args.latency if args.latency in ("measured", "none") else float(args.latency)
+    df = run_batch(specs, controllers, out_dir=args.out, stop_on_collision=not args.keep_going, save_logs=args.save_logs,
+                   latency=latency, compute_scale=args.compute_scale)
     pd.set_option("display.width", 200)
     print()
     print(aggregate(df).round(3))

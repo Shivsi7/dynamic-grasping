@@ -38,8 +38,14 @@ dyngrasp/
   scenario.py    ScenarioSpec (YAML-serialisable), random generator, presets
   scene.py       builds the HardwareStation for a spec; kinematic diagram for planners
   world.py       WorldModel: predicted target / obstacle state at any time t
-  controller.py  Controller API, RobotState, Command, RobotModel, Drake wrapper
+  controller.py  Controller API, RobotState, Command, RobotModel, Drake wrapper (+ latency model)
+  trajectory.py  JointTrajectory: time-indexed plans the wrapper executes tick by tick
   baselines.py   HoldController, NaiveInterceptController (no avoidance)
+  planning/      approach (B): space-time RRT-Connect (see docs/planner_B.md)
+    st_rrt.py      generic (q, t) RRT-Connect, time-preserving shortcuts, escape planning
+    collision.py   SpaceTimeChecker: is (q, t) / an edge free, with clearance margins
+    goals.py       intercept times, pre-grasp IK (+ elbow self-motion), grasp tails
+    controller.py  SpaceTimeRRTController (registered as `st_rrt`)
   monitor.py     EpisodeMonitor: collisions, clearance, grasp / lift / success
   harness.py     run_episode, run_batch (-> pandas), aggregate
   viz.py         Meshcat helper
@@ -48,6 +54,7 @@ scripts/
   run_eval.py    batch evaluation -> results/<name>/results.csv + scenarios.yaml
   summarize.py   tables (markdown) and figures from results.csv
   render.py      headless PNG contact sheets / GIFs of scenarios (no browser needed)
+  stress_planner.py  many generated scenarios in parallel, failure tables
 scenarios/       shared scenario sets (YAML), so everyone runs the same episodes
 tests/           pytest
 ```
@@ -116,9 +123,30 @@ class MyController(Controller):
         return Command(v=v, gripper=WSG_OPEN, info={"phase": "approach"})
 ```
 
-`RobotState` carries `q`, `v`, `X_WG` (measured), `wsg_width`, and the last
-command. `Command.q` (positions) or `Command.v` (velocities, integrated at
-`period` and clipped to joint limits) plus a gripper opening. `info` is logged.
+`RobotState` carries `q`, `v`, `X_WG` (measured), `wsg_width`, the last
+command and the `trajectory` being executed (if any). `Command.q` (positions),
+`Command.v` (velocities, integrated at `period` and clipped to joint limits) or
+`Command.trajectory` (a `JointTrajectory`, sampled at every tick, with an
+optional gripper schedule) plus a gripper opening. `info` is logged.
+
+### Computation time costs simulated time
+
+The simulator waits for `update()`, so by default a slow controller would look
+instantaneous. The harness therefore runs with `latency="measured"`: a command
+computed in w seconds of wall time takes effect w seconds of *sim* time later,
+and the controller is not called again until then. Meanwhile the previous
+command keeps running (a trajectory keeps playing, a velocity keeps being
+integrated). A controller faster than its period sees one period of delay. A
+trajectory that would make the arm jump when it finally takes effect (it
+disagrees with what is executing by more than 2 cm in any joint) is rejected
+and counted in `n_rejected_commands`. Planners should plan from `t + budget`
+and keep the executing trajectory as the prefix.
+
+Options (`run_episode`, `run_batch`, `run_eval.py --latency/--compute-scale`):
+`"measured"` (default), a fixed delay in seconds (deterministic), `"none"`
+(the old behaviour), and `compute_scale` to model faster or slower hardware.
+Measured latency is wall time: run at most one episode per physical core. Use
+`reset()` only for scene-independent setup (it is not timed).
 
 For planners that need collision checks at a hypothetical (q, t):
 
@@ -159,6 +187,7 @@ One row per episode in `results.csv`:
 | `t_first_collision`, `collision_with`, `collision_category` | obstacle / cart (carrier or conveyor) / floor / target |
 | `min_clearance_obstacles` (+ time), `min_clearance_environment` | signed distance, robot to obstacles / cart+floor |
 | `n_cycles`, `compute_mean_ms`, `compute_max_ms`, `compute_p95_ms` | wall time of `update()` per cycle |
+| `latency_mode`, `delay_max_ms`, `n_rejected_commands` | latency model used, longest command delay, late trajectories rejected |
 | `target_speed`, `n_obstacles`, `obstacle_speed_mean/max`, `object`, `seed` | scenario parameters |
 
 Definitions (see `monitor.py`): a **collision** is any contact between a robot
