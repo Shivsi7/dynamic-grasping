@@ -31,10 +31,12 @@ import pandas as pd  # noqa: E402
 from dyngrasp import scenario as S  # noqa: E402
 from dyngrasp.baselines import HoldController, NaiveInterceptController  # noqa: E402
 from dyngrasp.harness import aggregate, run_batch  # noqa: E402
+from dyngrasp.reactive import ReactiveQPController  # noqa: E402
 
 CONTROLLERS = {
     "hold": HoldController,
     "naive": NaiveInterceptController,
+    "reactive": ReactiveQPController,
 }
 
 SWEEP_TARGET_SPEEDS = [0.05, 0.1, 0.2, 0.3]

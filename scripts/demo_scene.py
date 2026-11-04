@@ -21,9 +21,14 @@ import numpy as np  # noqa: E402
 from dyngrasp import scenario as S  # noqa: E402
 from dyngrasp.baselines import HoldController, NaiveInterceptController  # noqa: E402
 from dyngrasp.harness import run_episode  # noqa: E402
+from dyngrasp.reactive import ReactiveQPController  # noqa: E402
 from dyngrasp.viz import get_meshcat, keep_open  # noqa: E402
 
-CONTROLLERS = {"hold": HoldController, "naive": NaiveInterceptController}
+CONTROLLERS = {
+    "hold": HoldController,
+    "naive": NaiveInterceptController,
+    "reactive": ReactiveQPController,
+}
 
 
 def pick_scenario(args) -> S.ScenarioSpec:
