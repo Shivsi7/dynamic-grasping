@@ -10,6 +10,13 @@ Outcome of an episode (in order of precedence):
     timeout           nothing of the above by `spec.duration`
 `success` and `collided` are also reported separately, so "success despite a
 collision" is visible (outcome == "collision" and success == True).
+
+Latency: by default (`latency="measured"`) a controller's commands take effect
+only after its measured compute time has elapsed in simulated time, so slow
+planning has consequences (see controller.py).  Use `latency=<seconds>` for a
+deterministic fixed delay, `compute_scale` to model faster/slower hardware, and
+`latency="none"` for the old instantaneous behaviour.  Run batches one process
+per core at most: measured latency is wall time.
 """
 
 from __future__ import annotations
@@ -56,6 +63,9 @@ class EpisodeResult:
     compute_mean_ms: float
     compute_max_ms: float
     compute_p95_ms: float
+    latency_mode: str = "none"
+    n_rejected_commands: int = 0
+    delay_max_ms: float = 0.0
     scenario_summary: dict[str, Any] = field(default_factory=dict)
     log: dict[str, np.ndarray] | None = None
     controller_log: list[dict[str, Any]] | None = None
@@ -97,6 +107,8 @@ def build_episode(
     stop_on_collision: bool = True,
     monitor_hz: float = 100.0,
     cameras: dict | None = None,
+    latency: str | float = "measured",
+    compute_scale: float = 1.0,
 ) -> EpisodeHandles:
     scene = build_station(spec, meshcat, cameras)
     world = WorldModel(spec)
@@ -105,7 +117,9 @@ def build_episode(
     builder = DiagramBuilder()
     station = builder.AddNamedSystem("station", scene.station)
     ctrl = builder.AddNamedSystem(
-        "controller", ControllerSystem(controller, world, robot, scene.gripper_body.index(), spec.q0)
+        "controller", ControllerSystem(
+            controller, world, robot, scene.gripper_body.index(), spec.q0, latency=latency, compute_scale=compute_scale
+        ),
     )
     builder.Connect(station.GetOutputPort("iiwa.position_measured"), ctrl.GetInputPort("iiwa.position_measured"))
     builder.Connect(station.GetOutputPort("iiwa.velocity_estimated"), ctrl.GetInputPort("iiwa.velocity_estimated"))
@@ -148,9 +162,13 @@ def run_episode(
     keep_log: bool = True,
     monitor_hz: float = 100.0,
     settle_after_success: float = 0.0,
+    latency: str | float = "measured",
+    compute_scale: float = 1.0,
 ) -> EpisodeResult:
     """Simulate one episode of `controller` on `spec` and score it."""
-    h = build_episode(spec, controller, meshcat, stop_on_collision, monitor_hz)
+    h = build_episode(
+        spec, controller, meshcat, stop_on_collision, monitor_hz, latency=latency, compute_scale=compute_scale
+    )
     sim = h.simulator
     if realtime is None:
         realtime = meshcat is not None
@@ -217,6 +235,8 @@ def run_batch(
     stop_on_collision: bool = True,
     verbose: bool = True,
     save_logs: bool = False,
+    latency: str | float = "measured",
+    compute_scale: float = 1.0,
 ) -> pd.DataFrame:
     """Every controller on every scenario (fresh controller instance per episode).
 
@@ -238,7 +258,10 @@ def run_batch(
         for cname, factory in controllers.items():
             k += 1
             ctrl = factory()
-            res = run_episode(spec, ctrl, meshcat=None, stop_on_collision=stop_on_collision, keep_log=save_logs)
+            res = run_episode(
+                spec, ctrl, meshcat=None, stop_on_collision=stop_on_collision, keep_log=save_logs,
+                latency=latency, compute_scale=compute_scale,
+            )
             rows.append(res.row())
             if verbose:
                 print(
