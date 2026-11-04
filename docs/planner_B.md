@@ -221,6 +221,30 @@ the tail starts; its p99 is 5.0), not yet explained. The unconstrained version i
 also not safe in general: in a rendered run of mix_0034 it flung the can at 3.4 m/s
 and then collided.
 
+## Was abstaining correct? (`scripts/certify.py`)
+
+For each scene (B) did not grasp: an exhaustive goal search (no caps, 0.1 s intercept
+grid, many IK seeds and elbow postures), a time-optimal dynamics bound, and an "oracle"
+(the same planner with 20x the compute and planning time free, executed in simulation)
+swept over acceleration limits. This gives each scene a *required acceleration*.
+"Possible at X" is proven by example (the oracle grasped in simulation); "impossible"
+means exhaustive search / oracle found nothing (strong evidence, not proof).
+
+The 20 held-out scenes the default (planner 4, tail 6 rad/s^2) did not grasp:
+
+| verdict | scenes |
+|---|---|
+| impossible at any acceleration: no feasible grasp at all | mix_0007, 0014, 0028, 0038, 0059, 0068 |
+| impossible at any acceleration: goals exist but no plan even unconstrained | mix_0019, 0043, 0063, 0067, 0079 |
+| possible at **8 rad/s^2** (planner and tail) | mix_0031, 0054 (tail needs 6.03), 0069, 0072 (tail needs 6.34) |
+| possible at **16 rad/s^2** | mix_0024, 0034, 0039, 0064 |
+| possible at the current limits: **the online planner missed it** | mix_0073 |
+
+So 11 of 20 abstentions are correct at any acceleration limit, 8 are caused by the
+limits (4 at 8 rad/s^2, 4 more at 16), and 1 is a planner miss. mix_0054 lost its goals
+when the lift was lowered to 10 cm (a 15 cm lift avoids the obstacles); the goal search
+now tries both lift heights.
+
 ## Videos
 
 `scripts/compare_videos.py` renders the same scene under several controllers

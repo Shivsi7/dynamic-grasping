@@ -36,6 +36,10 @@ class TailParams:
     t_close: float = 0.4
     t_lift: float = 0.6  # minimum-jerk lift while slowing down from the target's velocity to rest
     lift_height: float = 0.10  # success needs >= 5 cm above the rest height
+    # Tried, in order, when the tail with `lift_height` is infeasible or collides: a higher lift
+    # gets the object away from obstacles sooner, a lower one needs less acceleration, and which
+    # works depends on the scene (scripts/certify.py found scenes for each).
+    alt_lift_heights: tuple[float, ...] = (0.15,)
     t_hold: float = 0.6  # hold still (success needs 0.5 s lifted)
     dt: float = 0.01  # differential-IK integration step
     knot_dt: float = 0.05  # spacing of the knots that are collision-checked (the tail itself keeps every step)
@@ -151,9 +155,10 @@ class GoalGenerator:
         v0[2] = 0.0
         s = min(1.0, (tau - t_grip) / tp.t_lift)
         e, de = _ease(s)
-        p = X0.translation() + v0 * tp.t_lift * (s - 0.5 * s * s) + [0.0, 0.0, tp.lift_height * e]
+        lift = getattr(self, "_lift", tp.lift_height)
+        p = X0.translation() + v0 * tp.t_lift * (s - 0.5 * s * s) + [0.0, 0.0, lift * e]
         v = v0 * (1.0 - s)
-        v[2] = tp.lift_height * de / tp.t_lift
+        v[2] = lift * de / tp.t_lift
         return RigidTransform(X0.rotation(), p), v
 
     # ---- IK ----------------------------------------------------------------------
@@ -343,12 +348,19 @@ class GoalGenerator:
                     reason = reason or "pregrasp_collides"
                     continue
                 n_tails += 1
-                tail = self.tail(qc, T, k)
+                tail, why = None, ""
+                for lift in (self.tp.lift_height, *self.tp.alt_lift_heights):
+                    self._lift = lift
+                    tail = self.tail(qc, T, k)
+                    if tail is None:
+                        why = why or "tail_infeasible"
+                    elif not tail_free(self.check_knots(tail)):
+                        why, tail = why or "tail_collides", None
+                    else:
+                        break
+                self._lift = self.tp.lift_height
                 if tail is None:
-                    reason = reason or "tail_infeasible"
-                    continue
-                if not tail_free(self.check_knots(tail)):
-                    reason = reason or "tail_collides"
+                    reason = reason or why
                     continue
                 cand = GoalCandidate(T=float(T), q=tail.q[0].copy(), tail=tail, grasp_index=k, family=f,
                                      grasp_name=self.grasps[k].name)

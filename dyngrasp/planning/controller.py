@@ -70,6 +70,9 @@ class STRRTConfig:
     n_random_ik_seeds: int = 1
     swivel_steps: int = 6  # elbow self-motion search when a pre-grasp / tail collides
     max_goals_per_T: int = 3
+    max_ik_per_T: int = 10  # IK attempts per intercept time
+    ik_restarts: int = 3  # random IK restarts per grasp until it first succeeds
+    max_tails: int = 3  # tail rollouts per IK attempt (elbow self-motion search)
     goal_share: float = 0.6  # max share of a replan's budget spent generating goals
     max_budget: float = 1.0  # while holding safely without a grasp plan, failed replans double the budget up to this
     goal_work_cap: float = 0.5  # wall time of a goal-work cycle (only while the current plan is safe)
@@ -84,6 +87,9 @@ class STRRTConfig:
     # are rarely reachable and mostly fail physically (scripts/grasp_feasibility.py --execute).
     grasp_families: tuple[str, ...] = ("top", "top_tilt")
     seed: int | None = None
+    # Wall-clock compute per unit of planning budget.  1 = real time.  An offline "oracle"
+    # (scripts/certify.py) uses e.g. 20 with latency="none": same planner, 20x the compute.
+    wall_scale: float = 1.0
 
 
 @dataclass
@@ -137,7 +143,8 @@ class SpaceTimeRRTController(Controller):
         return self.plans.get(id(state.trajectory))
 
     def _deadline_left(self, wall0: float, budget: float) -> float:
-        return budget - (time.perf_counter() - wall0)
+        """Wall time left of `budget` (sim-time seconds, scaled by cfg.wall_scale)."""
+        return budget * self.cfg.wall_scale - (time.perf_counter() - wall0)
 
     def _remaining_valid(self, traj: JointTrajectory, t_s: float) -> bool:
         """The executing trajectory from t_s on, and holding its last configuration
@@ -171,7 +178,7 @@ class SpaceTimeRRTController(Controller):
             w = time.perf_counter()
             self.goals += self.goalgen.generate_for(
                 T, lambda tr: self.checker.path_free(tr.q, tr.t), self.checker.state_free,
-                cfg.max_goals_per_T, cfg.swivel_steps,
+                cfg.max_goals_per_T, cfg.swivel_steps, cfg.max_ik_per_T, cfg.ik_restarts, cfg.max_tails,
             )
             w = time.perf_counter() - w
             self._cost_per_T = max(w, 0.7 * self._cost_per_T + 0.3 * w)  # pessimistic running estimate
