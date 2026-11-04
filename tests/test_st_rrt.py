@@ -87,3 +87,45 @@ def test_escape_reaches_a_state_that_is_safe_to_hold():
     pl = SpaceTimeRRTConnect([0.0], [1.0], np.array([1.0]), edge_checker(free), rng=np.random.default_rng(0))
     res = plan_to_safe_state(pl, np.array([0.1]), 0.0, safe, t_max=3.0, time_budget=1.0)
     assert res.success and res.path_q[-1][0] >= 0.5 and res.path_t[-1] < 1.0 + 1e-9
+
+
+def test_hermite_keeps_the_knots_and_is_c1():
+    from dyngrasp.trajectory import hermite
+
+    T = np.array([0.0, 0.4, 1.0, 1.3])
+    Q = np.array([[0.0, 0.0], [0.3, -0.2], [0.1, -0.1], [0.4, 0.2]])
+    v0, vN = np.array([0.2, 0.0]), np.zeros(2)
+    tr = hermite(T, Q, v0, vN, dt=0.001)
+    for t, q in zip(T, Q):  # same space-time knots
+        np.testing.assert_allclose(tr.value(t), q, atol=1e-9)
+    v = np.diff(tr.q, axis=0) / np.diff(tr.t)[:, None]
+    np.testing.assert_allclose(v[0], v0, atol=0.03)
+    np.testing.assert_allclose(v[-1], vN, atol=0.03)
+    # no velocity jump at the interior knots: left and right velocities agree (C1), whereas
+    # the polyline through the same knots jumps by up to ~1 rad/s there
+    eps = 1e-4
+    for t in T[1:-1]:
+        vl = (tr.value(t) - tr.value(t - eps)) / eps
+        vr = (tr.value(t + eps) - tr.value(t)) / eps
+        assert np.max(np.abs(vl - vr)) < 0.05
+
+
+def test_acceleration_aware_plan_is_smooth_and_joins_a_moving_start():
+    from dyngrasp.trajectory import hermite, motion_limits
+
+    free = lambda q, t: not (0.4 <= q[0] <= 0.6 and t < 3.0)
+    v = np.array([1.0])
+    pl = SpaceTimeRRTConnect([0.0], [1.0], v, edge_checker(free), STRRTParams(step_q=0.2, step_t=0.5),
+                             np.random.default_rng(1))
+    pl.a_max = np.array([4.0])
+    v_start = np.array([0.15])  # already moving when the plan starts
+    gq, gt = np.array([[1.0]]), np.array([6.0])
+    res = pl.plan(np.array([0.0]), 0.0, gq, gt, time_budget=3.0, v_start=v_start)
+    assert_valid(res, free, v, [0.0], 0.0, gq, gt)
+    Q, T = pl.shortcut(res.path_q, res.path_t, 0.5, v_start=v_start)
+    tr = hermite(T, Q, v_start, None, dt=0.002)
+    vmax, amax = motion_limits(tr)
+    assert amax[0] <= 4.0 * 1.02
+    np.testing.assert_allclose((tr.q[1] - tr.q[0]) / (tr.t[1] - tr.t[0]), v_start, atol=0.01)
+    for t, q in zip(T, Q):  # the smoothed curve is still free (it passes through the knots,
+        assert free(tr.value(t), t)  # and between them it is checked by the controller)

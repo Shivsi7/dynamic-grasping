@@ -180,6 +180,7 @@ class ControllerSystem(LeafSystem):
         self._busy_until = -np.inf
         self.n_rejected = 0
         self.delays: list[float] = []  # sim-time delay of every command
+        self.q_cmd_log: list[np.ndarray] = []  # commanded positions, one per tick (motion statistics)
 
         self._q_in = self.DeclareVectorInputPort("iiwa.position_measured", NQ)
         self._v_in = self.DeclareVectorInputPort("iiwa.velocity_estimated", NQ)
@@ -263,6 +264,7 @@ class ControllerSystem(LeafSystem):
             g = self._active.trajectory.gripper_at(t) if self._active.trajectory is not None else None
             wsg = self._active.gripper if g is None else g
         q_cmd = np.clip(q_cmd, self.robot.q_lower, self.robot.q_upper)
+        self.q_cmd_log.append(q_cmd.copy())
         wsg = float(np.clip(wsg, WSG_CLOSED, WSG_OPEN))
         discrete_state.get_mutable_vector(self._state).SetFromVector(np.concatenate([q_cmd, [wsg]]))
 
@@ -283,8 +285,26 @@ class ControllerSystem(LeafSystem):
         output.SetFromVector(context.get_discrete_state(self._state).value()[NQ:])
 
     # ---- statistics -------------------------------------------------------------
+    def motion_stats(self) -> dict[str, float]:
+        """Commanded joint motion: peak speed as a fraction of the iiwa's velocity limits,
+        and peak acceleration (rad/s^2), by finite differences of the commanded positions."""
+        if len(self.q_cmd_log) < 3:
+            return {"cmd_speed_ratio_max": 0.0, "cmd_accel_max": 0.0, "cmd_accel_p99": 0.0}
+        q = np.array(self.q_cmd_log)
+        dt = self.controller.period
+        v = np.diff(q, axis=0) / dt
+        a = np.diff(v, axis=0) / dt
+        amax = np.max(np.abs(a), axis=1)
+        return {
+            "cmd_speed_ratio_max": float(np.max(np.abs(v) / self.robot.v_limits)),
+            "cmd_accel_max": float(np.max(amax)),
+            "cmd_accel_p99": float(np.percentile(amax, 99)),
+        }
+
+
     def compute_stats(self) -> dict[str, float]:
         lat = {
+            **self.motion_stats(),
             "latency_mode": str(self.latency),
             "n_rejected_commands": int(self.n_rejected),
             "delay_max_ms": float(max(self.delays) * 1e3) if self.delays else 0.0,

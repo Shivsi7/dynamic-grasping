@@ -43,11 +43,15 @@ def run_one(spec_dict: dict, cname: str, latency) -> dict:
     from dyngrasp.baselines import HoldController, NaiveInterceptController
     from dyngrasp.harness import run_episode
     from dyngrasp.planning.controller import SpaceTimeRRTController, STRRTConfig
+    from dyngrasp.planning.goals import TailParams
     from dyngrasp.scenario import ScenarioSpec
 
     factories = {
         "st_rrt": SpaceTimeRRTController,
         "st_rrt_nominal": lambda: SpaceTimeRRTController(STRRTConfig(grasp_set="nominal")),
+        "st_rrt_noaccel": lambda: SpaceTimeRRTController(STRRTConfig(a_max=None)),
+        "st_rrt_slowtail": lambda: SpaceTimeRRTController(
+            STRRTConfig(tail=TailParams(t_descend=0.7, t_lift=0.8))),
         "naive": NaiveInterceptController,
         "hold": HoldController,
     }

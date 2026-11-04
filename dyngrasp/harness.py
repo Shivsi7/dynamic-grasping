@@ -63,6 +63,9 @@ class EpisodeResult:
     compute_mean_ms: float
     compute_max_ms: float
     compute_p95_ms: float
+    cmd_speed_ratio_max: float = 0.0
+    cmd_accel_max: float = 0.0
+    cmd_accel_p99: float = 0.0
     latency_mode: str = "none"
     n_rejected_commands: int = 0
     delay_max_ms: float = 0.0

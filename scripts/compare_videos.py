@@ -42,7 +42,8 @@ CONTROLLERS = {
     "hold": ("hold (parked)", HoldController),
     "naive": ("naive: no avoidance", NaiveInterceptController),
     "st_rrt_nominal": ("(B) RRT, nominal grasp only", lambda: SpaceTimeRRTController(STRRTConfig(grasp_set="nominal"))),
-    "st_rrt": ("(B) RRT, all grasp candidates", SpaceTimeRRTController),
+    "st_rrt_noaccel": ("(B) before: no accel. limits", lambda: SpaceTimeRRTController(STRRTConfig(a_max=None))),
+    "st_rrt": ("(B) now: accel.-limited, smooth", SpaceTimeRRTController),
 }
 PRESETS = {
     "tall_blocker": lambda: S.tall_blocker(0.1, 0.2),
@@ -80,6 +81,8 @@ def render_episode(spec, cname: str, views: list[str], fps: float, size, latency
     station = h.scene.station
     f_big, f_small = _font(17), _font(13)
     frames = []
+    acc_peak, obj_prev, obj_peak = 0.0, None, 0.0
+    plant = h.scene.plant
     for t in np.arange(0.0, spec.duration + 1e-9, 1.0 / fps):
         advance(h, t)
         h.monitor.done = False  # keep going after a collision / success
@@ -87,9 +90,9 @@ def render_episode(spec, cname: str, views: list[str], fps: float, size, latency
         sc = station.GetMyContextFromRoot(root)
         tiles = [Image.fromarray(np.array(station.GetOutputPort(f"{v}.rgb_image").Eval(sc).data)[:, :, :3].copy())
                  for v in views]
-        panel = Image.new("RGB", (size[0], size[1] * len(tiles) + 58), (25, 25, 30))
+        panel = Image.new("RGB", (size[0], size[1] * len(tiles) + 66), (25, 25, 30))
         for i, im in enumerate(tiles):
-            panel.paste(im, (0, 58 + i * size[1]))
+            panel.paste(im, (0, 66 + i * size[1]))
         d = ImageDraw.Draw(panel)
         m = h.monitor
         tt = root.get_time()
@@ -114,6 +117,21 @@ def render_episode(spec, cname: str, views: list[str], fps: float, size, latency
         clr = m.min_clearance_obstacles
         d.text((size[0] - 210, 34), f"min clearance {clr:.3f} m" if np.isfinite(clr) else "no obstacles",
                fill=(200, 200, 200), font=f_small)
+        # live motion readout: commanded joint acceleration (now / peak) and object speed
+        qc = h.controller_system.q_cmd_log
+        dt = h.controller_system.controller.period
+        acc = float(np.max(np.abs(qc[-1] - 2 * qc[-2] + qc[-3]))) / dt**2 if len(qc) >= 3 else 0.0
+        if len(qc) >= 3:
+            q = np.array(qc[-int(1.0 / fps / dt) - 2:])
+            acc_frame = float(np.max(np.abs(np.diff(q, 2, axis=0)))) / dt**2 if len(q) >= 3 else acc
+            acc_peak = max(acc_peak, acc_frame)
+        p_obj = plant.EvalBodyPoseInWorld(plant.GetMyContextFromRoot(root), h.scene.target_body).translation()
+        v_obj = 0.0 if obj_prev is None else float(np.linalg.norm(p_obj - obj_prev)) * fps
+        obj_prev = p_obj.copy()
+        obj_peak = max(obj_peak, v_obj)
+        warn = RED if acc_peak > 20 else (200, 200, 200)
+        d.text((8, 48), f"joint accel peak {acc_peak:6.1f} rad/s2   object speed {v_obj:4.2f} (peak {obj_peak:4.2f}) m/s",
+               fill=warn, font=f_small)
         frames.append(panel)
     return frames
 

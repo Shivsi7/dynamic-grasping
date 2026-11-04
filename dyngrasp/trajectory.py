@@ -98,3 +98,59 @@ class JointTrajectory:
             if np.isnan(g[0]):
                 g = None
         return JointTrajectory(t, q, g)
+
+
+def knot_velocities(T: np.ndarray, Q: np.ndarray, v0: np.ndarray, vN: np.ndarray) -> np.ndarray:
+    """Velocities at the knots for a C1 curve through (T, Q): the boundary values at the ends;
+    inside, per joint, 0 where the adjacent segments move in opposite directions, else the
+    harmonic mean of the two segment velocities (always between them, so the curve is
+    monotone between knots and never overshoots a knot -- Fritsch-Carlson style)."""
+    W = np.diff(Q, axis=0) / np.diff(T)[:, None]
+    U = np.empty_like(Q)
+    U[0], U[-1] = v0, vN
+    if len(T) > 2:
+        a, b = W[:-1], W[1:]
+        same = a * b > 0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            hm = np.where(same, 2 * a * b / (a + b), 0.0)
+        U[1:-1] = hm
+    return U
+
+
+def hermite(T, Q, v0=None, vN=None, dt: float = 0.01, gripper=None) -> JointTrajectory:
+    """Sample the C1 cubic Hermite curve through the knots (T, Q) every `dt` (knots kept
+    exactly, same times).  v0 / vN: velocities at the first / last knot (default rest).
+    gripper: optional per-knot schedule (held constant until the next knot)."""
+    T = np.asarray(T, float)
+    Q = np.asarray(Q, float)
+    n = Q.shape[1]
+    if len(T) == 1:
+        return JointTrajectory(T, Q, None if gripper is None else np.asarray(gripper, float))
+    U = knot_velocities(T, Q, np.zeros(n) if v0 is None else v0, np.zeros(n) if vN is None else vN)
+    ts = [T[0]]
+    qs = [Q[0]]
+    gs = [] if gripper is None else [gripper[0]]
+    for k in range(len(T) - 1):
+        h = T[k + 1] - T[k]
+        m = max(1, int(np.ceil(h / dt - 1e-9)))
+        s = np.arange(1, m + 1) / m
+        h00, h10 = 2 * s**3 - 3 * s**2 + 1, s**3 - 2 * s**2 + s
+        h01, h11 = -2 * s**3 + 3 * s**2, s**3 - s**2
+        P = (h00[:, None] * Q[k] + h10[:, None] * h * U[k] + h01[:, None] * Q[k + 1] + h11[:, None] * h * U[k + 1])
+        P[-1] = Q[k + 1]
+        ts.extend(T[k] + s * h)
+        qs.extend(P)
+        if gripper is not None:
+            gs.extend([gripper[k]] * (m - 1) + [gripper[k + 1]])
+    return JointTrajectory(np.array(ts), np.array(qs), None if gripper is None else np.array(gs))
+
+
+def motion_limits(traj: JointTrajectory) -> tuple[np.ndarray, np.ndarray]:
+    """Peak |velocity| and |acceleration| per joint of a densely sampled trajectory
+    (finite differences between its knots)."""
+    if len(traj.t) < 3:
+        return np.zeros(traj.q.shape[1]), np.zeros(traj.q.shape[1])
+    dt = np.diff(traj.t)
+    v = np.diff(traj.q, axis=0) / dt[:, None]
+    a = np.diff(v, axis=0) / (0.5 * (dt[1:] + dt[:-1]))[:, None]
+    return np.max(np.abs(v), axis=0), np.max(np.abs(a), axis=0)

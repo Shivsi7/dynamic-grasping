@@ -172,6 +172,55 @@ neither.
 This module is the interface to grasp selection (Victor): pass any list of
 `GraspCandidate`s or X_UG transforms as `SpaceTimeRRTController(grasps=...)`.
 
+## Joint velocity and acceleration limits
+
+Before this, joint *velocities* were limited (RRT edges at 0.5x the iiwa limits, the
+grasp tail at 0.9x), but *acceleration* was not limited anywhere. Every plan was
+piecewise linear in q(t), so velocity jumped at every knot: 100-250 rad/s^2 commanded
+(about 50 measured). That is what flung the can in mix_0034. Now:
+
+* **Executed trajectories are C1** (`trajectory.hermite`): a cubic Hermite curve
+  through the planner's knots, at the same positions *and times*. Space-time plans
+  cannot simply be retimed (e.g. with TOPP-RA), because their timing is what keeps
+  them clear of the moving obstacles. Velocities at the knots lie between the
+  adjacent segment velocities, so the curve never overshoots a knot.
+* **The RRT is acceleration-aware** (`a_max`, default 4 rad/s^2; KUKA publishes no
+  iiwa acceleration limits, so this is our planning limit). At every knot,
+  |dv| <= a_max * min(h_in, h_out) / 6 per joint, which provably bounds the cubic's
+  acceleration by a_max (checked empirically: worst 0.97 a_max). Rejecting
+  violating extensions wasted 97 % of samples, so extensions instead *project*
+  the edge velocity into the admissible window (kinodynamic-style steering), and
+  the trees are joined by exact "shots" that satisfy the bound at both ends.
+  Plans join the executing trajectory and the grasp tail without a velocity jump.
+* **The smoothed curve is re-verified** (collisions, 0.95x the hardware velocity
+  limits, a_max) before it is used, because it deviates slightly from the
+  straight edges.
+* **The grasp tail** uses minimum-jerk profiles (zero velocity *and* acceleration
+  at both ends), starts from an exactly polished pre-grasp (no feedback snap),
+  is limited to 6 rad/s^2, and is executed at full rate, i.e. exactly as checked.
+* **With the object in hand**, escapes use 0.25x velocity and 1.5 rad/s^2.
+* **Escapes** first try a library of smooth evasive primitives (brake, go home,
+  swing the base / shoulder / elbow, fold the arm, random nearby targets),
+  computed *before* goal generation when the current plan is unsafe; the
+  random-tree escape is the fallback. When a safe hold is about to become unsafe,
+  the planning budget drops back to the short one (it used to react one long
+  budget late).
+* `ControllerSystem` now reports `cmd_speed_ratio_max`, `cmd_accel_max` and
+  `cmd_accel_p99` for every controller (including (A) and the baselines).
+
+80 held-out scenes, measured latency, same code with the limits on or off:
+
+| | success | collisions | commanded accel (median / p90 / worst) |
+|---|---|---|---|
+| no acceleration limits | 61 | 0 | 91 / 182 / 272 rad/s^2 |
+| **default** (a_max 4, 0.6 s min-jerk tail) | **60** | **0** | **3.8 / 4.8 / 15.4** |
+| slower tail (0.7 / 0.8 s) | 56 | 0 | 2.4 / 3.3 / 4.1 |
+
+The 15.4 rad/s^2 outlier is a single scene (mix_0061, one wrist joint, just before
+the tail starts; its p99 is 5.0), not yet explained. The unconstrained version is
+also not safe in general: in a rendered run of mix_0034 it flung the can at 3.4 m/s
+and then collided.
+
 ## Videos
 
 `scripts/compare_videos.py` renders the same scene under several controllers
@@ -202,8 +251,9 @@ python scripts/compare_videos.py --scenarios <set.yaml> --names mix_0054 --contr
    parabolic paths as constant velocity). Then `validate=True` triggers real
    replans.
 5. During the lift, the object is not attached to the hand in the collision
-   model (object vs. obstacles is not checked). After a grasp, escape moves
-   can be fast and use the reduced margin; in one video (mix_0034) one passed
-   within 1 mm of an obstacle and the can was dropped after the success had
-   been scored. Escapes while holding an object should be slower and keep the
-   full margin.
+   model (object vs. obstacles is not checked). Escapes while holding are now
+   slow and gentle, but may still use the reduced-margin fallback.
+6. Requiring velocity continuity makes the bidirectional search harder (the
+   trees must meet in velocity too). Tighter limits than about 3 rad/s^2 fail
+   often; persistent trees or kinodynamic trajectory optimization (extension C)
+   would help.

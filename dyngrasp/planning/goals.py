@@ -32,13 +32,13 @@ from dyngrasp.world import WorldModel
 class TailParams:
     hover: float = 0.08  # pre-grasp distance from the grasp pose, back along the approach (m)
     t_settle: float = 0.3  # ride along at the pre-grasp first, so arrival tracking error dies out
-    t_descend: float = 0.6
+    t_descend: float = 0.6  # minimum-jerk approach (slower tails cost success, see docs/planner_B.md)
     t_close: float = 0.4
-    t_lift: float = 0.6  # lift while slowing down from the target's velocity to rest
-    lift_height: float = 0.15
+    t_lift: float = 0.6  # minimum-jerk lift while slowing down from the target's velocity to rest
+    lift_height: float = 0.10  # success needs >= 5 cm above the rest height
     t_hold: float = 0.6  # hold still (success needs 0.5 s lifted)
     dt: float = 0.01  # differential-IK integration step
-    knot_dt: float = 0.05  # knot spacing of the returned trajectory
+    knot_dt: float = 0.05  # spacing of the knots that are collision-checked (the tail itself keeps every step)
     k_p: float = 10.0
     k_rot: float = 10.0
     max_track_err: float = 0.01  # reject a tail whose gripper error exceeds this (m)
@@ -58,6 +58,13 @@ class GoalCandidate:
     grasp_name: str = ""
 
 
+def _ease(s: float) -> tuple[float, float]:
+    """Minimum-jerk profile 10s^3 - 15s^4 + 6s^5 and its derivative: zero velocity *and*
+    acceleration at both ends (a smoothstep would jump in acceleration there)."""
+    s = min(max(s, 0.0), 1.0)
+    return 10 * s**3 - 15 * s**4 + 6 * s**5, 30 * s**2 - 60 * s**3 + 30 * s**4
+
+
 def _pose_error(X: RigidTransform, X_des: RigidTransform) -> np.ndarray:
     R_err = X_des.rotation() @ X.rotation().inverse()
     aa = R_err.ToAngleAxis()
@@ -74,10 +81,12 @@ class GoalGenerator:
         grasps: list[GraspCandidate | RigidTransform] | None = None,
         ik_pos_tol: float = 0.003,
         ik_rot_tol: float = 0.02,
+        a_max: np.ndarray | None = None,  # joint-acceleration limits for the tail (None: unchecked)
     ):
         self.world = world
         self.robot = robot
         self.v_max = np.asarray(v_max, float)
+        self.a_max = None if a_max is None else np.asarray(a_max, float)
         self.tp = tail or TailParams()
         self.grasps: list[GraspCandidate] = [
             as_candidate(g, i) for i, g in enumerate(grasps if grasps else [world.object.X_UG_grasp])
@@ -130,20 +139,21 @@ class GoalGenerator:
             X = self.grasp_pose(t, k)
             v = self.world.target_velocity(t).copy()
             off = np.zeros(3)
-            if tau < tp.t_descend:  # approach along the grasp's direction, riding along with the target
+            if tau < tp.t_descend:  # approach along the grasp's direction (eased), riding along
                 a = self.approach_W(t, k)
-                off = -tp.hover * (1.0 - tau / tp.t_descend) * a
-                v = v + (tp.hover / tp.t_descend) * a
+                e, de = _ease(tau / tp.t_descend)
+                off = -tp.hover * (1.0 - e) * a
+                v = v + (tp.hover * de / tp.t_descend) * a
             return RigidTransform(X.rotation(), X.translation() + off), v
         # Lift while the horizontal velocity decays linearly from the target's to zero, then hold.
         X0 = self.grasp_pose(T + t_grip, k)
         v0 = self.world.target_velocity(T + t_grip).copy()
         v0[2] = 0.0
         s = min(1.0, (tau - t_grip) / tp.t_lift)
-        p = X0.translation() + v0 * tp.t_lift * (s - 0.5 * s * s) + [0.0, 0.0, tp.lift_height * s]
+        e, de = _ease(s)
+        p = X0.translation() + v0 * tp.t_lift * (s - 0.5 * s * s) + [0.0, 0.0, tp.lift_height * e]
         v = v0 * (1.0 - s)
-        if s < 1.0:
-            v[2] = tp.lift_height / tp.t_lift
+        v[2] = tp.lift_height * de / tp.t_lift
         return RigidTransform(X0.rotation(), p), v
 
     # ---- IK ----------------------------------------------------------------------
@@ -175,9 +185,19 @@ class GoalGenerator:
         tp, robot = self.tp, self.robot
         self.last_tail_failure = ""
         q = np.asarray(q_hover, float).copy()
+        # Polish the IK solution onto the exact pre-grasp pose first, so the rollout's feedback
+        # does not start by snapping out the IK tolerance (an acceleration spike).
+        X0, _ = self.tail_pose(0.0, T, k)
+        for _ in range(6):
+            err = _pose_error(robot.fk(q), X0)
+            if np.linalg.norm(err) < 1e-6:
+                break
+            J = robot.jacobian(q)
+            q = q + J.T @ np.linalg.solve(J @ J.T + 1e-8 * np.eye(6), err)
         n_steps = round(tp.duration / tp.dt)
         every = max(1, round(tp.knot_dt / tp.dt))
         ts, qs, gs = [T], [q.copy()], [WSG_OPEN]
+        v_prev = None
         for i in range(1, n_steps + 1):
             tau = i * tp.dt
             X_des, v_ff = self.tail_pose(tau, T, k)
@@ -189,18 +209,29 @@ class GoalGenerator:
             if np.any(np.abs(v) > self.v_max):
                 self.last_tail_failure = f"velocity limit at tau={tau:.2f}"
                 return None
+            if self.a_max is not None and v_prev is not None and np.any(np.abs(v - v_prev) / tp.dt > self.a_max):
+                self.last_tail_failure = f"acceleration limit at tau={tau:.2f}"
+                return None
+            v_prev = v
             q = q + v * tp.dt
             if np.any(q < robot.q_lower) or np.any(q > robot.q_upper):
                 self.last_tail_failure = f"joint limit at tau={tau:.2f}"
                 return None
-            if i % every == 0 or i == n_steps:
-                if np.linalg.norm(_pose_error(robot.fk(q), X_des)[3:]) > tp.max_track_err:
-                    self.last_tail_failure = f"tracking error at tau={tau:.2f}"
-                    return None
-                ts.append(T + tau)
-                qs.append(q.copy())
-                gs.append(WSG_OPEN if tau < tp.t_settle + tp.t_descend else WSG_CLOSED)
+            if (i % every == 0 or i == n_steps) and \
+                    np.linalg.norm(_pose_error(robot.fk(q), X_des)[3:]) > tp.max_track_err:
+                self.last_tail_failure = f"tracking error at tau={tau:.2f}"
+                return None
+            # every step is kept: the executed tail is exactly the motion checked against the limits
+            ts.append(T + tau)
+            qs.append(q.copy())
+            gs.append(WSG_OPEN if tau < tp.t_settle + tp.t_descend else WSG_CLOSED)
         return JointTrajectory(np.array(ts), np.array(qs), np.array(gs))
+
+    def check_knots(self, tail: JointTrajectory) -> JointTrajectory:
+        """The tail subsampled every `knot_dt` (and its last knot), for collision checking."""
+        every = max(1, round(self.tp.knot_dt / self.tp.dt))
+        idx = np.unique(np.append(np.arange(0, len(tail.t), every), len(tail.t) - 1))
+        return JointTrajectory(tail.t[idx], tail.q[idx], None if tail.gripper is None else tail.gripper[idx])
 
     # ---- redundancy: the elbow's self-motion ----------------------------------------
     def self_motion(self, q: np.ndarray, X_des: RigidTransform, n_steps: int = 6, step: float = 0.2):
@@ -316,10 +347,10 @@ class GoalGenerator:
                 if tail is None:
                     reason = reason or "tail_infeasible"
                     continue
-                if not tail_free(tail):
+                if not tail_free(self.check_knots(tail)):
                     reason = reason or "tail_collides"
                     continue
-                cand = GoalCandidate(T=float(T), q=qc, tail=tail, grasp_index=k, family=f,
+                cand = GoalCandidate(T=float(T), q=tail.q[0].copy(), tail=tail, grasp_index=k, family=f,
                                      grasp_name=self.grasps[k].name)
                 if i > 0:
                     st["rescued_by_swivel"] += 1

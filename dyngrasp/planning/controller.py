@@ -42,7 +42,7 @@ from dyngrasp.planning.st_rrt import (
     min_duration,
     plan_to_safe_state,
 )
-from dyngrasp.trajectory import JointTrajectory
+from dyngrasp.trajectory import JointTrajectory, hermite, motion_limits
 from dyngrasp.world import WorldModel
 
 
@@ -50,6 +50,13 @@ from dyngrasp.world import WorldModel
 class STRRTConfig:
     v_scale: float = 0.5  # planner joint-velocity limits, as a fraction of the iiwa's
     tail_v_scale: float = 0.9  # the grasp tail may move faster (short, smooth motion)
+    # Joint-acceleration limits (rad/s^2).  KUKA publishes none for the iiwa; these are our
+    # planning limits (None disables the acceleration-aware planning and smoothing).
+    a_max: float | None = 4.0  # planner (transfer and escape motions)
+    tail_a_max: float = 6.0  # the grasp tail
+    # While the object may be in the hand (after the grasp), move gently so it is not flung.
+    v_scale_holding: float = 0.25
+    a_max_holding: float = 1.5
     budget: float = 0.25  # wall-clock budget of a replan = how far ahead it plans from (s)
     initial_budget: float = 1.5  # first plan, robot at rest (includes goal generation)
     replan_period: float = 0.5  # sim time between replans
@@ -103,7 +110,8 @@ class SpaceTimeRRTController(Controller):
         grasps = self.grasps
         if grasps is None and cfg.grasp_set == "all":
             grasps = [g for g in generate_grasps(world.object) if g.family in cfg.grasp_families]
-        self.goalgen = GoalGenerator(world, robot, cfg.tail_v_scale * robot.v_limits, cfg.tail, grasps)
+        self.goalgen = GoalGenerator(world, robot, cfg.tail_v_scale * robot.v_limits, cfg.tail, grasps,
+                                     a_max=None if cfg.a_max is None else np.full(7, cfg.tail_a_max))
         seed = cfg.seed if cfg.seed is not None else (
             world.spec.seed if world.spec.seed is not None else zlib.crc32(world.spec.name.encode())
         )
@@ -111,6 +119,8 @@ class SpaceTimeRRTController(Controller):
         lo = robot.q_lower + cfg.joint_margin
         hi = robot.q_upper - cfg.joint_margin
         self.rrt = SpaceTimeRRTConnect(lo, hi, self.v_max, self.checker.edge_free, cfg.rrt, self.rng)
+        self.a_max = None if cfg.a_max is None else np.full(len(lo), cfg.a_max)
+        self.rrt.a_max = self.a_max
         self.goals: list[GoalCandidate] = []
         self.pending_T: list[float] | None = None  # intercept times not yet processed
         self._cost_per_T = 0.0
@@ -137,7 +147,10 @@ class SpaceTimeRRTController(Controller):
         if np.any(keep):
             Q = np.vstack([traj.value(t_s), traj.q[keep]])
             T = np.concatenate([[t_s], traj.t[keep]])
-            if not self.checker.path_free(Q, T):
+            # dense (10 ms) trajectories: check at the checker's time resolution
+            step = max(1, int(round(self.checker.dt_res / max(float(np.median(np.diff(T))), 1e-6))))
+            idx = np.unique(np.append(np.arange(0, len(T), step), len(T) - 1))
+            if not self.checker.path_free(Q[idx], T[idx]):
                 return False
         return self.checker.hold_free(traj.q[-1], t_end, self.cfg.hold_horizon)
 
@@ -213,6 +226,9 @@ class SpaceTimeRRTController(Controller):
         # (planning from further ahead) costs nothing: grow it after every failure.
         no_grasp = current is None or current.mode != "grasp"
         budget = cfg.initial_budget if first else (self._budget_now if no_grasp else cfg.budget)
+        if not first and budget > cfg.budget and not self._remaining_valid(state.trajectory, t + budget):
+            # the safe hold is about to become unsafe: react now, not one long budget later
+            budget = self._budget_now = cfg.budget
         if first:
             # The arm holds still while the first plan is computed: if an obstacle would hit
             # it there, leave enough time to get out of the way.
@@ -222,9 +238,11 @@ class SpaceTimeRRTController(Controller):
         t_s = t + budget
         if first:
             q_s = state.q_cmd.copy()
+            v_s = np.zeros_like(q_s)
             prefix = JointTrajectory([t, t_s], [q_s, q_s], [WSG_OPEN, WSG_OPEN])
         else:
             q_s = state.trajectory.value(t_s)
+            v_s = state.trajectory.velocity(t_s) if self.a_max is not None else None
             prefix = state.trajectory.slice_until(t_s)
         log = {"t": t, "t_s": t_s, "first": first}
 
@@ -232,6 +250,19 @@ class SpaceTimeRRTController(Controller):
             not cfg.validate or self._remaining_valid(state.trajectory, t_s)
         )
         log["current_valid"] = current_valid
+
+        # The current plan is unsafe: secure a cheap structured escape first (it is the fallback
+        # if no grasp plan is found in what is left of the budget).
+        fallback = None
+        if not current_valid:
+            v_lim, a_lim = self.v_max, self.a_max
+            if self.grasp_done and self.a_max is not None:  # gentle with the object in hand
+                v_lim = cfg.v_scale_holding * self.robot.v_limits
+                a_lim = np.full(len(v_lim), cfg.a_max_holding)
+            g_esc = prefix.gripper_at(t_s) if prefix.gripper is not None else WSG_OPEN
+            prim = self._escape_primitive(q_s, v_s, t_s, g_esc, wall0, 0.5 * budget, v_lim, a_lim)
+            if prim is not None:
+                fallback = _Plan(JointTrajectory.concatenate([prefix, prim]), "escape")
 
         if not self.grasp_done and (self.pending_T is None or self.pending_T):
             if current_valid and self.pending_T:
@@ -261,32 +292,57 @@ class SpaceTimeRRTController(Controller):
             res = self.rrt.plan(
                 q_s, t_s, np.array([g.q for g in goals]), np.array([g.T for g in goals]),
                 time_budget=max(0.0, (1.0 - cfg.shortcut_share) * left),
+                v_start=v_s, goal_v=np.array([self._tail_v0(g) for g in goals]),
             )
             log.update(rrt_ok=res.success, rrt_reason=res.reason, nodes=res.nodes, edges=res.edge_checks,
                        rrt_wall=res.wall)
             if res.success:
-                Q, T = self.rrt.shortcut(res.path_q, res.path_t, max(0.0, self._deadline_left(wall0, 0.85 * budget)))
                 g = goals[res.goal_index]
-                path = JointTrajectory(T, Q, np.full(len(T), WSG_OPEN))
-                traj = JointTrajectory.concatenate([prefix, path, g.tail])
-                result = _Plan(traj, "grasp", g)
-                log.update(T_goal=g.T, knots=len(T), grasp=g.grasp_name)
+                v_g = self._tail_v0(g)
+                Q, T = self.rrt.shortcut(res.path_q, res.path_t, max(0.0, self._deadline_left(wall0, 0.85 * budget)),
+                                         v_start=v_s, v_end=v_g)
+                path, tail = self._smooth(T, Q, v_s, v_g, WSG_OPEN), self._smooth_tail(g)
+                why = self._verify(path, self.v_max, self.a_max)
+                log.update(T_goal=g.T, knots=len(T), grasp=g.grasp_name, accel_rejects=res.stats.get("accel_rejects", 0))
+                if why:
+                    log["smooth_reject"] = why  # the smoothed curve failed a check: no plan this cycle
+                else:
+                    result = _Plan(JointTrajectory.concatenate([prefix, path, tail]), "grasp", g)
 
+        if result is None and fallback is not None:
+            result = fallback
+            log.update(escape_ok=True, escape="primitive", holding=self.grasp_done)
         if result is None and not current_valid:
             # No grasp plan and the current one is unsafe (or there is none): get out of the way.
             left = self._deadline_left(wall0, 0.85 * budget)
-            esc = plan_to_safe_state(
-                self.rrt, q_s, t_s,
-                lambda q, tt: self.checker.hold_free(q, tt, cfg.hold_horizon),
-                t_max=t_s + 3.0, time_budget=max(0.0, left),
-            )
-            log.update(escape_ok=esc.success)
+            # with the object (possibly) in hand: slower and gentler, so it is not flung
+            v_lim, a_lim = self.v_max, self.a_max
+            if self.grasp_done and self.a_max is not None:
+                v_lim = cfg.v_scale_holding * self.robot.v_limits
+                a_lim = np.full(len(v_lim), cfg.a_max_holding)
+            self.rrt.v_max, self.rrt.a_max = v_lim, a_lim
+            try:
+                esc = plan_to_safe_state(
+                    self.rrt, q_s, t_s,
+                    lambda q, tt: self.checker.hold_free(q, tt, cfg.hold_horizon),
+                    t_max=t_s + 3.0, time_budget=max(0.0, left), v_start=v_s,
+                )
+            finally:
+                self.rrt.v_max, self.rrt.a_max = self.v_max, self.a_max
+            log.update(escape_ok=esc.success, holding=self.grasp_done)
             if esc.success:
                 parts = [prefix]
                 if len(esc.path_t) > 1:
                     g = prefix.gripper_at(t_s) if prefix.gripper is not None else WSG_OPEN
-                    parts.append(JointTrajectory(esc.path_t, esc.path_q, np.full(len(esc.path_t), g)))
-                result = _Plan(JointTrajectory.concatenate(parts), "escape" if len(esc.path_t) > 1 else "hold")
+                    path = self._smooth(esc.path_t, esc.path_q, v_s, None, g)
+                    why = self._verify(path, v_lim, a_lim)
+                    if why:
+                        log["smooth_reject"] = why
+                        parts = None
+                    else:
+                        parts.append(path)
+                if parts is not None:
+                    result = _Plan(JointTrajectory.concatenate(parts), "escape" if len(esc.path_t) > 1 else "hold")
 
         if result is not None and result.mode == "grasp":
             self._budget_now = cfg.budget
@@ -297,6 +353,84 @@ class SpaceTimeRRTController(Controller):
         if result is not None:
             self.plans[id(result.traj)] = result
         return result
+
+    # ---- evasive motion primitives -----------------------------------------------------
+    def _escape_primitive(self, q_s, v_s, t_s, gripper, wall0, budget, v_lim, a_lim):
+        """Structured escapes, tried before the random-tree escape: a single smooth curve from
+        (q_s, v_s) to a target at rest (brake in place, go home, swing the base / shoulder /
+        elbow away, random nearby targets), fastest first.  Accepted if it respects the limits,
+        is collision-free, and holding the target afterwards is collision-free."""
+        cfg, robot = self.cfg, self.robot
+        v_s = np.zeros_like(q_s) if v_s is None else v_s
+        lo, hi = robot.q_lower + cfg.joint_margin, robot.q_upper - cfg.joint_margin
+        offsets = []
+        # single joints: base, shoulder, elbow (the links that meet obstacles), small and large
+        for j, mags in ((0, (0.5, 1.0)), (1, (0.4, 0.8, 1.0)), (3, (0.4, 0.8, 1.0))):
+            for d in mags:
+                for sgn in (1.0, -1.0):
+                    e = np.zeros(7)
+                    e[j] = sgn * d
+                    offsets.append(e)
+        # shoulder back + elbow folded, either way (pulls the whole arm in)
+        for s1 in (1.0, -1.0):
+            for s3 in (1.0, -1.0):
+                e = np.zeros(7)
+                e[1], e[3] = s1 * 0.6, s3 * 0.6
+                offsets.append(e)
+        offsets += [self.rng.normal(0.0, 0.6, 7) for _ in range(10)]
+        targets = [("brake", None), ("home", np.asarray(self.world.spec.q0, float))] + \
+                  [("offset", q_s + o) for o in offsets]
+        for D in (0.6, 0.9, 1.2, 1.6):
+            for kind, qt in targets:
+                if self._deadline_left(wall0, budget) <= 0:
+                    return None
+                if kind == "brake":
+                    qt = q_s + 0.5 * v_s * D  # constant deceleration to rest
+                qt = np.clip(qt, lo, hi)
+                path = hermite([t_s, t_s + D], [q_s, qt], v_s, None, dt=self.period,
+                               gripper=[gripper, gripper])
+                if self._verify(path, v_lim, a_lim):
+                    continue
+                if self.checker.hold_free(qt, t_s + D, cfg.hold_horizon):
+                    return path
+        return None
+
+    # ---- smoothing --------------------------------------------------------------------
+    @staticmethod
+    def _tail_v0(g: GoalCandidate) -> np.ndarray:
+        """Joint velocity the grasp tail starts with (riding along with the target)."""
+        return (g.tail.q[1] - g.tail.q[0]) / (g.tail.t[1] - g.tail.t[0])
+
+    def _smooth(self, T, Q, v0, vN, gripper) -> JointTrajectory:
+        """The executed trajectory through the planner's knots: C1 cubic Hermite (same knot
+        positions and times) when acceleration limits are on, else the polyline."""
+        g = np.full(len(T), gripper)
+        if self.a_max is None:
+            return JointTrajectory(T, Q, g)
+        return hermite(T, Q, v0, vN, dt=self.period, gripper=g)
+
+    def _smooth_tail(self, g: GoalCandidate) -> JointTrajectory:
+        """The tail is already the full-rate (10 ms) differential-IK rollout whose velocities and
+        accelerations were checked when it was generated: execute it as it is."""
+        return g.tail
+
+    def _verify(self, path: JointTrajectory, v_lim, a_lim) -> str:
+        """Check the curve actually executed: collision-free (it deviates slightly from the
+        planner's straight edges) and within the velocity / acceleration limits."""
+        if len(path.t) < 2:
+            return ""
+        v, a = motion_limits(path)
+        # the curve may exceed the planner's (conservative) edge speed a little between knots;
+        # what matters is the arm's own limit -- checked with or without acceleration limits
+        if np.any(v > 0.95 * self.robot.v_limits):
+            return "velocity"
+        if a_lim is not None and np.any(a > 1.05 * a_lim + 1e-6):
+            return "acceleration"
+        step = max(1, int(round(self.checker.dt_res / max(path.t[1] - path.t[0], 1e-6))))
+        idx = np.unique(np.append(np.arange(0, len(path.t), step), len(path.t) - 1))
+        if not self.checker.path_free(path.q[idx], path.t[idx]):
+            return "collision"
+        return ""
 
     def _log(self, log: dict, wall0: float, outcome: str) -> None:
         log["outcome"] = outcome
