@@ -184,8 +184,8 @@ piecewise linear in q(t), so velocity jumped at every knot: 100-250 rad/s^2 comm
   cannot simply be retimed (e.g. with TOPP-RA), because their timing is what keeps
   them clear of the moving obstacles. Velocities at the knots lie between the
   adjacent segment velocities, so the curve never overshoots a knot.
-* **The RRT is acceleration-aware** (`a_max`, default 4 rad/s^2; KUKA publishes no
-  iiwa acceleration limits, so this is our planning limit). At every knot,
+* **The RRT is acceleration-aware** (`a_max`, per joint; see "Per-joint limits" below
+  for the values; originally 4 rad/s^2 for every joint). At every knot,
   |dv| <= a_max * min(h_in, h_out) / 6 per joint, which provably bounds the cubic's
   acceleration by a_max (checked empirically: worst 0.97 a_max). Rejecting
   violating extensions wasted 97 % of samples, so extensions instead *project*
@@ -197,8 +197,8 @@ piecewise linear in q(t), so velocity jumped at every knot: 100-250 rad/s^2 comm
   straight edges.
 * **The grasp tail** uses minimum-jerk profiles (zero velocity *and* acceleration
   at both ends), starts from an exactly polished pre-grasp (no feedback snap),
-  is limited to 6 rad/s^2, and is executed at full rate, i.e. exactly as checked.
-* **With the object in hand**, escapes use 0.25x velocity and 1.5 rad/s^2.
+  is limited to `tail_a_max` (per joint), and is executed at full rate, i.e. exactly as checked.
+* **With the object in hand**, escapes use 0.25x velocity and `a_max_holding`.
 * **Escapes** first try a library of smooth evasive primitives (brake, go home,
   swing the base / shoulder / elbow, fold the arm, random nearby targets),
   computed *before* goal generation when the current plan is unsafe; the
@@ -244,6 +244,61 @@ So 11 of 20 abstentions are correct at any acceleration limit, 8 are caused by t
 limits (4 at 8 rad/s^2, 4 more at 16), and 1 is a planner miss. mix_0054 lost its goals
 when the lift was lowered to 10 cm (a 15 cm lift avoids the obstacles); the goal search
 now tries both lift heights.
+
+## Per-joint limits, post-grasp safety, end-of-scene scoring
+
+**Per-joint acceleration limits.** KUKA publishes no iiwa acceleration limits. The joints
+differ a lot: 176 N m of torque at joints 1-2, 110 at 3-5, 40 at 6-7, and joint 2 lifts the
+whole arm. Inverse dynamics of our iiwa 7 + WSG model (2000 random poses, one joint at a
+time, no payload) allow roughly 54 / 22 / 29 / 44 / 78 / 28 / 29 rad/s^2 (median), an upper
+bound. The limits are fractions of a reference set used for an iiwa in the literature,
+`IIWA_ACCEL_REF` = (15, 7.5, 10, 12.5, 15, 20, 20) rad/s^2 (arXiv 2407.13423):
+
+| | fraction | rad/s^2 (joints 1-7) |
+|---|---|---|
+| planner (`a_max`) | 0.6 | 9, 4.5, 6, 7.5, 9, 12, 12 |
+| grasp tail (`tail_a_max`) | 0.8 | 12, 6, 8, 10, 12, 16, 16 |
+| holding the object (`a_max_holding`) | 0.2 | 3, 1.5, 2, 2.5, 3, 4, 4 |
+
+**Torque check.** Every smoothed plan is also checked by inverse dynamics
+(`RobotModel.joint_torques`, iiwa + gripper): all joint torques within 0.9x the datasheet
+limits. `cmd_torque_ratio_max` reports the peak for every controller.
+
+**Acceleration spikes** (up to 57-95 rad/s^2 in mix_0003, 20 in mix_0004). Cause: a plan that
+arrived a few ms after its start time was accepted if it was within `stitch_tol` (0.02 rad)
+in position, but it had already started moving, so splicing it in was a velocity step. The
+stitch check now also requires the velocities to agree (`stitch_vtol` = 0.03 rad/s, i.e. at
+most 3 rad/s^2 over one 10 ms step); otherwise the plan is rejected and the old one runs on.
+
+**Post-grasp collisions.** Episodes used to stop as soon as `success` was declared (lifted
+5 cm, held 0.5 s), so anything later was never scored. `run_episode(settle_after_success=...)`
+/ `stress_planner.py --settle 30` now simulate to the end of the scene, and the monitor
+reports `held_at_end`, `dropped_after_success`, `obj_speed_max_after_grasp` and `slip_max`.
+That showed 2 collisions after success (mix_0009, mix_0049): the grasp ended in an
+obstacle's path, and the gentle holding limits plus a 0.25 s budget were too slow to escape.
+Fixes:
+1. A grasp tail is accepted only if holding its end pose is collision-free for
+   `post_grasp_hold` = 1 s.
+2. While holding, escapes try the gentle limits first, then the planner's (shaking the
+   object beats hitting an obstacle).
+3. The replan budget scales with the time to the predicted collision:
+   clip(0.5 (t_hit - t), 0.25, 1.0) s, so a hard escape found with 1.5 s of warning is
+   not cut off after 0.125 s (mix_0044).
+4. The mix_0073 miss: goal-work cycles kept generating goals for later intercept times
+   while a reachable goal went stale. With a reachable goal, the planner now plans to it.
+
+80 held-out scenes, measured latency, simulated to the end of each scene:
+
+| | clean success, held at end | collisions | dropped after success | commanded accel (median / p90 / worst) | peak torque / limit |
+|---|---|---|---|---|---|
+| before (4 / 6 / 1.5 rad/s^2, v14) | 57 | 2 (both after success) | 0 | 3.8 / 5.0 / 57.1 | - |
+| **now** (per-joint, v16) | **59** | **0** | **0** | **4.2 / 6.4 / 8.2** | 0.55 (median 0.34) |
+
+Gained mix_0023, 0031, 0049, 0054. Lost mix_0061 (each grasp it had ends with an obstacle
+arriving within 1 s; it was lucky before) and mix_0077 (run-to-run variation from measured
+latency suggests about +-2 scenes between runs). After the grasp, objects slip at most 3.9 cm
+in the hand; the fastest object motion is 1.2 m/s (mix_0049, a fallback escape at the
+planner limits while holding the can, still held at the end).
 
 ## Videos
 

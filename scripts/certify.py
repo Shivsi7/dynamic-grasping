@@ -18,9 +18,11 @@ For every scene the online planner failed on, collect increasingly strong eviden
 
 The oracle is also run with the acceleration limits off, to show which scenes the limits
 themselves make impossible, and (`--sweep`) at increasing acceleration limits, which gives
-each scene a *required acceleration*: the smallest limit at which it is possible.  For the
-grasp tail the same number comes straight from the exhaustive search: the smallest peak
-joint acceleration among all feasible goals (searched with no tail limit).
+each scene a *required acceleration*: the smallest limit at which it is possible.  Limits are
+per joint, as a fraction of IIWA_ACCEL_REF (the planner uses 0.6, its grasp tail 0.8; 1.0 is
+the reference itself).  For the grasp tail the same number comes straight from the exhaustive
+search: the smallest peak of joint acceleration / reference among all feasible goals
+(searched with no tail limit).
 
     python scripts/certify.py --results results/stress_v11_accel/results.csv --controller st_rrt_fasttail \\
         --scenarios results/stress_v3_heldout/scenarios.yaml --out results/certify
@@ -42,6 +44,10 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from dyngrasp import scenario as S  # noqa: E402
+from dyngrasp.planning.controller import IIWA_ACCEL_REF, STRRTConfig, _scaled, accel_vector  # noqa: E402
+
+PLANNER_SCALE = STRRTConfig().a_max[0] / IIWA_ACCEL_REF[0]  # 0.6
+TAIL_SCALE = STRRTConfig().tail_a_max[0] / IIWA_ACCEL_REF[0]  # 0.8
 
 
 def min_time_from_rest(dq: np.ndarray, v_max: np.ndarray, a_max: np.ndarray) -> float:
@@ -55,12 +61,12 @@ def min_time_from_rest(dq: np.ndarray, v_max: np.ndarray, a_max: np.ndarray) -> 
     return float(np.max(t))
 
 
-def oracle_config(a_max_on: bool, wall_scale: float, a_max: float = 4.0):
-    from dyngrasp.planning.controller import STRRTConfig
-
+def oracle_config(a_max_on: bool, wall_scale: float, scale: float = PLANNER_SCALE):
+    """The planner with `wall_scale` x the compute; joint-acceleration limits `scale` x
+    IIWA_ACCEL_REF for transfers and max(TAIL_SCALE, scale + 0.2) x it for the tail."""
     return STRRTConfig(
-        a_max=a_max if a_max_on else None,
-        tail_a_max=max(6.0, a_max),
+        a_max=_scaled(scale) if a_max_on else None,
+        tail_a_max=_scaled(max(TAIL_SCALE, scale + 0.2)),
         wall_scale=wall_scale,
         dT=0.125, max_goal_times=64, max_goals_per_T=6, max_ik_per_T=40, ik_restarts=10,
         max_tails=10, swivel_steps=10, n_random_ik_seeds=3,
@@ -83,14 +89,17 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     ck = SpaceTimeChecker(spec, world, cfg.margin_obstacle, cfg.margin_env)
     grasps = [g for g in generate_grasps(world.object) if g.family in cfg.grasp_families]
     gg = GoalGenerator(world, robot, cfg.tail_v_scale * robot.v_limits, cfg.tail, grasps,
-                       a_max=np.full(7, cfg.tail_a_max))
+                       a_max=accel_vector(cfg.tail_a_max))
     rng = np.random.default_rng(0)
     gg.start([np.asarray(spec.q0, float)], rng, n_random_seeds=3)
     for k in list(gg._seeds):  # random seeds for every grasp, not only the nominal one
         gg._seeds[(k[0], 99)] = rng.uniform(robot.q_lower, robot.q_upper)
+    def tail_free(tr):  # as the planner: the tail, and holding its end pose for post_grasp_hold
+        return ck.path_free(tr.q, tr.t) and ck.hold_free(tr.q[-1], tr.t[-1], cfg.post_grasp_hold)
+
     goals = []
     for T in gg.candidate_times(0.0, dT=0.1, max_count=400):
-        goals += gg.generate_for(T, lambda tr: ck.path_free(tr.q, tr.t), ck.state_free, max_per_T=30,
+        goals += gg.generate_for(T, tail_free, ck.state_free, max_per_T=30,
                                  swivel_steps=12, max_ik_per_T=200, ik_restarts=10, max_tails=30)
 
     # the same search with the grasp tail's acceleration limit off: does that limit remove all goals?
@@ -98,15 +107,17 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     gg_free.start([np.asarray(spec.q0, float)], np.random.default_rng(0), n_random_seeds=3)
     free_goals = []
     for T in gg_free.candidate_times(0.0, dT=0.1, max_count=400):
-        free_goals += gg_free.generate_for(T, lambda tr: ck.path_free(tr.q, tr.t), ck.state_free, max_per_T=2,
+        free_goals += gg_free.generate_for(T, tail_free, ck.state_free, max_per_T=2,
                                            swivel_steps=12, max_ik_per_T=200, ik_restarts=10, max_tails=30)
     n_free = len(free_goals)
     from dyngrasp.trajectory import motion_limits
-    # smallest peak joint acceleration of any feasible grasp tail: possible iff tail_a_max >= this
-    tail_accel_needed = min((float(motion_limits(g.tail)[1].max()) for g in free_goals), default=np.inf)
+    # smallest peak joint acceleration (as a fraction of IIWA_ACCEL_REF) of any feasible grasp
+    # tail: possible iff the tail's scale >= this
+    ref = np.asarray(IIWA_ACCEL_REF)
+    tail_accel_needed = min((float((motion_limits(g.tail)[1] / ref).max()) for g in free_goals), default=np.inf)
 
     q0 = np.asarray(spec.q0, float)
-    v_plan, a_plan = cfg.v_scale * robot.v_limits, np.full(7, cfg.a_max)
+    v_plan, a_plan = cfg.v_scale * robot.v_limits, accel_vector(cfg.a_max)
     reachable = [g for g in goals if min_time_from_rest(g.q - q0, v_plan, a_plan) <= g.T]
 
     out = {"scenario": spec.name, "object": spec.target.object, "target_speed": spec.cart.speed,
@@ -121,7 +132,7 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
         out[f"{tag}_grasp"] = next((l["grasp"] for l in reversed(c.plan_log) if "grasp" in l), "")
         out[f"{tag}_accel_max"] = r.cmd_accel_max
     # required planner acceleration: smallest swept limit at which the oracle grasps
-    out["planner_accel_needed"] = 4.0 if out["oracle_success"] else np.inf
+    out["planner_accel_needed"] = PLANNER_SCALE if out["oracle_success"] else np.inf
     if not out["oracle_success"] and n_free > 0:
         for a in sweep:
             c = SpaceTimeRRTController(oracle_config(True, wall_scale, a))
@@ -146,8 +157,8 @@ def main():
     ap.add_argument("--controller", default="st_rrt")
     ap.add_argument("--names", nargs="*", default=[])
     ap.add_argument("--wall-scale", type=float, default=20.0)
-    ap.add_argument("--sweep", nargs="*", type=float, default=[8.0, 16.0],
-                    help="acceleration limits (rad/s^2) to retry the oracle at, for the required acceleration")
+    ap.add_argument("--sweep", nargs="*", type=float, default=[0.8, 1.0, 1.5],
+                    help="acceleration limits (fractions of IIWA_ACCEL_REF) to retry the oracle at")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--out", default="results/certify")
     args = ap.parse_args()

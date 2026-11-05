@@ -77,6 +77,13 @@ class EpisodeMonitor(LeafSystem):
         self.t_lift: float | None = None  # first time it is in hand and lifted
         self.t_success: float | None = None
         self.dropped = False
+        # after the grasp: is the object still held when the episode ends, and was it shaken or flung?
+        self.dropped_after_success = False  # lost from the hand after success was declared
+        self.held_at_end = False  # in hand and lifted at the last sample
+        self.obj_speed_max_after_grasp = 0.0  # world speed of the object's centre, m/s
+        self.slip_max = 0.0  # how far the object moved in the gripper frame after the lift, m
+        self._p_GO_lift: np.ndarray | None = None
+        self._p_prev: tuple[float, np.ndarray] | None = None
         self.log = EpisodeLog()
         self._lifted_since: float | None = None
         self._was_lifted = False
@@ -159,6 +166,18 @@ class EpisodeMonitor(LeafSystem):
             self._lifted_since = None
             if self._was_lifted and not in_hand and self.t_success is None:
                 self.dropped = True
+            if self.t_success is not None and not in_hand:
+                self.dropped_after_success = True
+        self.held_at_end = bool(in_hand and lifted)
+        if self.t_grasp is not None and self._p_prev is not None and t > self._p_prev[0]:
+            v = np.linalg.norm(p_WOc - self._p_prev[1]) / (t - self._p_prev[0])
+            self.obj_speed_max_after_grasp = max(self.obj_speed_max_after_grasp, float(v))
+        self._p_prev = (t, np.array(p_WOc))
+        if in_hand and lifted:
+            p_GO = X_WG.inverse() @ p_WOc
+            if self._p_GO_lift is None:
+                self._p_GO_lift = p_GO
+            self.slip_max = max(self.slip_max, float(np.linalg.norm(p_GO - self._p_GO_lift)))
 
         d_obs, d_env = self._clearances(context)
         if d_obs < self.min_clearance_obstacles:

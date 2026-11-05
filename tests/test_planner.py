@@ -85,7 +85,8 @@ def test_executed_motion_respects_the_acceleration_limits():
     c = SpaceTimeRRTController()
     r = run_episode(S.tall_blocker(0.1, 0.2), c, latency=0.1)
     assert r.outcome == "success"
-    # commanded joint accelerations: the planner's 4 rad/s^2 and the tail's 6 rad/s^2 (+ 10 %
-    # for finite differencing); without the smoothing this was > 100 rad/s^2
-    assert r.cmd_accel_max < 1.1 * c.cfg.tail_a_max, r.cmd_accel_max
+    # commanded joint accelerations within the (per-joint) planner and tail limits (+ 10 % for
+    # finite differencing); without the smoothing this was > 100 rad/s^2
+    assert r.cmd_accel_max < 1.1 * max(c.cfg.tail_a_max), r.cmd_accel_max
     assert r.cmd_speed_ratio_max < 0.95
+    assert r.cmd_torque_ratio_max < 1.0, r.cmd_torque_ratio_max

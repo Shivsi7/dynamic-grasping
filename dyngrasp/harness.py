@@ -66,9 +66,14 @@ class EpisodeResult:
     cmd_speed_ratio_max: float = 0.0
     cmd_accel_max: float = 0.0
     cmd_accel_p99: float = 0.0
+    cmd_torque_ratio_max: float = 0.0  # peak |joint torque| / torque limit of the commanded motion
     latency_mode: str = "none"
     n_rejected_commands: int = 0
     delay_max_ms: float = 0.0
+    held_at_end: bool = False
+    dropped_after_success: bool = False
+    obj_speed_max_after_grasp: float = 0.0
+    slip_max: float = 0.0
     scenario_summary: dict[str, Any] = field(default_factory=dict)
     log: dict[str, np.ndarray] | None = None
     controller_log: list[dict[str, Any]] | None = None
@@ -112,6 +117,7 @@ def build_episode(
     cameras: dict | None = None,
     latency: str | float = "measured",
     compute_scale: float = 1.0,
+    stitch_vtol: float = 0.03,
 ) -> EpisodeHandles:
     scene = build_station(spec, meshcat, cameras)
     world = WorldModel(spec)
@@ -121,7 +127,8 @@ def build_episode(
     station = builder.AddNamedSystem("station", scene.station)
     ctrl = builder.AddNamedSystem(
         "controller", ControllerSystem(
-            controller, world, robot, scene.gripper_body.index(), spec.q0, latency=latency, compute_scale=compute_scale
+            controller, world, robot, scene.gripper_body.index(), spec.q0, latency=latency, compute_scale=compute_scale,
+            stitch_vtol=stitch_vtol,
         ),
     )
     builder.Connect(station.GetOutputPort("iiwa.position_measured"), ctrl.GetInputPort("iiwa.position_measured"))
@@ -221,6 +228,10 @@ def summarize(spec, controller, h: EpisodeHandles, t_end: float, wall: float, ke
         min_clearance_obstacles_t=float(m.min_clearance_obstacles_t),
         min_clearance_environment=float(m.min_clearance_environment),
         dropped=m.dropped,
+        held_at_end=m.held_at_end,
+        dropped_after_success=m.dropped_after_success,
+        obj_speed_max_after_grasp=m.obj_speed_max_after_grasp,
+        slip_max=m.slip_max,
         t_end=float(t_end),
         sim_wall_s=float(wall),
         scenario_summary=spec.summary(),

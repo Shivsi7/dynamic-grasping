@@ -39,7 +39,7 @@ def mixed_set(seed: int, n: int) -> list:
     return specs
 
 
-def run_one(spec_dict: dict, cname: str, latency) -> dict:
+def run_one(spec_dict: dict, cname: str, latency, settle: float = 0.0) -> dict:
     from dyngrasp.baselines import HoldController, NaiveInterceptController
     from dyngrasp.harness import run_episode
     from dyngrasp.planning.controller import SpaceTimeRRTController, STRRTConfig
@@ -58,7 +58,7 @@ def run_one(spec_dict: dict, cname: str, latency) -> dict:
     spec = ScenarioSpec.from_dict(spec_dict)
     ctrl = factories[cname]()
     try:
-        r = run_episode(spec, ctrl, keep_log=False, latency=latency)
+        r = run_episode(spec, ctrl, keep_log=False, latency=latency, settle_after_success=settle)
     except Exception as e:  # a crash is a result too: record it
         return {"scenario": spec.name, "controller": cname, "outcome": "crash", "error": repr(e)[:300],
                 **spec.summary()}
@@ -92,6 +92,8 @@ def main():
     ap.add_argument("--controllers", nargs="+", default=["st_rrt"])
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--latency", default="measured")
+    ap.add_argument("--settle", type=float, default=0.0,
+                    help="keep simulating this long after success (to the scene's end at most): is it still held?")
     ap.add_argument("--out", default="results/stress")
     args = ap.parse_args()
     latency = args.latency if args.latency in ("measured", "none") else float(args.latency)
@@ -103,7 +105,7 @@ def main():
     jobs = [(s.to_dict(), c) for s in specs for c in args.controllers]
     rows = []
     with ProcessPoolExecutor(args.workers) as ex:
-        futs = [ex.submit(run_one, d, c, latency) for d, c in jobs]
+        futs = [ex.submit(run_one, d, c, latency, args.settle) for d, c in jobs]
         for k, f in enumerate(as_completed(futs), 1):
             row = f.result()
             rows.append(row)

@@ -11,6 +11,14 @@ SUCCESS.  Episodes keep running after a collision, so you can see what happens.
         --names mix_0012 mix_0034 --controllers naive st_rrt_nominal st_rrt --views front34 top
 
 Writes <out>/<scenario>.mp4 (H.264) and <scenario>_final.png (last frame).
+
+    # one video per scene that (B) did not grasp, next to the certification evidence
+    python scripts/compare_videos.py --certify results/certify_v12/certify.csv \
+        --scenarios results/stress_v3_heldout/scenarios.yaml --jobs 5 --out results/videos_certify
+
+`oracle_<s>` panels are the certification oracle (scripts/certify.py): the same planner
+with 20x the compute and planning time free (latency "none"), at joint-acceleration limits
+<s> x IIWA_ACCEL_REF (per joint).
 """
 
 from __future__ import annotations
@@ -45,6 +53,31 @@ CONTROLLERS = {
     "st_rrt_noaccel": ("(B) before: no accel. limits", lambda: SpaceTimeRRTController(STRRTConfig(a_max=None))),
     "st_rrt": ("(B) now: accel.-limited, smooth", SpaceTimeRRTController),
 }
+# per-controller latency override (the oracle plans "offline": its planning time is free)
+LATENCY = {}
+# per-controller harness options
+EPISODE_KW = {}
+# (B) as of commit bde69c7: one acceleration limit for all joints (4 / 6 / 1.5 rad/s^2),
+# no post-grasp safety (hold check, escape fallback), no torque check, and late plans that
+# were already moving spliced in (no velocity check at the stitch).  The goal-work
+# scheduling fix of mix_0073 is not undone.
+CONTROLLERS["st_rrt_before"] = ("(B) before: 4/6 rad/s2 all joints", lambda: SpaceTimeRRTController(STRRTConfig(
+    a_max=4.0, tail_a_max=6.0, a_max_holding=1.5, post_grasp_hold=0.0, escape_fallback=False, torque_check=False)))
+EPISODE_KW["st_rrt_before"] = {"stitch_vtol": np.inf}
+
+
+def _oracle(a, on=True):
+    from certify import oracle_config
+
+    return lambda: SpaceTimeRRTController(oracle_config(on, 20.0, a))
+
+
+for _s in (0.6, 0.8, 1.0, 1.5):
+    CONTROLLERS[f"oracle_{_s}"] = (f"oracle @ {_s} x ref. accel. (20x compute)", _oracle(_s))
+    LATENCY[f"oracle_{_s}"] = "none"
+CONTROLLERS["oracle_noaccel"] = ("oracle, NO accel. limits (20x compute)", _oracle(0.6, on=False))
+LATENCY["oracle_noaccel"] = "none"
+CONTROLLERS["st_rrt"] = ("(B) now: per-joint limits, safe hold", SpaceTimeRRTController)
 PRESETS = {
     "tall_blocker": lambda: S.tall_blocker(0.1, 0.2),
     "plank_blocker": lambda: S.plank_blocker(0.1, 0.2),
@@ -76,7 +109,8 @@ def render_episode(spec, cname: str, views: list[str], fps: float, size, latency
     label, factory = CONTROLLERS[cname]
     controller = factory()
     cams = {v: look_at_camera(v, *VIEWS[v], size[0], size[1]) for v in views}
-    h = build_episode(spec, controller, cameras=cams, stop_on_collision=False, latency=latency)
+    h = build_episode(spec, controller, cameras=cams, stop_on_collision=False, latency=LATENCY.get(cname, latency),
+                      **EPISODE_KW.get(cname, {}))
     h.simulator.Initialize()
     station = h.scene.station
     f_big, f_small = _font(17), _font(13)
@@ -136,13 +170,13 @@ def render_episode(spec, cname: str, views: list[str], fps: float, size, latency
     return frames
 
 
-def write_video(spec, cnames, views, out: Path, fps=15, size=(480, 360), latency="measured"):
+def write_video(spec, cnames, views, out: Path, fps=15, size=(480, 360), latency="measured", note=""):
     per = [render_episode(spec, c, views, fps, size, latency) for c in cnames]
     n = min(len(f) for f in per)
     W = sum(f[0].size[0] for f in per) + 6 * (len(per) - 1)
     H = per[0][0].size[1] + 30
     title = (f"{spec.name}   object: {spec.target.object}   cart {spec.cart.speed:.2f} m/s   "
-             f"{len(spec.obstacles)} obstacle(s)   latency: {latency}")
+             f"{len(spec.obstacles)} obstacle(s)" + (f"   |   {note}" if note else f"   latency: {latency}"))
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{spec.name}.mp4"
     W2, H2 = W + (W % 2), H + (H % 2)
@@ -180,6 +214,8 @@ def main():
     ap.add_argument("--width", type=int, default=480)
     ap.add_argument("--latency", default="measured")
     ap.add_argument("--out", default="results/videos")
+    ap.add_argument("--certify", help="certify.csv: one video per scene, (B) now vs. the certification evidence")
+    ap.add_argument("--jobs", type=int, default=1, help="render scenes in parallel processes")
     args = ap.parse_args()
     latency = args.latency if args.latency in ("measured", "none") else float(args.latency)
     size = (args.width, int(args.width * 3 / 4))
@@ -187,8 +223,32 @@ def main():
     if args.scenarios:
         by = {s.name: s for s in S.load_scenario_set(args.scenarios)}
         specs += [by[n] for n in args.names]
-    for spec in specs:
-        print("wrote", write_video(spec, args.controllers, args.views, Path(args.out), args.fps, size, latency), flush=True)
+    jobs = [(spec, args.controllers, "") for spec in specs]
+    if args.certify:
+        import pandas as pd
+
+        by = {s.name: s for s in S.load_scenario_set(args.scenarios)}
+        for r in pd.read_csv(args.certify).sort_values("scenario").itertuples():
+            a = r.planner_accel_needed
+            if np.isfinite(a):
+                evidence, verdict = f"oracle_{a:g}", f"possible at {a:g} x ref. accel."
+                if r.oracle_success:
+                    verdict = "possible at the current limits: online planner MISSED it"
+            else:
+                evidence, verdict = "oracle_noaccel", "impossible at any acceleration (" + (
+                    "no feasible grasp)" if r.n_goals_without_tail_accel_limit == 0 else "no plan even unconstrained)")
+            jobs.append((by[r.scenario], ["st_rrt", evidence], f"verdict: {verdict}"))
+    if args.jobs > 1:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        with ProcessPoolExecutor(args.jobs) as ex:
+            futs = [ex.submit(write_video, spec, cn, args.views, Path(args.out), args.fps, size, latency, note)
+                    for spec, cn, note in jobs]
+            for f in as_completed(futs):
+                print("wrote", f.result(), flush=True)
+    else:
+        for spec, cn, note in jobs:
+            print("wrote", write_video(spec, cn, args.views, Path(args.out), args.fps, size, latency, note), flush=True)
 
 
 if __name__ == "__main__":

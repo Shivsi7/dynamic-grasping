@@ -46,17 +46,36 @@ from dyngrasp.trajectory import JointTrajectory, hermite, motion_limits
 from dyngrasp.world import WorldModel
 
 
+# Reference joint-acceleration limits of the iiwa (rad/s^2).  KUKA publishes none; these are
+# the per-joint limits used for an iiwa in arXiv 2407.13423 (cf. the joint torques: 176 N m at
+# joints 1-2, 110 at 3-5, 40 at 6-7; joint 2 lifts the whole arm).  The planner uses fractions.
+IIWA_ACCEL_REF = (15.0, 7.5, 10.0, 12.5, 15.0, 20.0, 20.0)
+
+
+def _scaled(f: float) -> tuple[float, ...]:
+    return tuple(round(f * a, 3) for a in IIWA_ACCEL_REF)
+
+
+def accel_vector(a, n: int = 7) -> np.ndarray | None:
+    """A scalar or per-joint acceleration limit as a per-joint array (None stays None)."""
+    return None if a is None else np.broadcast_to(np.asarray(a, float), (n,)).copy()
+
+
 @dataclass
 class STRRTConfig:
     v_scale: float = 0.5  # planner joint-velocity limits, as a fraction of the iiwa's
     tail_v_scale: float = 0.9  # the grasp tail may move faster (short, smooth motion)
-    # Joint-acceleration limits (rad/s^2).  KUKA publishes none for the iiwa; these are our
-    # planning limits (None disables the acceleration-aware planning and smoothing).
-    a_max: float | None = 4.0  # planner (transfer and escape motions)
-    tail_a_max: float = 6.0  # the grasp tail
-    # While the object may be in the hand (after the grasp), move gently so it is not flung.
+    # Joint-acceleration limits (rad/s^2), per joint or one number for all joints: fractions of
+    # IIWA_ACCEL_REF (None disables the acceleration-aware planning and smoothing).
+    a_max: float | tuple | None = _scaled(0.6)  # planner (transfer and escape motions)
+    tail_a_max: float | tuple = _scaled(0.8)  # the grasp tail
+    # While the object may be in the hand (after the grasp), move gently so it is not flung;
+    # if no gentle escape exists, the planner limits are used rather than collide.
     v_scale_holding: float = 0.25
-    a_max_holding: float = 1.5
+    a_max_holding: float | tuple = _scaled(0.2)
+    escape_fallback: bool = True  # holding: fall back to the planner limits if no gentle escape exists
+    torque_check: bool = True  # executed motions must also stay within the joint torque limits
+    torque_margin: float = 0.9  # ... with this fraction of them (payload, model error)
     budget: float = 0.25  # wall-clock budget of a replan = how far ahead it plans from (s)
     initial_budget: float = 1.5  # first plan, robot at rest (includes goal generation)
     replan_period: float = 0.5  # sim time between replans
@@ -64,6 +83,10 @@ class STRRTConfig:
     improve: bool = True  # replans look for an earlier intercept while the current plan is valid
     validate: bool = True  # re-check the remaining plan against the world model at each replan
     hold_horizon: float = 1.5  # escape target: holding still for this long is collision-free
+    # After the grasp tail, holding its end pose must be collision-free for this long: time for
+    # a replan (budget) plus a gentle escape.  Without it the arm could finish the grasp in an
+    # obstacle's path, with too little time to get out at the gentle holding limits.
+    post_grasp_hold: float = 1.0
     shortcut_share: float = 0.3  # share of the remaining budget spent on shortcutting
     dT: float = 0.25  # spacing of candidate intercept times
     max_goal_times: int = 16
@@ -117,7 +140,7 @@ class SpaceTimeRRTController(Controller):
         if grasps is None and cfg.grasp_set == "all":
             grasps = [g for g in generate_grasps(world.object) if g.family in cfg.grasp_families]
         self.goalgen = GoalGenerator(world, robot, cfg.tail_v_scale * robot.v_limits, cfg.tail, grasps,
-                                     a_max=None if cfg.a_max is None else np.full(7, cfg.tail_a_max))
+                                     a_max=None if cfg.a_max is None else accel_vector(cfg.tail_a_max))
         seed = cfg.seed if cfg.seed is not None else (
             world.spec.seed if world.spec.seed is not None else zlib.crc32(world.spec.name.encode())
         )
@@ -125,7 +148,8 @@ class SpaceTimeRRTController(Controller):
         lo = robot.q_lower + cfg.joint_margin
         hi = robot.q_upper - cfg.joint_margin
         self.rrt = SpaceTimeRRTConnect(lo, hi, self.v_max, self.checker.edge_free, cfg.rrt, self.rng)
-        self.a_max = None if cfg.a_max is None else np.full(len(lo), cfg.a_max)
+        self.a_max = accel_vector(cfg.a_max, len(lo))
+        self.a_hold = None if cfg.a_max is None else accel_vector(cfg.a_max_holding, len(lo))
         self.rrt.a_max = self.a_max
         self.goals: list[GoalCandidate] = []
         self.pending_T: list[float] | None = None  # intercept times not yet processed
@@ -177,7 +201,7 @@ class SpaceTimeRRTController(Controller):
                 continue
             w = time.perf_counter()
             self.goals += self.goalgen.generate_for(
-                T, lambda tr: self.checker.path_free(tr.q, tr.t), self.checker.state_free,
+                T, self._tail_free, self.checker.state_free,
                 cfg.max_goals_per_T, cfg.swivel_steps, cfg.max_ik_per_T, cfg.ik_restarts, cfg.max_tails,
             )
             w = time.perf_counter() - w
@@ -233,9 +257,15 @@ class SpaceTimeRRTController(Controller):
         # (planning from further ahead) costs nothing: grow it after every failure.
         no_grasp = current is None or current.mode != "grasp"
         budget = cfg.initial_budget if first else (self._budget_now if no_grasp else cfg.budget)
-        if not first and budget > cfg.budget and not self._remaining_valid(state.trajectory, t + budget):
-            # the safe hold is about to become unsafe: react now, not one long budget later
-            budget = self._budget_now = cfg.budget
+        if not first:
+            # The executing plan (or the hold after it) will collide at t_hit: plan from halfway
+            # there.  Soon -> react now with the short budget; later -> take the time, so a hard
+            # escape (e.g. gentle, with the object in hand) is found rather than timed out.
+            t_hit = self._time_to_collision(state.trajectory, t, t + 2 * cfg.max_budget + cfg.hold_horizon)
+            if np.isfinite(t_hit):
+                budget = float(np.clip(0.5 * (t_hit - t), cfg.budget, cfg.max_budget))
+                if budget == cfg.budget:
+                    self._budget_now = cfg.budget
         if first:
             # The arm holds still while the first plan is computed: if an obstacle would hit
             # it there, leave enough time to get out of the way.
@@ -262,17 +292,21 @@ class SpaceTimeRRTController(Controller):
         # if no grasp plan is found in what is left of the budget).
         fallback = None
         if not current_valid:
-            v_lim, a_lim = self.v_max, self.a_max
-            if self.grasp_done and self.a_max is not None:  # gentle with the object in hand
-                v_lim = cfg.v_scale_holding * self.robot.v_limits
-                a_lim = np.full(len(v_lim), cfg.a_max_holding)
             g_esc = prefix.gripper_at(t_s) if prefix.gripper is not None else WSG_OPEN
-            prim = self._escape_primitive(q_s, v_s, t_s, g_esc, wall0, 0.5 * budget, v_lim, a_lim)
-            if prim is not None:
-                fallback = _Plan(JointTrajectory.concatenate([prefix, prim]), "escape")
+            for v_lim, a_lim in self._escape_limits():
+                prim = self._escape_primitive(q_s, v_s, t_s, g_esc, wall0, 0.5 * budget, v_lim, a_lim)
+                if prim is not None:
+                    fallback = _Plan(JointTrajectory.concatenate([prefix, prim]), "escape")
+                    log["escape_limits"] = "gentle" if a_lim is self.a_hold else "planner"
+                    break
 
         if not self.grasp_done and (self.pending_T is None or self.pending_T):
-            if current_valid and self.pending_T:
+            # A goal the arm can still reach, and no grasp plan yet: plan to it now (goal
+            # generation then only gets its budget share) instead of spending whole cycles on
+            # later intercept times while this goal goes stale.
+            has_target = not (current_valid and current.mode == "grasp") and any(
+                g.T - t_s >= min_duration(q_s, g.q, self.v_max) + 1e-6 for g in self.goals)
+            if current_valid and self.pending_T and not has_target:
                 # Goal-work cycle: the executing plan is safe, so this cycle may run over
                 # its budget (the arm keeps executing meanwhile); it returns no plan.
                 self._generate_goals(t_s, q_s, wall0, cfg.goal_work_cap, share=1.0)
@@ -323,10 +357,7 @@ class SpaceTimeRRTController(Controller):
             # No grasp plan and the current one is unsafe (or there is none): get out of the way.
             left = self._deadline_left(wall0, 0.85 * budget)
             # with the object (possibly) in hand: slower and gentler, so it is not flung
-            v_lim, a_lim = self.v_max, self.a_max
-            if self.grasp_done and self.a_max is not None:
-                v_lim = cfg.v_scale_holding * self.robot.v_limits
-                a_lim = np.full(len(v_lim), cfg.a_max_holding)
+            v_lim, a_lim = self._escape_limits()[0]
             self.rrt.v_max, self.rrt.a_max = v_lim, a_lim
             try:
                 esc = plan_to_safe_state(
@@ -360,6 +391,32 @@ class SpaceTimeRRTController(Controller):
         if result is not None:
             self.plans[id(result.traj)] = result
         return result
+
+    def _time_to_collision(self, traj: JointTrajectory, t0: float, t1: float) -> float:
+        """First time in [t0, t1] at which following `traj` (and then holding its end) is not
+        collision-free, at the checker's time resolution (inf if none)."""
+        q_end = traj.q[-1]
+        for tt in np.arange(t0, t1 + 1e-9, self.checker.dt_res):
+            q = traj.value(tt) if tt < traj.end_time else q_end
+            if not self.checker.state_free(q, float(tt)):
+                return float(tt)
+        return np.inf
+
+    def _escape_limits(self) -> list:
+        """(v, a) limits for escapes: with the object in hand, gentle first, then the planner's
+        (shaking the object beats hitting an obstacle); otherwise the planner's."""
+        if self.grasp_done and self.a_max is not None:
+            gentle = (self.cfg.v_scale_holding * self.robot.v_limits, self.a_hold)
+            return [gentle, (self.v_max, self.a_max)] if self.cfg.escape_fallback else [gentle]
+        return [(self.v_max, self.a_max)]
+
+    def _tail_free(self, tail: JointTrajectory) -> bool:
+        """The grasp tail is collision-free, and so is holding its end pose for `post_grasp_hold`:
+        the arm ends the grasp with the object in hand somewhere it can stay while it plans
+        its next (gentle) move, not in an obstacle's path."""
+        return (self.checker.path_free(tail.q, tail.t)
+                and (self.cfg.post_grasp_hold <= 0
+                     or self.checker.hold_free(tail.q[-1], tail.t[-1], self.cfg.post_grasp_hold)))
 
     # ---- evasive motion primitives -----------------------------------------------------
     def _escape_primitive(self, q_s, v_s, t_s, gripper, wall0, budget, v_lim, a_lim):
@@ -433,11 +490,22 @@ class SpaceTimeRRTController(Controller):
             return "velocity"
         if a_lim is not None and np.any(a > 1.05 * a_lim + 1e-6):
             return "acceleration"
+        if self.cfg.torque_check and not self._torques_ok(path):
+            return "torque"
         step = max(1, int(round(self.checker.dt_res / max(path.t[1] - path.t[0], 1e-6))))
         idx = np.unique(np.append(np.arange(0, len(path.t), step), len(path.t) - 1))
         if not self.checker.path_free(path.q[idx], path.t[idx]):
             return "collision"
         return ""
+
+    def _torques_ok(self, path: JointTrajectory, dt: float = 0.02) -> bool:
+        """Every joint torque along the path (inverse dynamics of iiwa + gripper, every `dt`)
+        within `torque_margin` of its limit."""
+        ts = np.arange(path.t[0], path.t[-1] + 1e-9, dt)
+        if len(ts) < 3:
+            return True
+        tau = self.robot.joint_torques(np.array([path.value(t) for t in ts]), dt)
+        return bool(np.all(np.abs(tau) <= self.cfg.torque_margin * self.robot.tau_limits))
 
     def _log(self, log: dict, wall0: float, outcome: str) -> None:
         log["outcome"] = outcome

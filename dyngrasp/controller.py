@@ -31,7 +31,9 @@ machine-independent); `latency="none"` is the old zero-delay behaviour.
 
 A trajectory that arrives late, i.e. that does not agree with what the robot
 is already executing at the moment it takes effect (max joint difference >
-`stitch_tol`), is rejected and the previous command keeps running.  Planners
+`stitch_tol`, or a joint velocity difference > `stitch_vtol`: splicing in a
+plan that has already started moving is a velocity step, i.e. an unbounded
+acceleration), is rejected and the previous command keeps running.  Planners
 should therefore plan from where the current trajectory will be once they are
 done (t + planning budget) and keep the current trajectory as the prefix.
 
@@ -118,6 +120,33 @@ class RobotModel:
         self.q_upper = self.plant.GetPositionUpperLimits()[:NQ]
         self.v_limits = self.plant.GetVelocityUpperLimits()[:NQ]
         self._iiwa_v_start = self.plant.GetJointByName("iiwa_joint_1", self.iiwa).velocity_start()
+        self.tau_limits = self.plant.GetEffortUpperLimits()[:NQ]  # iiwa datasheet joint torques (N m)
+        self._id_forces = None
+
+    def joint_torques(self, Q: np.ndarray, dt: float) -> np.ndarray:
+        """Joint torques the iiwa needs to follow positions Q (sampled every dt, finite
+        differences) with the gripper attached (no payload), by inverse dynamics:
+        tau = M(q) qdd + C(q, qd) qd - tau_gravity(q).  One row per interior sample."""
+        from pydrake.all import MultibodyForces
+
+        if self._id_forces is None:
+            self._id_forces = MultibodyForces(self.plant)
+        Q = np.asarray(Q, float)
+        if len(Q) < 3:
+            return np.zeros((0, NQ))
+        V = np.diff(Q, axis=0) / dt
+        A = np.diff(V, axis=0) / dt
+        nv, s = self.plant.num_velocities(), self._iiwa_v_start
+        out = np.empty((len(A), NQ))
+        for k, (q, v, a) in enumerate(zip(Q[1:-1], 0.5 * (V[:-1] + V[1:]), A)):
+            self.set_q(q)
+            vv, vd = np.zeros(nv), np.zeros(nv)
+            vv[s:s + NQ], vd[s:s + NQ] = v, a
+            self.plant.SetVelocities(self.context, vv)
+            self._id_forces.SetZero()
+            self.plant.CalcForceElementsContribution(self.context, self._id_forces)
+            out[k] = self.plant.CalcInverseDynamics(self.context, vd, self._id_forces)[s:s + NQ]
+        return out
 
     def set_q(self, q: np.ndarray) -> None:
         self.plant.SetPositions(self.context, self.iiwa, np.asarray(q, float))
@@ -159,6 +188,7 @@ class ControllerSystem(LeafSystem):
         latency: str | float = "none",
         compute_scale: float = 1.0,
         stitch_tol: float = 0.02,
+        stitch_vtol: float = 0.03,  # rad/s; a 0.03 rad/s step over one 10 ms period is 3 rad/s^2
     ):
         super().__init__()
         self.controller = controller
@@ -171,6 +201,7 @@ class ControllerSystem(LeafSystem):
         self.latency = latency
         self.compute_scale = float(compute_scale)
         self.stitch_tol = float(stitch_tol)
+        self.stitch_vtol = float(stitch_vtol)
         self.cycle_times: list[tuple[float, float]] = []  # (sim time, wall seconds)
         self.log: list[dict[str, Any]] = []  # per-cycle Command.info
         self._reset_done = False
@@ -219,9 +250,12 @@ class ControllerSystem(LeafSystem):
         """Make `cmd` the active command at time t, unless it is a trajectory that arrives too late."""
         if cmd.trajectory is not None and self.latency != "none":
             gap = float(np.max(np.abs(cmd.trajectory.value(t) - q_now)))
-            if gap > self.stitch_tol:
+            active = self._active.trajectory if self._active is not None else None
+            v_now = active.velocity(t) if active is not None else np.zeros_like(q_now)
+            vgap = float(np.max(np.abs(cmd.trajectory.velocity(t) - v_now)))
+            if gap > self.stitch_tol or vgap > self.stitch_vtol:
                 self.n_rejected += 1
-                self.log.append({"t": t, "event": "trajectory_rejected", "gap": gap})
+                self.log.append({"t": t, "event": "trajectory_rejected", "gap": gap, "vgap": vgap})
                 return
         self._active = cmd
 
@@ -289,13 +323,16 @@ class ControllerSystem(LeafSystem):
         """Commanded joint motion: peak speed as a fraction of the iiwa's velocity limits,
         and peak acceleration (rad/s^2), by finite differences of the commanded positions."""
         if len(self.q_cmd_log) < 3:
-            return {"cmd_speed_ratio_max": 0.0, "cmd_accel_max": 0.0, "cmd_accel_p99": 0.0}
+            return {"cmd_speed_ratio_max": 0.0, "cmd_accel_max": 0.0, "cmd_accel_p99": 0.0, "cmd_torque_ratio_max": 0.0}
         q = np.array(self.q_cmd_log)
         dt = self.controller.period
         v = np.diff(q, axis=0) / dt
         a = np.diff(v, axis=0) / dt
         amax = np.max(np.abs(a), axis=1)
+        # torques: at 20 ms (finite-difference noise of the 10 ms log is not a torque)
+        tau = self.robot.joint_torques(q[::2], 2 * dt)
         return {
+            "cmd_torque_ratio_max": float(np.max(np.abs(tau) / self.robot.tau_limits)) if len(tau) else 0.0,
             "cmd_speed_ratio_max": float(np.max(np.abs(v) / self.robot.v_limits)),
             "cmd_accel_max": float(np.max(amax)),
             "cmd_accel_p99": float(np.percentile(amax, 99)),

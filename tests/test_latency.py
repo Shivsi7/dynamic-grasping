@@ -75,3 +75,13 @@ def test_fixed_latency_is_deterministic():
     r = run_episode(short_spec(), c, latency=0.04)
     assert abs(c.seen[1][0] - 0.04) < 1e-6 and abs(r.delay_max_ms - 40.0) < 1e-6
     assert r.n_rejected_commands == 0  # applied at 0.04 <= start of the plan (0.05)
+
+
+def test_a_late_plan_that_is_already_moving_is_rejected():
+    # The plan starts at t = 0 and moves joint 1 at 0.6 rad/s; taking effect at 0.02 s it is only
+    # 0.012 rad away (within stitch_tol), but splicing it in would be a 0.6 rad/s velocity step,
+    # i.e. a 60 rad/s^2 acceleration spike: rejected.
+    c = SlowPlanner(think=0.0, from_now=True)
+    r = run_episode(short_spec(), c, latency=0.02)
+    assert r.n_rejected_commands == 1
+    assert r.cmd_accel_max < 1.0
