@@ -20,7 +20,7 @@ import numpy as np
 
 from dyngrasp.controller import RobotModel
 from dyngrasp.planning.collision import SpaceTimeChecker
-from dyngrasp.trajectory import JointTrajectory, hermite, motion_limits
+from dyngrasp.trajectory import JointTrajectory, hermite, motion_limits, strided_indices
 
 
 class MotionVerifier:
@@ -72,8 +72,7 @@ class MotionVerifier:
             return "acceleration"
         if self.torque_check and not self.torques_ok(path):
             return "torque"
-        step = max(1, round(self.checker.dt_res / max(path.t[1] - path.t[0], 1e-6)))
-        idx = np.unique(np.append(np.arange(0, len(path.t), step), len(path.t) - 1))
+        idx = strided_indices(len(path.t), round(self.checker.dt_res / max(path.t[1] - path.t[0], 1e-6)))
         if not self.checker.path_free(path.q[idx], path.t[idx]):
             return "collision"
         return ""

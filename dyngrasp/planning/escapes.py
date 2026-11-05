@@ -22,7 +22,7 @@ import numpy as np
 from dyngrasp.controller import RobotModel
 from dyngrasp.planning.collision import SpaceTimeChecker
 from dyngrasp.planning.motion import MotionVerifier
-from dyngrasp.trajectory import JointTrajectory, hermite
+from dyngrasp.trajectory import JointTrajectory, hermite, strided_indices
 
 DURATIONS = (0.6, 0.9, 1.2, 1.6)  # primitive durations (s), fastest first
 
@@ -87,8 +87,7 @@ class EscapePlanner:
         z0 = self.robot.fk(q_s).translation()[2]
 
         def keeps_lifted(path: JointTrajectory) -> bool:
-            idx = np.unique(np.append(np.arange(0, len(path.t), 10), len(path.t) - 1))
-            return all(self.robot.fk(path.q[i]).translation()[2] >= z0 - max_drop for i in idx)
+            return all(self.robot.fk(path.q[i]).translation()[2] >= z0 - max_drop for i in strided_indices(len(path.t), 10))
 
         for v_lim, a_lim in limits:
             prim = self.primitive(q_s, v_s, t_split, g, time.perf_counter() + budget, v_lim, a_lim,

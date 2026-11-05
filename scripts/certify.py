@@ -77,7 +77,6 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     from dyngrasp.controller import RobotModel
     from dyngrasp.grasps import generate_grasps
     from dyngrasp.harness import run_episode
-    from dyngrasp.planning.collision import SpaceTimeChecker
     from dyngrasp.planning.controller import SpaceTimeRRTController, STRRTConfig
     from dyngrasp.planning.goals import GoalGenerator
     from dyngrasp.scenario import ScenarioSpec
@@ -86,7 +85,6 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     spec = ScenarioSpec.from_dict(spec_dict)
     cfg = STRRTConfig()
     world, robot = WorldModel(spec), RobotModel()
-    ck = SpaceTimeChecker(spec, world, cfg.margin_obstacle, cfg.margin_env)
     grasps = [g for g in generate_grasps(world.object) if g.family in cfg.grasp_families]
     gg = GoalGenerator(world, robot, cfg.tail_v_scale * robot.v_limits, cfg.tail, grasps,
                        a_max=accel_vector(cfg.tail_a_max))
@@ -97,9 +95,10 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     # as the planner (its own logic, with 10x its retreat search budget): the tail is free with
     # the object attached once grasped, and the grasp ends somewhere safe (as is, with a
     # planned retreat, or safe for post_grasp_hold)
+    # (its checker is used throughout: the escape planner and verifier hold the same one)
     c0 = SpaceTimeRRTController(STRRTConfig(retreat_budget=10 * cfg.retreat_budget, lazy_retreat=False))
     c0.reset(world, robot, None)
-    c0.checker = ck
+    ck = c0.checker
     tail_free, finish = c0.tail_free, c0.finish_tail
 
     goals = []

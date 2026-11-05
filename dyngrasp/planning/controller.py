@@ -24,9 +24,6 @@ before the intercept until the end of the grasp tail), `_replan` runs one cycle:
 After the grasp the arm must end somewhere safe: the tail as is, with a planned retreat
 (`_resolve_retreat`), or safe long enough to escape; and the object in hand counts in every
 collision check from the moment the gripper closes (`SpaceTimeChecker.attach`).
-
-Nothing here is specific to a scenario preset: all inputs are the WorldModel, the scene
-geometry and the robot model.
 """
 
 from __future__ import annotations
@@ -45,7 +42,7 @@ from dyngrasp.planning.escapes import EscapePlanner
 from dyngrasp.planning.goals import GoalCandidate, GoalGenerator
 from dyngrasp.planning.motion import MotionVerifier
 from dyngrasp.planning.st_rrt import SpaceTimeRRTConnect, min_duration, plan_to_safe_state
-from dyngrasp.trajectory import JointTrajectory
+from dyngrasp.trajectory import JointTrajectory, strided_indices
 from dyngrasp.world import WorldModel
 
 __all__ = ["IIWA_ACCEL_REF", "Plan", "STRRTConfig", "SpaceTimeRRTController", "accel_vector", "scaled_accel"]
@@ -238,7 +235,7 @@ class SpaceTimeRRTController(Controller):
             # The arm holds still while the first plan is computed: if an obstacle would hit
             # it there, leave enough time to get out of the way.
             budget = cfg.initial_budget
-            t_hit = self.checker.first_collision_time(state.q_cmd, t, t + budget + cfg.hold_horizon)
+            t_hit = self.checker.first_collision_time(lambda _: state.q_cmd, t, t + budget + cfg.hold_horizon)
             if np.isfinite(t_hit):
                 budget = float(np.clip(0.5 * (t_hit - t), 0.05, budget))
             q_s = state.q_cmd.copy()
@@ -250,7 +247,8 @@ class SpaceTimeRRTController(Controller):
         # the time, so that a hard escape (e.g. gentle, object in hand) is found, not timed out.
         no_grasp = current is None or current.mode != "grasp"
         budget = self._budget_now if no_grasp else cfg.budget
-        t_hit = self._time_to_collision(state.trajectory, t, t + 2 * cfg.max_budget + cfg.hold_horizon)
+        # (JointTrajectory.value holds the last configuration after the end)
+        t_hit = self.checker.first_collision_time(state.trajectory.value, t, t + 2 * cfg.max_budget + cfg.hold_horizon)
         if np.isfinite(t_hit):
             budget = float(np.clip(0.5 * (t_hit - t), cfg.budget, cfg.max_budget))
             if budget == cfg.budget:
@@ -414,7 +412,7 @@ class SpaceTimeRRTController(Controller):
         r = self.escapes.retreat(tail, self.cfg.tail.t_hold, [(self.v_hold, self.a_hold), (self.v_max, self.a_max)],
                                  budget=self.cfg.retreat_budget * self.cfg.wall_scale)
         if r is not None:
-            self.goalgen.stats["retreats"] = self.goalgen.stats.get("retreats", 0) + 1
+            self.goalgen.stats["retreats"] += 1
         return r
 
     @staticmethod
@@ -432,20 +430,10 @@ class SpaceTimeRRTController(Controller):
             Q = np.vstack([traj.value(t_s), traj.q[keep]])
             T = np.concatenate([[t_s], traj.t[keep]])
             # dense (10 ms) trajectories: check at the checker's time resolution
-            step = max(1, round(self.checker.dt_res / max(float(np.median(np.diff(T))), 1e-6)))
-            idx = np.unique(np.append(np.arange(0, len(T), step), len(T) - 1))
+            idx = strided_indices(len(T), round(self.checker.dt_res / max(float(np.median(np.diff(T))), 1e-6)))
             if not self.checker.path_free(Q[idx], T[idx]):
                 return False
         return self.checker.hold_free(traj.q[-1], t_end, self.cfg.hold_horizon)
-
-    def _time_to_collision(self, traj: JointTrajectory, t0: float, t1: float) -> float:
-        """First time in [t0, t1] at which following `traj` (and then holding its end) is not
-        collision-free, at the checker's time resolution (inf if none)."""
-        for tt in np.arange(t0, t1 + 1e-9, self.checker.dt_res):
-            q = traj.value(tt) if tt < traj.end_time else traj.q[-1]
-            if not self.checker.state_free(q, float(tt)):
-                return float(tt)
-        return np.inf
 
     # ---- bookkeeping -------------------------------------------------------------------------
     def _deadline_left(self, wall0: float, budget: float) -> float:

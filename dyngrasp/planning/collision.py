@@ -1,9 +1,7 @@
 """Collision checks at a hypothetical (q, t), on the scene's kinematic diagram.
 
-Uses only the scenario geometry (scene.build_kinematic_diagram) and the
-predicted world state (WorldModel), so it works for any scenario the generator
-can produce: any number and shape of obstacles, rigs and masts included, both
-cart directions, every object.
+Built from the scenario geometry (scene.build_kinematic_diagram) and the
+predicted world state (WorldModel).
 
 * A state (q, t) is free when no robot body (iiwa links, WSG) is within
   `margin_obstacle` of an obstacle, within `margin_env` of the cart / conveyor /
@@ -98,8 +96,6 @@ class SpaceTimeChecker:
         self._robot = self.roles.robot
         self._gripper = self.roles.gripper
         self._pair_cache: dict = {}
-        self.n_state_checks = 0
-        self.n_edge_checks = 0
 
     # ---- state ------------------------------------------------------------------
     def _set_env(self, t: float) -> None:
@@ -183,7 +179,6 @@ class SpaceTimeChecker:
         return {"obstacle": self.margin_obstacle, "env": self.margin_env}.get(cat, 0.0)
 
     def state_free(self, q: np.ndarray, t: float) -> bool:
-        self.n_state_checks += 1
         self.set_state(q, t)
         qo = self.port.Eval(self.sgctx)
         for p in qo.ComputeSignedDistancePairwiseClosestPoints(self._max_dist):
@@ -217,7 +212,6 @@ class SpaceTimeChecker:
         return int(np.ceil(max(n_q, n_t, 1.0))) + 1
 
     def edge_free(self, qa: np.ndarray, ta: float, qb: np.ndarray, tb: float) -> bool:
-        self.n_edge_checks += 1
         n = self.n_samples(qa, ta, qb, tb)
         dq, dt = qb - qa, tb - ta
         for i in _midpoint_order(n):
@@ -233,9 +227,9 @@ class SpaceTimeChecker:
         """Can the robot stay at q from t to t + horizon?"""
         return self.edge_free(q, t, q, t + horizon)
 
-    def first_collision_time(self, q: np.ndarray, t0: float, t1: float) -> float:
-        """Earliest t in [t0, t1] at which holding q is not free (inf if never), to dt_res."""
+    def first_collision_time(self, q_at, t0: float, t1: float) -> float:
+        """Earliest t in [t0, t1] at which (q_at(t), t) is not free (inf if never), to dt_res."""
         for t in np.arange(t0, t1 + 1e-9, self.dt_res):
-            if not self.state_free(q, float(t)):
+            if not self.state_free(q_at(float(t)), float(t)):
                 return float(t)
         return np.inf

@@ -37,7 +37,8 @@ class STRRTConfig:
     v_scale: float = 0.5  # transfer and escape motions (the RRT)
     tail_v_scale: float = 0.9  # the grasp tail (short and smooth, may move faster)
     # Joint accelerations (rad/s^2), per joint or one number for all joints.
-    # None disables the acceleration-aware planning and smoothing altogether.
+    # a_max=None disables the acceleration-aware planning and smoothing altogether, including
+    # the tail's limit (tail_a_max is then ignored) and the gentle holding limits.
     a_max: float | tuple | None = scaled_accel(0.6)  # 9, 4.5, 6, 7.5, 9, 12, 12
     tail_a_max: float | tuple = scaled_accel(0.8)  # 12, 6, 8, 10, 12, 16, 16
     # With the object (possibly) in hand, move gently so it is not flung.

@@ -100,6 +100,11 @@ class JointTrajectory:
         return JointTrajectory(t, q, g)
 
 
+def strided_indices(n: int, step: int) -> np.ndarray:
+    """Every `step`-th index of 0..n-1, always including the last (for subsampling a dense path)."""
+    return np.unique(np.append(np.arange(0, n, max(1, step)), n - 1))
+
+
 def knot_velocities(T: np.ndarray, Q: np.ndarray, v0: np.ndarray, vN: np.ndarray) -> np.ndarray:
     """Velocities at the knots for a C1 curve through (T, Q): the boundary values at the ends;
     inside, per joint, 0 where the adjacent segments move in opposite directions, else the

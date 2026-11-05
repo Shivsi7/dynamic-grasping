@@ -10,10 +10,8 @@ executed exactly as generated.  It is part of the plan and is collision-checked
 like everything else, so an obstacle crossing *during* the grasp rules that
 (T, q_g) out.
 
-Everything is computed from `WorldModel` (target pose and velocity at any
-time) and grasp candidates (dyngrasp.grasps, or any X_UG transforms), so it
-applies to any scenario and any grasp set.  Per intercept time, candidates are
-tried in order of how often they have produced goals so far, then of their
+Grasp candidates come from dyngrasp.grasps (or any X_UG transforms).  Per
+intercept time, candidates are tried in order of how often they have produced goals so far, then of their
 prior score (approach from above / from the robot's side first).
 """
 
@@ -26,7 +24,7 @@ from pydrake.all import InverseKinematics, RigidTransform, RotationMatrix, Solve
 
 from dyngrasp.controller import NQ, WSG_CLOSED, WSG_OPEN, RobotModel
 from dyngrasp.grasps import GraspCandidate, as_candidate, prior_score
-from dyngrasp.trajectory import JointTrajectory
+from dyngrasp.trajectory import JointTrajectory, strided_indices
 from dyngrasp.world import WorldModel
 
 
@@ -60,7 +58,7 @@ class GoalCandidate:
     q: np.ndarray  # pre-grasp configuration
     tail: JointTrajectory  # T .. T + tail duration, with the gripper schedule
     grasp_index: int
-    family: int  # which IK seed family produced it
+    seed_family: int  # which IK seed family produced it (not GraspCandidate.family)
     grasp_name: str = ""
 
 
@@ -237,8 +235,7 @@ class GoalGenerator:
 
     def check_knots(self, tail: JointTrajectory) -> JointTrajectory:
         """The tail subsampled every `knot_dt` (and its last knot), for collision checking."""
-        every = max(1, round(self.tp.knot_dt / self.tp.dt))
-        idx = np.unique(np.append(np.arange(0, len(tail.t), every), len(tail.t) - 1))
+        idx = strided_indices(len(tail.t), round(self.tp.knot_dt / self.tp.dt))
         return JointTrajectory(tail.t[idx], tail.q[idx], None if tail.gripper is None else tail.gripper[idx])
 
     # ---- redundancy: the elbow's self-motion ----------------------------------------
@@ -286,7 +283,7 @@ class GoalGenerator:
         self.grasp_goals = np.zeros(len(self.grasps), int)  # goals found per grasp (ordering)
         self.grasp_stats = {g.name: {"tried": 0, "ik_ok": 0, "goals": 0, "restarts": 0} for g in self.grasps}
         self.stats = {"tried": 0, "ik_fail": 0, "duplicate": 0, "pregrasp_collides": 0, "tail_infeasible": 0,
-                      "tail_collides": 0, "no_safe_end": 0, "rescued_by_swivel": 0, "goals": 0}
+                      "tail_collides": 0, "no_safe_end": 0, "rescued_by_swivel": 0, "retreats": 0, "goals": 0}
 
     def _order(self, T: float) -> list[tuple[int, int]]:
         """(grasp, family) keys for time T: grasps that produced goals first, then by prior."""
@@ -370,7 +367,7 @@ class GoalGenerator:
                 if tail is None:
                     reason = reason or why
                     continue
-                cand = GoalCandidate(T=float(T), q=tail.q[0].copy(), tail=tail, grasp_index=k, family=f,
+                cand = GoalCandidate(T=float(T), q=tail.q[0].copy(), tail=tail, grasp_index=k, seed_family=f,
                                      grasp_name=self.grasps[k].name)
                 if i > 0:
                     st["rescued_by_swivel"] += 1

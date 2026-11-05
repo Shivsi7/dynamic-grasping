@@ -34,9 +34,8 @@ a velocity jump; an escape must end at rest.  (The bound limits acceleration,
 not position: a long segment that must end at a given velocity can bulge away
 from its straight edge, so the smoothed curve is re-verified; see motion.py.)
 
-Nothing here knows about Drake, the iiwa or the scenario: the planner only
-sees joint limits, velocity (and acceleration) limits, goal roots and a
-collision callback.
+Pure numpy: the planner sees only joint, velocity and acceleration limits,
+goal roots and a collision callback (tests/test_st_rrt.py runs it on toy problems).
 """
 
 from __future__ import annotations
