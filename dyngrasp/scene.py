@@ -573,6 +573,13 @@ def build_station(spec: ScenarioSpec, meshcat: Meshcat | None = None, cameras: d
             builder.Connect(
                 src.get_output_port(), plant.get_desired_state_input_port(handles["obstacles"][o.name])
             )
+        # The box collision model's links 5 and 7 overlap beyond |q6| ~ 1.75 rad, which the real
+        # wrist reaches freely (up to 2.09); same filter as build_kinematic_diagram.
+        iiwa = plant.GetModelInstanceByName("iiwa")
+        link = lambda name: GeometrySet(list(plant.GetCollisionGeometriesForBody(plant.GetBodyByName(name, iiwa))))
+        builder.GetSubsystemByName("scene_graph").collision_filter_manager().Apply(
+            CollisionFilterDeclaration().ExcludeBetween(link("iiwa_link_5"), link("iiwa_link_7"))
+        )
 
     station = MakeHardwareStation(
         scenario, meshcat, parser_prefinalize_callback=prefinalize, prebuild_callback=prebuild
