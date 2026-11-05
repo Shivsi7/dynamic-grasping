@@ -2,14 +2,23 @@
 
 When (A) would start moving (t_enter - lead_time) the controller
 
-1. rolls out the reactive controller (A) kinematically against the predicted
-   target and obstacle motion (`ReactiveQPController.rollout`): a joint path
-   from the current configuration to the grasp, reached at t0 + T_roll;
-2. refines it with Drake's `KinematicTrajectoryOptimization`: a cubic B-spline
+1. builds initial guesses (`seed`):
+   * "rollout": rolls out the reactive controller (A) kinematically against the
+     predicted target and obstacle motion (`ReactiveQPController.rollout`): a
+     joint path from the current configuration to the grasp;
+   * "ik": a straight joint-space path to a collision-free hover pose and then
+     to the grasp below it, both from inverse kinematics against the predicted
+     obstacles, at the earliest grasp time (0.5 s steps) where IK finds them
+     (if that fails to optimise, the next such times, up to `n_ik_seeds`).
+     It may cut through obstacles: it only has to end at a valid grasp, which
+     is what (A)'s rollout misses when (A) gets stuck in a local minimum;
+   * "both": each of the above;
+2. refines each with Drake's `KinematicTrajectoryOptimization` and keeps the
+   cheapest feasible result: a cubic B-spline
    q(s), s in [0, 1], with free duration T and time t = t0 + s T, that
      * starts at the current state,
      * ends at the grasp pose of the object *at t0 + T*, moving with it,
-     * passes the hover pose above the object at the rollout's descent time
+     * passes the hover pose above the object at the seed's descent time
        and comes straight down from there,
      * keeps a minimum distance >= d_safe from the obstacles (and d_safe_env
        from the cart, the floor and the target) at sample times t0 + s_k T,
@@ -22,21 +31,26 @@ When (A) would start moving (t_enter - lead_time) the controller
    from the current reference, warm-started with its remainder.  With perfect
    prediction one solve suffices; re-solving only corrects prediction errors.
 
-At t0 + T it closes and lifts with (A).  If the first optimisation fails it
+At t0 + T it closes and lifts with (A).  If every first optimisation fails it
 falls back to (A) for the whole episode.
 """
 
 from __future__ import annotations
 
+import itertools
 import time
 
 import numpy as np
 from pydrake.all import (
     AutoDiffXd,
     BsplineTrajectory,
+    InverseKinematics,
     KinematicTrajectoryOptimization,
     MinimumDistanceLowerBoundConstraint,
+    RigidTransform,
+    RotationMatrix,
     SnoptSolver,
+    Solve,
 )
 
 from dyngrasp.controller import NQ, WSG_OPEN, Command, Controller, RobotModel, RobotState
@@ -69,8 +83,12 @@ class HybridController(Controller):
         replan_period: float = 0.5,
         energy_weight: float = 0.1,
         accel_limit: float = 4.0,
+        seed: str = "both",
+        n_ik_seeds: int = 3,
         **reactive_kwargs,
     ):
+        assert seed in ("rollout", "ik", "both")
+        self.seed, self.n_ik_seeds = seed, n_ik_seeds
         self.reactive = ReactiveQPController(d_safe=d_safe, d_safe_env=d_safe_env, **reactive_kwargs)
         self.reactive.period = self.period  # it runs inside this controller's cycle
         self.n_control_points = n_control_points
@@ -104,10 +122,7 @@ class HybridController(Controller):
         if self.phase == "wait":
             if t < world.t_enter - self.reactive.lead_time:
                 return Command(q=state.q_cmd, gripper=WSG_OPEN, info={"phase": "wait"})
-            ts, qs, t_descend, reached = self.reactive.rollout(world, state.q_cmd, t, t_max=world.t_exit - 2.0 - t)
-            self.t_descend = t_descend if t_descend is not None else ts[-1] - 0.3 * (ts[-1] - t)
-            info = self._plan(t, state.q_cmd, np.zeros(NQ), ts, qs)
-            info["rollout_reached"] = reached
+            info = self._first_plan(t, state.q_cmd)
             self.phase = "track" if info["ok"] else "fallback"
             if self.phase == "fallback":
                 self.reactive._start("approach")
@@ -136,6 +151,75 @@ class HybridController(Controller):
         return self.traj_dot.value(np.clip(t - self.t0, 0.0, self.traj.end_time())).ravel()
 
     # ---- planning ---------------------------------------------------------------
+    def _first_plan(self, t0, q0) -> dict:
+        """Solve from each seed; keep the cheapest feasible plan."""
+        world, sources, info = self.world, [], {}
+        if self.seed in ("rollout", "both"):
+            ts, qs, t_descend, reached = self.reactive.rollout(world, q0, t0, t_max=world.t_exit - 2.0 - t0)
+            sources.append(("rollout", [(ts, qs, t_descend if t_descend is not None else ts[-1] - 0.3 * (ts[-1] - t0))]))
+            info["rollout_reached"] = reached
+        if self.seed in ("ik", "both"):
+            sources.append(("ik", itertools.islice(self._ik_seeds(t0, q0), self.n_ik_seeds)))
+        best = None
+        for name, seeds in sources:
+            tic = time.perf_counter()
+            for k, (ts, qs, t_descend) in enumerate(seeds):
+                self.t_descend = t_descend
+                r = self._plan(t0, q0, np.zeros(NQ), ts, qs)
+                info[f"{name}_ok"], info[f"{name}_tries"] = r["ok"], k + 1
+                if r["ok"]:
+                    if best is None or r["cost"] < best[0]["cost"]:
+                        best = ({**r, "seed": name}, self.traj, self.traj_dot, self.t_descend)
+                    break
+            info[f"{name}_ms"] = 1e3 * (time.perf_counter() - tic)
+        if best is None:
+            return {**info, "ok": False}
+        r, self.traj, self.traj_dot, self.t_descend = best
+        self.t0 = t0
+        return {**info, **r}
+
+    def _ik_seeds(self, t0, q0, n_tries=6, descend_time=0.6):
+        """Yields (ts, qs, t_descend): q0 -> IK hover pose -> IK grasp, for each grasp time (0.5 s apart) that has both."""
+        world, rng = self.world, np.random.default_rng(0)
+        v_avg = 0.5 * self.reactive.v_scale * self.robot.v_limits
+        for t_g in np.arange(max(world.t_enter, t0 + 1.0), world.t_exit - 2.0, 0.5):
+            t_d = t_g - descend_time
+            X_h = world.grasp_pose(t_d)
+            X_h = RigidTransform(X_h.rotation(), X_h.translation() + [0, 0, self.reactive.hover])
+            best = None
+            for k in range(n_tries):  # first from q0, then from random configurations; keep the nearest
+                q_g = self._ik(t_g, world.grasp_pose(t_g), q0 if k == 0 else rng.uniform(self.robot.q_lower, self.robot.q_upper))
+                q_h = None if q_g is None else self._ik(t_d, X_h, q_g)
+                if q_h is None:
+                    continue
+                travel = np.max(np.abs(q_h - q0) / v_avg)
+                if t0 + travel <= t_d and (best is None or travel < best[0]):
+                    best = (travel, q_h, q_g)
+            if best is not None:
+                _, q_h, q_g = best
+                ts = np.linspace(t0, t_g, 40)
+                qs = np.array([np.interp(ts, [t0, t_d, t_g], [q0[j], q_h[j], q_g[j]]) for j in range(NQ)]).T
+                yield ts, qs, t_d
+
+    def _ik(self, t, X, q_guess):
+        """iiwa q with the gripper at X and >= d_safe + 1 cm from the obstacles where they are at t (None if not found)."""
+        cw, plant = self.cw, self.cw.plant
+        ctx = cw.context(("obstacle",))
+        cw.set_time(ctx, t, q_guess)
+        pc = cw.plant_context(ctx)
+        ik = InverseKinematics(plant, pc)
+        q, prog = ik.q(), ik.get_mutable_prog()
+        x = plant.GetPositions(pc)
+        world_joints = np.ones(len(x), bool)
+        world_joints[cw.iiwa_q : cw.iiwa_q + NQ] = False
+        prog.AddBoundingBoxConstraint(x[world_joints], x[world_joints], q[world_joints])
+        G = plant.GetFrameByName("body", cw.kin.wsg)
+        ik.AddPositionConstraint(G, np.zeros(3), plant.world_frame(), X.translation() - 0.003, X.translation() + 0.003)
+        ik.AddOrientationConstraint(G, RotationMatrix(), plant.world_frame(), X.rotation(), 0.01)
+        ik.AddMinimumDistanceLowerBoundConstraint(self.d_safe + 0.01, 0.2)
+        result = Solve(prog, x)
+        return result.GetSolution(q)[cw.iiwa_q : cw.iiwa_q + NQ] if result.is_success() else None
+
     def _plan(self, t0, q0, v0, guess_ts, guess_qs) -> dict:
         """Solve from (q0, v0) at t0, seeded with the joint path (guess_ts, guess_qs)."""
         tic = time.perf_counter()
@@ -216,7 +300,7 @@ class HybridController(Controller):
         result = self.solver.Solve(prog)
         ok = result.is_success()
         info = {"ok": ok, "solve_ms": 1e3 * (time.perf_counter() - tic), "T": float(result.GetSolution(T)),
-                "T_guess": T_guess, "t0": t0}
+                "T_guess": T_guess, "t0": t0, "cost": result.get_optimal_cost()}
         self.solve_log.append(info)
         if ok:
             self.traj = trajopt.ReconstructTrajectory(result)

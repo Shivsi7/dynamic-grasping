@@ -25,6 +25,13 @@ def test_reactive_and_hybrid_grasp_past_the_tall_blocker():
         assert r.min_clearance_obstacles > 0.02, controller.name
 
 
+def test_hybrid_ik_seed_gets_around_the_pillar_where_the_rollout_is_stuck():
+    r = run_episode(S.pillar_and_blocker(), HybridController())
+    plan = next(e for e in r.controller_log if "ok" in e)
+    assert not plan["rollout_reached"] and plan["seed"] == "ik"
+    assert r.outcome == "success" and not r.collided and r.min_clearance_obstacles > 0.02
+
+
 def test_hybrid_plan_ends_at_the_moving_grasp_pose():
     spec = S.tall_blocker(0.1, 0.2)
     r = run_episode(spec, HybridController(replan_period=100.0))

@@ -160,9 +160,16 @@ The pairs are computed against the predicted world at t, t + 0.1 and t + 0.2 s,
 so the arm keeps out of each obstacle's swept volume over the next 0.2 s. Phases:
 wait -> approach (10 cm above the grasp) -> descend -> close -> lift.
 
-**(C) `hybrid`** (`dyngrasp/hybrid.py`). When (A) would start moving, roll (A)
-out kinematically against the prediction (`ReactiveQPController.rollout`), then
-refine that path with Drake's `KinematicTrajectoryOptimization` (cubic
+**(C) `hybrid`** (`dyngrasp/hybrid.py`). When (A) would start moving, build two
+initial guesses: (A) rolled out kinematically against the prediction
+(`ReactiveQPController.rollout`), and a straight joint-space path to a hover
+pose and a grasp pose found by collision-aware inverse kinematics against the
+predicted obstacles (earliest grasp time with a solution; the path may cut
+through obstacles, the optimiser fixes that; if it does not converge, the next
+grasp times, up to 3). The IK guess covers the cases
+where (A) gets stuck in a local minimum, e.g. behind the pillar of
+`pillar_and_blocker`; `seed="rollout"` / `"ik"` keeps only one of them. Refine
+each with Drake's `KinematicTrajectoryOptimization` and keep the cheaper (cubic
 B-spline, free duration T, SNOPT): start at the current state, pass the hover
 pose and come straight down, end at the grasp pose *of time t0 + T* moving with
 the object, and keep `MinimumDistanceLowerBoundConstraint` clearance (4 cm to
@@ -170,7 +177,7 @@ obstacles, 5 mm to cart / floor / target) at 30 sample times t0 + s_k T. The
 world's joints in the kinematic plant move with T, so the constraints and their
 gradients are space-time. The plan is tracked with position commands and
 re-solved every 0.5 s (warm start: the remainder of the current plan); after
-T, (A) closes and lifts. If the first solve fails, (C) falls back to (A).
+T, (A) closes and lifts. If every first solve fails, (C) falls back to (A).
 
 `CollisionWorld` (`dyngrasp/collision.py`) is the shared geometry layer: the
 kinematic diagram with only robot <-> world pairs left in, rows for (A), and
