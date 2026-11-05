@@ -163,12 +163,12 @@ def main():
     ap.add_argument("--controller", default="naive", choices=sorted(CONTROLLERS))
     ap.add_argument("--times", nargs="+", type=float, default=None)
     ap.add_argument("--gif", action="store_true", help="also write an animated gif of the episode")
-    ap.add_argument("--video", action="store_true", help="write only an mp4 of the episode (rear34 + close34 views)")
-    ap.add_argument("--views", nargs="+", default=["front34", "side", "top", "robot_eye"], choices=list(VIEWS))
+    ap.add_argument("--video", action="store_true", help="write only an mp4 of the episode (default views rear34 close34)")
+    ap.add_argument("--views", nargs="+", default=None, choices=list(VIEWS))
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    views = {k: VIEWS[k] for k in args.views}
+    views = {k: VIEWS[k] for k in args.views or ["front34", "side", "top", "robot_eye"]}
 
     if args.scenario:
         jobs = [(S.load_scenario_set(args.scenario)[args.index], args.controller)]
@@ -183,7 +183,7 @@ def main():
         ]
     for spec, cname in jobs:
         if args.video:
-            print("wrote", video(spec, CONTROLLERS[cname](), out / f"{spec.name}__{cname}.mp4"))
+            print("wrote", video(spec, CONTROLLERS[cname](), out / f"{spec.name}__{cname}.mp4", views=args.views or ("rear34", "close34")))
             continue
         times = args.times or sorted({0.0, spec.cart.t_enter, spec.cart.t_enter + 1.0, spec.cart.t_enter + 2.0, spec.cart.t_closest, min(spec.duration, spec.cart.t_exit)})
         frames = snapshots(spec, CONTROLLERS[cname](), times, views)
