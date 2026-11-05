@@ -3,10 +3,12 @@
 For a candidate intercept time T and grasp candidate the goal is a pre-grasp
 configuration q_g(T) (the gripper backed off by `hover` along the grasp's
 approach direction: above a top grasp, beside a side grasp), and from there a
-fixed "tail": ride along, approach while matching the target's velocity,
-close, lift, hold.  The
-tail is part of the plan and is collision-checked like everything else, so an
-obstacle crossing *during* the grasp rules that (T, q_g) out.
+fixed "tail": ride along, approach while matching the target's velocity, close,
+lift, hold.  The tail is a differential-IK rollout at the controller rate,
+checked against the joint velocity / acceleration limits as it is generated and
+executed exactly as generated.  It is part of the plan and is collision-checked
+like everything else, so an obstacle crossing *during* the grasp rules that
+(T, q_g) out.
 
 Everything is computed from `WorldModel` (target pose and velocity at any
 time) and grasp candidates (dyngrasp.grasps, or any X_UG transforms), so it
@@ -130,8 +132,8 @@ class GoalGenerator:
         X = self.grasp_pose(t, k)
         return RigidTransform(X.rotation(), X.translation() - self.tp.hover * self.approach_W(t, k))
 
-    def tail_pose(self, tau: float, T: float, k: int) -> tuple[RigidTransform, np.ndarray]:
-        """Desired gripper pose and translational velocity at T + tau."""
+    def tail_pose(self, tau: float, T: float, k: int, lift: float | None = None) -> tuple[RigidTransform, np.ndarray]:
+        """Desired gripper pose and translational velocity at T + tau (lift: height, m)."""
         tp = self.tp
         if tau < tp.t_settle:  # ride along at the pre-grasp
             t = T + tau
@@ -155,7 +157,7 @@ class GoalGenerator:
         v0[2] = 0.0
         s = min(1.0, (tau - t_grip) / tp.t_lift)
         e, de = _ease(s)
-        lift = getattr(self, "_lift", tp.lift_height)
+        lift = tp.lift_height if lift is None else lift
         p = X0.translation() + v0 * tp.t_lift * (s - 0.5 * s * s) + [0.0, 0.0, lift * e]
         v = v0 * (1.0 - s)
         v[2] = lift * de / tp.t_lift
@@ -184,15 +186,16 @@ class GoalGenerator:
         return np.asarray(res.GetSolution(q))[self._i_iiwa]
 
     # ---- tail ----------------------------------------------------------------------
-    def tail(self, q_hover: np.ndarray, T: float, k: int) -> JointTrajectory | None:
-        """Differential-IK rollout of descend / close / lift / hold from q_hover at T.
-        None if it leaves the joint or velocity limits or cannot track the pose."""
+    def tail(self, q_hover: np.ndarray, T: float, k: int, lift: float | None = None) -> JointTrajectory | None:
+        """Differential-IK rollout of settle / descend / close / lift / hold from q_hover at T,
+        lifting by `lift` (default TailParams.lift_height).  None if it leaves the joint, velocity
+        or acceleration limits or cannot track the pose (the reason is in `last_tail_failure`)."""
         tp, robot = self.tp, self.robot
         self.last_tail_failure = ""
         q = np.asarray(q_hover, float).copy()
         # Polish the IK solution onto the exact pre-grasp pose first, so the rollout's feedback
         # does not start by snapping out the IK tolerance (an acceleration spike).
-        X0, _ = self.tail_pose(0.0, T, k)
+        X0, _ = self.tail_pose(0.0, T, k, lift)
         for _ in range(6):
             err = _pose_error(robot.fk(q), X0)
             if np.linalg.norm(err) < 1e-6:
@@ -205,7 +208,7 @@ class GoalGenerator:
         v_prev = None
         for i in range(1, n_steps + 1):
             tau = i * tp.dt
-            X_des, v_ff = self.tail_pose(tau, T, k)
+            X_des, v_ff = self.tail_pose(tau, T, k, lift)
             X = robot.fk(q)
             err = _pose_error(X, X_des)
             V = np.concatenate([tp.k_rot * err[:3], tp.k_p * err[3:] + v_ff])
@@ -305,6 +308,7 @@ class GoalGenerator:
                      max_tails: int = 3, finish=None) -> list[GoalCandidate]:
         """Goal candidates at intercept time T, over grasps and IK families.
 
+        tail_free(tail) -> bool and state_free(q, t) -> bool are the collision checks;
         `finish(tail)`, if given, is applied to every collision-free tail: it returns the
         tail to execute (e.g. with a retreat appended) or None to reject it.
 
@@ -353,8 +357,7 @@ class GoalGenerator:
                 n_tails += 1
                 tail, why = None, ""
                 for lift in (self.tp.lift_height, *self.tp.alt_lift_heights):
-                    self._lift = lift
-                    tail = self.tail(qc, T, k)
+                    tail = self.tail(qc, T, k, lift)
                     if tail is None:
                         why = why or "tail_infeasible"
                     elif not tail_free(self.check_knots(tail)):
@@ -364,7 +367,6 @@ class GoalGenerator:
                     else:
                         tail = done if finish is not None else tail
                         break
-                self._lift = self.tp.lift_height
                 if tail is None:
                     reason = reason or why
                     continue

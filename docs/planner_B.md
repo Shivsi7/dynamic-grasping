@@ -1,374 +1,222 @@
-# (B) Space-time RRT-Connect: design notes
+# (B) Space-time RRT-Connect planner
 
-Owner: Eli. Branch `planner-b-st-rrt`. Controller name in `run_eval.py`: `st_rrt`.
+Owner: Eli. Branch `planner-b-st-rrt`. Controller name in the scripts: `st_rrt`.
+How we got here (measurements, bugs, fixes) is in `planner_B_history.md`.
 
-## What it does
+## 1. The idea in one paragraph
 
-```
-every replan (0.5 s of sim time), until committed to a grasp:
-  (q_s, t_s) = executing trajectory at t + budget        # plan from where we will be
-  goals      += pre-grasp (q_g, T) for more intercept times T      (anytime, earliest first)
-  if current plan still collision-free:  look only for an earlier T  (improve)
-  else:                                  plan to any reachable goal
-  RRT-Connect in (q, t)  ->  time-preserving shortcuts  ->  prefix + path + grasp tail
-  no plan and current one unsafe  ->  escape to a state that is safe to hold
-```
+The object rides past on a cart and obstacles move through the workspace, all on known
+paths (`WorldModel` predicts every pose at any time t). So we plan in **space-time**: a
+state is (q, t), joint angles at a time. A goal is "be at the pre-grasp configuration
+q_g at the intercept time T, then run a fixed grasp motion (the *tail*)". RRT-Connect
+searches (q, t) for a path from where the arm will be to any such goal that never
+collides with anything *at the time it is there*. The arm executes a smooth curve
+through the path, the tail grasps and lifts the object, and the arm ends somewhere safe
+with it. The plan is redone every 0.5 s, and planning time costs simulated time.
 
-* **State space** (`planning/st_rrt.py`): nodes (q, t). An edge is admissible
-  if time moves forward and |dq_j| <= v_max_j dt. The start tree grows forward
-  in time, the goal tree backward from several goal roots (one per intercept
-  time / arm posture). Samples are drawn inside the space-time double cone
-  (reachable from the start in time, and can still reach some goal in time),
-  which is ST-RRT*'s main sampling trick. The module is pure numpy and knows
-  nothing about Drake; `tests/test_st_rrt.py` runs it on 1-D and 2-D toy
-  problems (waiting for a gate to open, dodging a moving disc).
-* **Collision checks** (`planning/collision.py`): Drake signed-distance
-  queries on the scene's kinematic diagram at a hypothetical (q, t), with a 3
-  cm margin to obstacles (it absorbs sampling between edge checks and the arm's
-  tracking lag), 5 mm to the cart and floor, and self-collision. Edges are
-  sampled every 0.03 rad / 0.04 s, midpoint first. About 70 µs per state on an
-  M1 Pro.
-* **Goals** (`planning/goals.py`): for each candidate T, IK for the hover pose
-  (8 cm above the grasp at T), then a differential-IK rollout of the **tail**:
-  descend while matching the cart's velocity, close, lift while slowing to a
-  stop, hold. The tail is collision-checked in space-time like everything
-  else, so an obstacle that crosses *during* the grasp rules that (T, q_g) out.
-  When the pre-grasp or tail collides, the elbow's **self-motion** (the 1-D
-  null space of the 6x7 Jacobian) is searched for a posture that is free. That
-  is what most failures needed: obstacles crossing the corridor meet the
-  elbow, not the hand.
-* **Execution**: the controller returns a `JointTrajectory`, and the wrapper
-  plays it at 100 Hz, including the gripper schedule. Between replans the
-  controller just returns the executing trajectory.
+## 2. Code map and reading order
 
-## Planning time is not free (team decision, needs agreement)
+Read in this order. Each file has a module docstring that explains it in more detail.
 
-The simulator waits for `update()`, so before this branch a 500 ms plan looked
-instantaneous and only showed up in `compute_p95_ms`. `ControllerSystem` now
-has a latency model, which is the harness default:
-
-* `latency="measured"`: a command computed in w s of wall time takes effect w
-  s of sim time later, and the controller is busy until then. The previous
-  command keeps running meanwhile. A controller faster than its period gets
-  exactly one period of delay (this changes the baselines and (A) by 10 ms).
-* A trajectory that would make the arm jump when it finally takes effect is
-  rejected (`n_rejected_commands`). For a planner this is the real cost of
-  overrunning its budget.
-* `latency=<seconds>` gives a fixed, deterministic delay; `compute_scale`
-  models faster or slower hardware; `latency="none"` is the old behaviour.
-
-Things to agree on with Shivam and Victor:
-
-1. Run the A/B comparison under `measured`, with at most one episode per
-   physical core, since wall time is the measurement.
-2. `reset()` is untimed. It may build models (the planner builds its collision
-   diagram there) but must not plan.
-3. Report `compute_scale` alongside results, or report results at a fixed
-   latency as well, if we want numbers that don't depend on the machine.
-
-## What "general" means here, and how it is checked
-
-No part of (B) reads a preset's geometry. Its inputs are the `WorldModel`
-(target and obstacle poses at any time), the scene's collision geometry
-(rigs and masts included), and the robot model. The things that would break
-on unseen scenes were each replaced by something scene-independent:
-
-| assumption that would not generalise | replaced by |
-|---|---|
-| a fixed intercept time | candidate T over the whole window; IK + tail feasibility decide |
-| "the target is reachable while abs(y) < 0.5" | kinematic feasibility of the tail (velocity, joint limits, tracking) |
-| one IK solution per T | IK families seeded across T + elbow self-motion search |
-| one grasp | `grasps=[X_UG, ...]` (any number; grasp selection plugs in here) |
-| plans always succeed | escape plan to a safe-to-hold state; retry at the next replan |
-| fixed compute per scene | anytime goal generation within each replan's budget share |
-| fixed RNG | seeded per scenario (`spec.seed`), so runs are reproducible |
-
-`scripts/stress_planner.py` runs N generated scenes in parallel (mixing cart
-and float mounts, all six objects, 0 to 4 obstacles, both cart directions) and
-writes a failure table with goal-generation statistics per scene:
-
-```
-python scripts/stress_planner.py --n 200 --workers 4 --controllers st_rrt naive --out results/stress
-```
-
-## Results so far
-
-80 **held-out** mixed scenes (`--seed 5000`, never used for tuning), measured
-latency, 4 workers on an M1 Pro:
-
-| | success | collision | timeout |
+| # | file | what it does | start with |
 |---|---|---|---|
-| naive (no avoidance) | 35 | 40 | 5 |
-| **st_rrt** | **57** | **0** | 23 |
+| 1 | `dyngrasp/planning/st_rrt.py` | generic (q, t) RRT-Connect; no Drake, no robot | `SpaceTimeRRTConnect.plan`, `_extend`, `_shot`, `shortcut`, `plan_to_safe_state` |
+| 2 | `dyngrasp/planning/collision.py` | is the robot (and a held object) clear at (q, t)? | `state_free`, `edge_free`, `hold_free`, `attach` |
+| 3 | `dyngrasp/planning/goals.py` | intercept times, pre-grasp IK, the grasp tail | `generate_for`, `tail`, `tail_pose`, `self_motion` |
+| 4 | `dyngrasp/trajectory.py` | the trajectory type the arm executes; Hermite smoothing | `JointTrajectory`, `hermite`, `knot_velocities` |
+| 5 | `dyngrasp/planning/motion.py` | knots -> executed curve, and the checks it must pass | `MotionVerifier.smooth_verified`, `verify` |
+| 6 | `dyngrasp/planning/escapes.py` | evasive moves; the post-grasp retreat | `EscapePlanner.primitive`, `retreat` |
+| 7 | `dyngrasp/planning/config.py` | every tunable number, grouped; iiwa acceleration limits | `STRRTConfig`, `IIWA_ACCEL_REF` |
+| 8 | `dyngrasp/planning/controller.py` | the replanning cycle that ties it all together | `update`, `_cycle` (section 3 below) |
+| - | `dyngrasp/planning/variants.py` | named configurations used by the scripts | `VARIANTS` |
+| - | `dyngrasp/grasps.py` | grasp candidates from the object's bounding box | `generate_grasps`, `prior_score` |
 
-Success rate by cart speed (0-0.15 / 0.15-0.22 / 0.22-0.31 m/s): st_rrt 0.86 /
-0.70 / 0.50, naive 0.56 / 0.45 / 0.25. By number of obstacles (0-4): st_rrt
-1.00 / 0.88 / 0.75 / 0.62 / 0.31. No plan was rejected for arriving late; the
-minimum obstacle clearance was 2.2 cm.
+Shared harness pieces (B) relies on, in `dyngrasp/controller.py` (the controller wrapper
+and its latency model), `dyngrasp/harness.py` (`run_episode`) and `dyngrasp/monitor.py`
+(scoring). Tests: `tests/test_st_rrt.py` runs the RRT on 1-D / 2-D toy problems;
+`tests/test_planner.py` runs the whole controller in Drake.
 
-What the failures look like:
+## 3. One replanning cycle (`SpaceTimeRRTController._cycle`)
 
-* When (B) fails, it **times out** (abstains); it does not collide. That
-  includes scenes where an obstacle drives into the parked home pose (the hold
-  baseline is hit there). (B) checks how long it can stay parked, shrinks the
-  first planning budget to fit, and plans its way out with a reduced margin if
-  the start state already violates the 3 cm margin
-  (`test_planner_gets_out_of_the_way_when_parking_would_be_hit`).
-* 20 of the 23 timeouts are scenes where **no goal candidate survived**, so
-  the RRT is rarely what fails. Typical causes: fast carts (0.25 to 0.3 m/s
-  leave only a few intercept times before the arm reaches a singularity
-  during the lift), and 3 to 4 obstacles crossing the corridor where the elbow
-  must be.
-* Some scenes are infeasible for a top-down grasp. Example: a slow floating
-  sphere riding along the shoulder-wrist line for the whole window. Only
-  other grasps can solve those, which is the interface to Victor's grasp
-  selection (`grasps=`).
-* The remaining 3 have goals but no path within the budget: narrow passages
-  in space-time. Persistent trees across replans (rather than replanning from
-  scratch) would help.
+```
+update(state)                                   every 10 ms
+  committed to a grasp?  (from commit_time before T to the end of the tail)  -> keep executing
+  every replan_period:   _replan -> _cycle
 
-For Shivam: the scenario generator can produce obstacles that hit a robot
-parked at `q0` (for example seed 5034 with 4 obstacles, or float mounts).
-"Solvable by a robot that gets out of the way" still holds, but the
-`HoldController` sanity check only covers the presets.
+_cycle
+ 1. _start            budget; start state (q_s, v_s) = executing trajectory at t_s = t + budget;
+                      prefix = executing trajectory up to t_s
+ 2. _remaining_valid  is the executing plan still collision-free?  if not: _escape_primitive
+                      (a cheap fallback, secured first)
+ 3. _generate_goals   more goals, earliest intercept time first, within a share of the budget
+                      (or a whole "goal-work" cycle while waiting safely with no reachable goal)
+ 4. _plan_grasp       RRT-Connect to any reachable goal -> shortcut -> smooth + verify
+                      -> Plan(prefix + path + tail)
+ 5. if no grasp plan and the executing one is unsafe: the fallback, else _escape_rrt
+```
 
-## Grasp candidates (`dyngrasp/grasps.py`)
+What the pieces are for:
 
-Candidates are generated from each object's bounding box. Families:
+* **Why start at t + budget.** The harness charges planning time (section 4.4). The new
+  plan keeps the executing trajectory up to t_s, so it agrees with what the arm is doing
+  when it arrives, as long as planning finished within the budget.
+* **The budget** is 0.25 s normally, 1.5 s for the first plan, grows (up to 1 s) while
+  waiting safely without a grasp plan, and is set to half the time left when a collision is
+  predicted (`_start`). Then a hard escape gets the time it needs, instead of being cut off.
+* **Margins.** `_replan` wraps `_cycle`: if the start state already violates the 3 cm
+  obstacle margin, it plans with the largest smaller margin (1 cm, 0) it satisfies, rather
+  than freeze.
+* **Improve.** While a valid grasp plan executes, only goals with an earlier T are tried.
 
-* top-down grasps along both horizontal axes, each also turned 180 deg (a
-  different wrist);
-* the same grasps tilted +-35 deg about the closing axis;
-* side grasps on each face, plus the diagonals for round objects.
+## 4. Key ideas
 
-Each is placed as deep as the WSG geometry allows (palm clear of the object,
-fingers above the cart, pads on the object). The planner's collision checker
-cannot test this, because it ignores gripper-target contact. The goal
-generator approaches every grasp along its own direction, tries candidates in
-order of how often they have produced goals and of a prior (from above or
-from the robot's side first), and never tries far-side approaches.
+### 4.1 Space-time RRT-Connect (`st_rrt.py`)
 
-`scripts/grasp_feasibility.py` answers "which grasps are possible?":
+* An edge (q_a, t_a) -> (q_b, t_b) is admissible if t_b > t_a and |q_b - q_a|_j <=
+  v_max_j (t_b - t_a) for every joint, and it is collision-free along the way.
+* The start tree grows forward in time; the goal tree grows backward from several goal
+  roots (one per intercept time and arm posture), so one search considers all of them.
+* Samples are drawn only in the space-time "double cone": states reachable from the start in
+  time *and* from which some goal is still reachable in time (ST-RRT*'s sampling trick).
+* `shortcut` replaces sub-paths with straight edges but keeps the knot times, so the arrival
+  time at the goal does not change.
+* `plan_to_safe_state`: single tree, grows until it reaches a state from which holding still
+  is free (an escape).
 
-| 80 held-out scenes | kinematic (no obstacles) | with obstacles |
-|---|---|---|
-| nominal top-down only | 98 % | 79 % |
-| all candidates | 100 % | 89 % |
-| tilted top family | 100 % | 89 % |
-| side family | 45 % | 26 % |
+### 4.2 Goals and the grasp tail (`goals.py`, `grasps.py`)
 
-Executing each candidate alone (`--execute`, 212 episodes, no obstacles):
-top 37/40 held, tilted 50/56, side 2/10 (and 86 side candidates were never
-reachable). So side grasps are off by default (`STRRTConfig.grasp_families`),
-and tilted grasps are excluded for the mustard bottle (0/4 held: it is not a
-box; `grasps.EXCLUDED_FAMILIES`).
+* **Intercept times** T span the window in which the object is within reach and the tail
+  still fits in the episode (`candidate_times`).
+* **Pre-grasp**: IK for the gripper 8 cm back along the grasp's approach direction at T.
+  IK "families" are seeded with their own solution at the previous T, so each family is a
+  consistent arm posture. If the pre-grasp or tail collides, the elbow's **self-motion**
+  (the 1-D null space of the Jacobian: same gripper pose, different elbow) is searched,
+  since obstacles mostly meet the elbow, not the hand.
+* **The tail** (`tail`, `tail_pose`): ride along 0.3 s, descend 0.6 s while matching the
+  object's velocity, close 0.4 s, lift 0.6 s while slowing to rest, hold 0.6 s. Minimum-jerk
+  profiles (zero velocity and acceleration at the ends). It is a differential-IK rollout at
+  10 ms, rejected if it breaks joint, velocity or acceleration limits or loses track of the
+  pose, and executed exactly as rolled out. Two lift heights are tried (10 cm, 15 cm).
+* **Grasp candidates** (`grasps.py`): top-down along both horizontal axes (and turned 180
+  deg), the same tilted +-35 deg, and side grasps; placed as deep as the WSG geometry allows.
+  Side grasps are off by default (rarely reachable, mostly fail physically); tilted grasps are
+  off for the mustard bottle. Candidates are tried in order of past success, then a prior
+  (approach from above or the robot's side first).
 
-Planner on the 80 held-out scenes, all candidates vs nominal grasp only:
-**61 vs 57 successes**, 0 collisions and 0 rejected plans for both, and on
-scenes both solve the grasp happens 0.42 s earlier (4.99 vs 5.41 s). The gains
-are in the hard cases (4 obstacles: 50 % vs 38 %). 18 scenes are solved by
-neither.
+### 4.3 Collision checking (`collision.py`)
 
-This module is the interface to grasp selection (Victor): pass any list of
-`GraspCandidate`s or X_UG transforms as `SpaceTimeRRTController(grasps=...)`.
+* Drake signed-distance queries on a kinematic copy of the scene, with every obstacle, the
+  cart and the target placed at their predicted poses at time t.
+* Margins: 3 cm from obstacles (absorbs the gaps between edge samples and the arm's tracking
+  lag), 5 mm from the cart / floor, no penetration of the target (except by the gripper) or
+  of the robot itself.
+* Edges are sampled at least every 0.03 rad and 0.04 s, midpoint first.
+* **Held object** (`attach`): from the moment the gripper closes, the target is moved with
+  the gripper at its grasp pose, and it must clear the obstacles by 3 cm too. Without this,
+  an obstacle swept through a box hanging below the gripper and knocked it out.
 
-## Joint velocity and acceleration limits
+### 4.4 Planning time costs time (`dyngrasp/controller.py`, shared)
 
-Before this, joint *velocities* were limited (RRT edges at 0.5x the iiwa limits, the
-grasp tail at 0.9x), but *acceleration* was not limited anywhere. Every plan was
-piecewise linear in q(t), so velocity jumped at every knot: 100-250 rad/s^2 commanded
-(about 50 measured). That is what flung the can in mix_0034. Now:
+* `latency="measured"` (the default): a command computed in w s of wall time takes effect
+  w s of sim time later; the previous command keeps running meanwhile.
+* A late trajectory is rejected if, at the moment it takes effect, it disagrees with what
+  the arm is doing, in position (`stitch_tol`, 0.02 rad) **or velocity** (`stitch_vtol`,
+  0.03 rad/s). The velocity rule matters: splicing in a plan that already started moving is
+  a velocity step, which was the source of 20-95 rad/s^2 acceleration spikes.
+* `latency=<seconds>` gives a fixed, machine-independent delay; `"none"` makes planning free
+  (used by the certification oracle).
 
-* **Executed trajectories are C1** (`trajectory.hermite`): a cubic Hermite curve
-  through the planner's knots, at the same positions *and times*. Space-time plans
-  cannot simply be retimed (e.g. with TOPP-RA), because their timing is what keeps
-  them clear of the moving obstacles. Velocities at the knots lie between the
-  adjacent segment velocities, so the curve never overshoots a knot.
-* **The RRT is acceleration-aware** (`a_max`, per joint; see "Per-joint limits" below
-  for the values; originally 4 rad/s^2 for every joint). At every knot,
-  |dv| <= a_max * min(h_in, h_out) / 6 per joint, which provably bounds the cubic's
-  acceleration by a_max (checked empirically: worst 0.97 a_max). Rejecting
-  violating extensions wasted 97 % of samples, so extensions instead *project*
-  the edge velocity into the admissible window (kinodynamic-style steering), and
-  the trees are joined by exact "shots" that satisfy the bound at both ends.
-  Plans join the executing trajectory and the grasp tail without a velocity jump.
-* **The smoothed curve is re-verified** (collisions, 0.95x the hardware velocity
-  limits, a_max) before it is used, because it deviates slightly from the
-  straight edges.
-* **The grasp tail** uses minimum-jerk profiles (zero velocity *and* acceleration
-  at both ends), starts from an exactly polished pre-grasp (no feedback snap),
-  is limited to `tail_a_max` (per joint), and is executed at full rate, i.e. exactly as checked.
-* **With the object in hand**, escapes use 0.25x velocity and `a_max_holding`.
-* **Escapes** first try a library of smooth evasive primitives (brake, go home,
-  swing the base / shoulder / elbow, fold the arm, random nearby targets),
-  computed *before* goal generation when the current plan is unsafe; the
-  random-tree escape is the fallback. When a safe hold is about to become unsafe,
-  the planning budget drops back to the short one (it used to react one long
-  budget late).
-* `ControllerSystem` now reports `cmd_speed_ratio_max`, `cmd_accel_max` and
-  `cmd_accel_p99` for every controller (including (A) and the baselines).
+### 4.5 Smooth motion within the iiwa's limits (`motion.py`, `trajectory.py`, `st_rrt.py`)
 
-80 held-out scenes, measured latency, same code with the limits on or off:
+* **Executed curve.** A C1 cubic Hermite curve through the RRT's knots at the same times.
+  Space-time plans cannot be retimed (e.g. by TOPP-RA): their timing is what avoids the
+  obstacles.
+* **Acceleration-aware RRT.** At every knot, |v_out - v_in|_j <= a_max_j min(h_in, h_out) / 6
+  keeps the cubic's acceleration within a_max. Extensions *project* their velocity into that
+  window (instead of rejecting most samples), and the trees are joined by exact single-edge
+  "shots" that satisfy it at both ends. The start velocity is the executing trajectory's,
+  and a goal's is the velocity the tail starts with, so there is no jump at either end.
+* **Verification** (`MotionVerifier.verify`), before any plan is used: joint position limits,
+  0.95x the velocity limits, the acceleration limits, joint torques (inverse dynamics of
+  iiwa + gripper within 0.9x the datasheet torques), collisions. If position or collision
+  fails, the curve is retried with long segments split (a long cubic that must end at a given
+  velocity can bulge past a joint limit).
+* **Limits.** KUKA publishes no acceleration limits, so they are fractions of a per-joint
+  reference set from the literature (`IIWA_ACCEL_REF`, arXiv 2407.13423). The joints really
+  differ: 176 N m of torque at joints 1-2, 110 at 3-5, 40 at 6-7, and joint 2 lifts the arm.
 
-| | success | collisions | commanded accel (median / p90 / worst) |
-|---|---|---|---|
-| no acceleration limits | 61 | 0 | 91 / 182 / 272 rad/s^2 |
-| **default** (a_max 4, 0.6 s min-jerk tail) | **60** | **0** | **3.8 / 4.8 / 15.4** |
-| slower tail (0.7 / 0.8 s) | 56 | 0 | 2.4 / 3.3 / 4.1 |
+  | motion | velocity | acceleration (rad/s^2, joints 1-7) |
+  |---|---|---|
+  | transfer / escape (`a_max`, 0.6x ref.) | 0.5x datasheet | 9, 4.5, 6, 7.5, 9, 12, 12 |
+  | grasp tail (`tail_a_max`, 0.8x ref.) | 0.9x | 12, 6, 8, 10, 12, 16, 16 |
+  | holding the object (`a_max_holding`, 0.2x ref.) | 0.25x | 3, 1.5, 2, 2.5, 3, 4, 4 |
 
-The 15.4 rad/s^2 outlier is a single scene (mix_0061, one wrist joint, just before
-the tail starts; its p99 is 5.0), not yet explained. The unconstrained version is
-also not safe in general: in a rendered run of mix_0034 it flung the can at 3.4 m/s
-and then collided.
+### 4.6 Staying safe (`escapes.py`, `controller.py`)
 
-## Was abstaining correct? (`scripts/certify.py`)
+* **Escape primitives**: one smooth curve to a target at rest (brake, go home, swing the
+  base / shoulder / elbow, fold the arm, random nearby targets), fastest first, accepted if
+  it passes verification and holding the target is free for 1.5 s. Tried before goal work
+  when the executing plan becomes unsafe; the random-tree escape is the fallback.
+* **After the grasp** the arm must end somewhere safe (`finish_tail`, `_resolve_retreat`):
+  1. holding the tail's end pose is free for 1.5 s: fine;
+  2. otherwise a **planned retreat**: right after the lift, a gentle escape primitive with the
+     object in hand, kept lifted, to a safe pose, appended to the tail and checked with it.
+     It is planned only for the goal the RRT picks (planning it for every candidate made the
+     first plan late);
+  3. otherwise the end pose must be free for at least 1 s (time to replan and escape);
+  4. otherwise the goal is dropped.
+* **With the object in hand**, escapes use the gentle limits first, then the planner's
+  (shaking the object beats hitting an obstacle).
 
-For each scene (B) did not grasp: an exhaustive goal search (no caps, 0.1 s intercept
-grid, many IK seeds and elbow postures), a time-optimal dynamics bound, and an "oracle"
-(the same planner with 20x the compute and planning time free, executed in simulation)
-swept over acceleration limits. This gives each scene a *required acceleration*.
-"Possible at X" is proven by example (the oracle grasped in simulation); "impossible"
-means exhaustive search / oracle found nothing (strong evidence, not proof).
+## 5. Tools
 
-The 20 held-out scenes the default (planner 4, tail 6 rad/s^2) did not grasp:
-
-| verdict | scenes |
+| script | question it answers |
 |---|---|
-| impossible at any acceleration: no feasible grasp at all | mix_0007, 0014, 0028, 0038, 0059, 0068 |
-| impossible at any acceleration: goals exist but no plan even unconstrained | mix_0019, 0043, 0063, 0067, 0079 |
-| possible at **8 rad/s^2** (planner and tail) | mix_0031, 0054 (tail needs 6.03), 0069, 0072 (tail needs 6.34) |
-| possible at **16 rad/s^2** | mix_0024, 0034, 0039, 0064 |
-| possible at the current limits: **the online planner missed it** | mix_0073 |
+| `scripts/stress_planner.py --scenarios <set> --controllers st_rrt --settle 30` | how does (B) do on many scenes? (`--settle 30`: simulate to the end of each scene, so post-grasp drops / collisions count) |
+| `scripts/certify.py --results <results.csv> --scenarios <set>` | for each scene (B) did not grasp: was abstaining correct? exhaustive goal search, a time-optimal bound, and an "oracle" (same planner, 20x compute, planning free) at several acceleration limits |
+| `scripts/compare_videos.py --scenarios <set> --names mix_0061 --controllers st_rrt_ckpt st_rrt` | side-by-side videos with live status, joint acceleration and object speed |
+| `scripts/grasp_feasibility.py` | which grasp candidates are kinematically possible / hold the object |
 
-So 11 of 20 abstentions are correct at any acceleration limit, 8 are caused by the
-limits (4 at 8 rad/s^2, 4 more at 16), and 1 is a planner miss. mix_0054 lost its goals
-when the lift was lowered to 10 cm (a 15 cm lift avoids the obstacles); the goal search
-now tries both lift heights.
+The monitor (`dyngrasp/monitor.py`) scores `success` (lifted 5 cm, held 0.5 s, no collision)
+and, after it, `held_at_end`, `dropped_after_success`, `obj_speed_max_after_grasp`, `slip_max`.
+The wrapper reports `cmd_accel_max` and `cmd_torque_ratio_max` for every controller.
 
-## Per-joint limits, post-grasp safety, end-of-scene scoring
+## 6. Current results
 
-**Per-joint acceleration limits.** KUKA publishes no iiwa acceleration limits. The joints
-differ a lot: 176 N m of torque at joints 1-2, 110 at 3-5, 40 at 6-7, and joint 2 lifts the
-whole arm. Inverse dynamics of our iiwa 7 + WSG model (2000 random poses, one joint at a
-time, no payload) allow roughly 54 / 22 / 29 / 44 / 78 / 28 / 29 rad/s^2 (median), an upper
-bound. The limits are fractions of a reference set used for an iiwa in the literature,
-`IIWA_ACCEL_REF` = (15, 7.5, 10, 12.5, 15, 20, 20) rad/s^2 (arXiv 2407.13423):
-
-| | fraction | rad/s^2 (joints 1-7) |
-|---|---|---|
-| planner (`a_max`) | 0.6 | 9, 4.5, 6, 7.5, 9, 12, 12 |
-| grasp tail (`tail_a_max`) | 0.8 | 12, 6, 8, 10, 12, 16, 16 |
-| holding the object (`a_max_holding`) | 0.2 | 3, 1.5, 2, 2.5, 3, 4, 4 |
-
-**Torque check.** Every smoothed plan is also checked by inverse dynamics
-(`RobotModel.joint_torques`, iiwa + gripper): all joint torques within 0.9x the datasheet
-limits. `cmd_torque_ratio_max` reports the peak for every controller.
-
-**Acceleration spikes** (up to 57-95 rad/s^2 in mix_0003, 20 in mix_0004). Cause: a plan that
-arrived a few ms after its start time was accepted if it was within `stitch_tol` (0.02 rad)
-in position, but it had already started moving, so splicing it in was a velocity step. The
-stitch check now also requires the velocities to agree (`stitch_vtol` = 0.03 rad/s, i.e. at
-most 3 rad/s^2 over one 10 ms step); otherwise the plan is rejected and the old one runs on.
-
-**Post-grasp collisions.** Episodes used to stop as soon as `success` was declared (lifted
-5 cm, held 0.5 s), so anything later was never scored. `run_episode(settle_after_success=...)`
-/ `stress_planner.py --settle 30` now simulate to the end of the scene, and the monitor
-reports `held_at_end`, `dropped_after_success`, `obj_speed_max_after_grasp` and `slip_max`.
-That showed 2 collisions after success (mix_0009, mix_0049): the grasp ended in an
-obstacle's path, and the gentle holding limits plus a 0.25 s budget were too slow to escape.
-Fixes:
-1. A grasp tail is accepted only if holding its end pose is collision-free for
-   `post_grasp_hold` = 1 s.
-2. While holding, escapes try the gentle limits first, then the planner's (shaking the
-   object beats hitting an obstacle).
-3. The replan budget scales with the time to the predicted collision:
-   clip(0.5 (t_hit - t), 0.25, 1.0) s, so a hard escape found with 1.5 s of warning is
-   not cut off after 0.125 s (mix_0044).
-4. The mix_0073 miss: goal-work cycles kept generating goals for later intercept times
-   while a reachable goal went stale. With a reachable goal, the planner now plans to it.
-
-80 held-out scenes, measured latency, simulated to the end of each scene:
+80 held-out mixed scenes (`results/stress_v3_heldout/scenarios.yaml`, never used for tuning),
+measured latency, 4 workers on an M1 Pro, simulated to the end of each scene:
 
 | | clean success, held at end | collisions | dropped after success | commanded accel (median / p90 / worst) | peak torque / limit |
 |---|---|---|---|---|---|
-| before (4 / 6 / 1.5 rad/s^2, v14) | 57 | 2 (both after success) | 0 | 3.8 / 5.0 / 57.1 | - |
-| **now** (per-joint, v16) | **59** | **0** | **0** | **4.2 / 6.4 / 8.2** | 0.55 (median 0.34) |
+| naive baseline (no avoidance) | 35 (of 80, at the first success) | 40 | - | - | - |
+| **(B)** | **63** | **0** | **0** | 4.4 / 7.2 / 8.5 rad/s^2 | 0.46 |
 
-Gained mix_0023, 0031, 0049, 0054. Lost mix_0061 (each grasp it had ends with an obstacle
-arriving within 1 s; it was lucky before) and mix_0077 (run-to-run variation from measured
-latency suggests about +-2 scenes between runs). After the grasp, objects slip at most 3.9 cm
-in the hand; the fastest object motion is 1.2 m/s (mix_0049, a fallback escape at the
-planner limits while holding the can, still held at the end).
+Run-to-run variation from measured latency is about +-2 scenes (the run after the code cleanup:
+62, the difference being mix_0061, which succeeds in about 2 of 3 runs).
 
-### Planned retreat and the held object (after checkpoint `ckpt-safe-hold`)
+The 17 scenes (B) does not grasp, by the last certification (before the latest changes):
 
-The 1 s hold rule above rejects grasps that end in an obstacle's path (mix_0061: every grasp
-ended 0.3-0.5 s before an obstacle arrived; the checkpoint run of mix_0061 before that rule
-grasped and missed the obstacle by 1 mm). Instead:
+| verdict | scenes |
+|---|---|
+| no feasible grasp at any acceleration | mix_0007, 0014, 0028, 0038, 0059, 0068 |
+| grasps exist, no plan even without acceleration limits (oracle) | mix_0019, 0043, 0063, 0067, 0079 |
+| possible only with more acceleration (one oracle success each; not reliable) | mix_0024, 0034, 0039, 0064, 0069, 0072 |
 
-1. **Planned retreat.** If holding the tail's end pose is not safe for `hold_horizon`, a gentle
-   retreat (escape primitive from the end of the lift, object in hand, gripper kept within 3 cm
-   of its lifted height, gentle limits then planner limits) to a pose that is safe to hold is
-   appended to the tail and checked with it. It is planned lazily, only for the goal the RRT
-   picks (`lazy_retreat`); planning it for every candidate made the first plan arrive late
-   (mix_0026). If no retreat exists, the 1 s hold rule is the fallback, else the goal is dropped.
-2. **The held object is collision-checked.** With the retreat, an obstacle swept through the
-   cracker box hanging below the gripper and knocked it out (mix_0056; the arm itself was 5 cm
-   clear). `SpaceTimeChecker.attach(X_GO, t_closed)` now moves the target with the gripper from
-   the end of the close, and target-obstacle pairs need `margin_obstacle`, for the tail, the
-   retreat, holding, and every escape after the grasp.
-3. **Joint position limits are verified.** A long smoothed segment that must end at the
-   tail's velocity overshot joint 6's limit by 0.2 rad (the arm clipped it: a 29 rad/s^2
-   spike). Plans past a position limit are rejected; a failing smoothed path is retried with
-   its long segments split.
+So at most 69 of 80 scenes are possible at all, and (B) grasps 63.
 
-80 held-out scenes, measured latency, to the end of each scene:
+## 7. Limitations and open questions
 
-| | clean success, held at end | collisions | dropped after success | accel median / p90 / worst | peak torque / limit |
-|---|---|---|---|---|---|
-| checkpoint (v16) | 59 | 0 | 0 | 4.2 / 6.4 / 8.2 rad/s^2 | 0.55 |
-| + retreat (v17) | 61 | 0 | **1** (mix_0056, knocked out) | 4.3 / 7.0 / 9.6 | 0.46 |
-| + held-object check (v18) | 61 | 0 | 0 | 4.3 / 6.4 / 8.2 | 0.43 |
-| **+ lazy retreat (v19, default)** | **63** | **0** | **0** | **4.4 / 7.2 / 8.5** | 0.46 |
-
-v19 vs. the checkpoint: gained mix_0003, 0009, 0061, 0077; lost none. 9 scenes executed a
-planned retreat. The 17 scenes still not grasped are the 11 certified impossible at any
-acceleration and 6 that needed more acceleration in the certification (mix_0024, 0034, 0039,
-0064, 0069, 0072); the certification has not been re-run with these changes.
-
-## Videos
-
-`scripts/compare_videos.py` renders the same scene under several controllers
-side by side (headless VTK, close + top views, live status):
-
-```
-python scripts/compare_videos.py --preset tall_blocker --views close top
-python scripts/compare_videos.py --scenarios <set.yaml> --names mix_0054 --controllers naive st_rrt_nominal st_rrt
-```
-
-## Known limitations / next steps
-
-1. **Goal coverage** is the bottleneck: grasp candidates from grasp selection,
-   a shorter tail at high cart speeds, and collision-aware IK.
-   Goal generation is anytime: each replan spends at most `goal_share` of its
-   budget on it, and "goal-work" cycles may overrun only while the executing
-   plan is safe (they return no plan, so nothing can arrive late).
-2. **Speed**: 70 µs per state check. A sphere-based numpy checker or VAMP
-   would allow more replans and bigger trees. The Drake checker stays the
-   reference for testing a faster one.
-3. **Smoothness**: piecewise-linear q(t) has velocity jumps at knots; the
-   position-controlled arm smooths them but lags (minimum clearance dips to
-   about 2 cm against a 3 cm margin). Time-parameterising with acceleration
-   limits would close the gap.
-4. **With exact prediction, replanning only improves T.** The first valid
-   plan stays valid. To make "deliberative plans go stale" a measurable
-   effect, add a prediction-error option to `WorldModel` (e.g. predict
-   parabolic paths as constant velocity). Then `validate=True` triggers real
-   replans.
-5. The held object is modelled at its predicted pose relative to the gripper at
-   the end of the close (no slip); object vs. cart / floor is not checked.
-   Escapes while holding may still use the reduced-margin fallback.
-6. Requiring velocity continuity makes the bidirectional search harder (the
-   trees must meet in velocity too). Tighter limits than about 3 rad/s^2 fail
-   often; persistent trees or kinodynamic trajectory optimization (extension C)
-   would help.
+1. **Goal coverage** is the bottleneck: most misses have no feasible goal. More grasp types
+   (from grasp selection), a shorter tail at high cart speeds, collision-aware IK.
+2. **Speed**: about 70 us per state check. A sphere-based checker or VAMP would allow more
+   replans and bigger trees.
+3. **Exact prediction**: with perfect knowledge of the future, the first valid plan stays
+   valid and replanning only finds earlier intercepts. A prediction-error option in
+   `WorldModel` would make "plans go stale" a measurable effect.
+4. **Held object model**: rigid at its grasp pose (no slip); object vs. cart / floor is not
+   checked.
+5. **Velocity continuity** makes the bidirectional search harder (trees must meet in
+   velocity too); much tighter acceleration limits fail often.
+6. **To agree with the team**: compare (A) and (B) under `latency="measured"` with at most one
+   episode per physical core; `reset()` is untimed (may build models, must not plan); the
+   acceleration limits; scoring to the end of the scene (`--settle`).

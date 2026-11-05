@@ -40,11 +40,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("HEADLESS", "1")
 
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import numpy as np
+import pandas as pd
 
-from dyngrasp import scenario as S  # noqa: E402
-from dyngrasp.planning.controller import IIWA_ACCEL_REF, STRRTConfig, _scaled, accel_vector  # noqa: E402
+from dyngrasp import scenario as S
+from dyngrasp.planning.config import IIWA_ACCEL_REF, STRRTConfig, accel_vector, scaled_accel
 
 PLANNER_SCALE = STRRTConfig().a_max[0] / IIWA_ACCEL_REF[0]  # 0.6
 TAIL_SCALE = STRRTConfig().tail_a_max[0] / IIWA_ACCEL_REF[0]  # 0.8
@@ -65,8 +65,8 @@ def oracle_config(a_max_on: bool, wall_scale: float, scale: float = PLANNER_SCAL
     """The planner with `wall_scale` x the compute; joint-acceleration limits `scale` x
     IIWA_ACCEL_REF for transfers and max(TAIL_SCALE, scale + 0.2) x it for the tail."""
     return STRRTConfig(
-        a_max=_scaled(scale) if a_max_on else None,
-        tail_a_max=_scaled(max(TAIL_SCALE, scale + 0.2)),
+        a_max=scaled_accel(scale) if a_max_on else None,
+        tail_a_max=scaled_accel(max(TAIL_SCALE, scale + 0.2)),
         wall_scale=wall_scale,
         dT=0.125, max_goal_times=64, max_goals_per_T=6, max_ik_per_T=40, ik_restarts=10,
         max_tails=10, swivel_steps=10, n_random_ik_seeds=3,
@@ -100,7 +100,7 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     c0 = SpaceTimeRRTController(STRRTConfig(retreat_budget=10 * cfg.retreat_budget, lazy_retreat=False))
     c0.reset(world, robot, None)
     c0.checker = ck
-    tail_free, finish = c0._tail_free, c0._finish_tail
+    tail_free, finish = c0.tail_free, c0.finish_tail
 
     goals = []
     for T in gg.candidate_times(0.0, dT=0.1, max_count=400):

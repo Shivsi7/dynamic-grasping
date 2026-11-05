@@ -174,10 +174,12 @@ def run_episode(
     settle_after_success: float = 0.0,
     latency: str | float = "measured",
     compute_scale: float = 1.0,
+    stitch_vtol: float = 0.03,
 ) -> EpisodeResult:
     """Simulate one episode of `controller` on `spec` and score it."""
     h = build_episode(
-        spec, controller, meshcat, stop_on_collision, monitor_hz, latency=latency, compute_scale=compute_scale
+        spec, controller, meshcat, stop_on_collision, monitor_hz, latency=latency, compute_scale=compute_scale,
+        stitch_vtol=stitch_vtol,
     )
     sim = h.simulator
     if realtime is None:

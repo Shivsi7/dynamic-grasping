@@ -124,7 +124,7 @@ def test_acceleration_aware_plan_is_smooth_and_joins_a_moving_start():
     assert_valid(res, free, v, [0.0], 0.0, gq, gt)
     Q, T = pl.shortcut(res.path_q, res.path_t, 0.5, v_start=v_start)
     tr = hermite(T, Q, v_start, None, dt=0.002)
-    vmax, amax = motion_limits(tr)
+    _, amax = motion_limits(tr)
     assert amax[0] <= 4.0 * 1.02
     np.testing.assert_allclose((tr.q[1] - tr.q[0]) / (tr.t[1] - tr.t[0]), v_start, atol=0.01)
     for t, q in zip(T, Q):  # the smoothed curve is still free (it passes through the knots,

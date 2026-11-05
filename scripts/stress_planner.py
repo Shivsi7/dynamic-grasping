@@ -42,24 +42,16 @@ def mixed_set(seed: int, n: int) -> list:
 def run_one(spec_dict: dict, cname: str, latency, settle: float = 0.0) -> dict:
     from dyngrasp.baselines import HoldController, NaiveInterceptController
     from dyngrasp.harness import run_episode
-    from dyngrasp.planning.controller import SpaceTimeRRTController, STRRTConfig
-    from dyngrasp.planning.goals import TailParams
+    from dyngrasp.planning.variants import VARIANTS, Variant
     from dyngrasp.scenario import ScenarioSpec
 
-    factories = {
-        "st_rrt": SpaceTimeRRTController,
-        "st_rrt_nominal": lambda: SpaceTimeRRTController(STRRTConfig(grasp_set="nominal")),
-        "st_rrt_noaccel": lambda: SpaceTimeRRTController(STRRTConfig(a_max=None)),
-        "st_rrt_slowtail": lambda: SpaceTimeRRTController(
-            STRRTConfig(tail=TailParams(t_descend=0.7, t_lift=0.8))),
-        "naive": NaiveInterceptController,
-        "hold": HoldController,
-    }
+    variants = {**VARIANTS, "naive": Variant("naive", NaiveInterceptController), "hold": Variant("hold", HoldController)}
     spec = ScenarioSpec.from_dict(spec_dict)
-    ctrl = factories[cname]()
+    v = variants[cname]
+    ctrl = v.factory()
     try:
-        r = run_episode(spec, ctrl, keep_log=False, latency=latency, settle_after_success=settle)
-    except Exception as e:  # a crash is a result too: record it
+        r = run_episode(spec, ctrl, keep_log=False, settle_after_success=settle, **{"latency": latency, **v.episode_kw})
+    except Exception as e:  # noqa: BLE001  (a crash is a result too: record it)
         return {"scenario": spec.name, "controller": cname, "outcome": "crash", "error": repr(e)[:300],
                 **spec.summary()}
     row = r.row()

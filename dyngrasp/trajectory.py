@@ -103,8 +103,9 @@ class JointTrajectory:
 def knot_velocities(T: np.ndarray, Q: np.ndarray, v0: np.ndarray, vN: np.ndarray) -> np.ndarray:
     """Velocities at the knots for a C1 curve through (T, Q): the boundary values at the ends;
     inside, per joint, 0 where the adjacent segments move in opposite directions, else the
-    harmonic mean of the two segment velocities (always between them, so the curve is
-    monotone between knots and never overshoots a knot -- Fritsch-Carlson style)."""
+    harmonic mean of the two segment velocities (always between them, so at interior knots
+    the curve does not overshoot -- Fritsch-Carlson style).  The given boundary velocities
+    are not limited this way: a segment that must end at vN can bulge past its end knot."""
     W = np.diff(Q, axis=0) / np.diff(T)[:, None]
     U = np.empty_like(Q)
     U[0], U[-1] = v0, vN

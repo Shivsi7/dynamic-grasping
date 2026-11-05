@@ -42,10 +42,14 @@ dyngrasp/
   trajectory.py  JointTrajectory: time-indexed plans the wrapper executes tick by tick
   baselines.py   HoldController, NaiveInterceptController (no avoidance)
   planning/      approach (B): space-time RRT-Connect (see docs/planner_B.md)
+    controller.py  SpaceTimeRRTController (registered as `st_rrt`): the replanning cycle
+    config.py      STRRTConfig: every tunable number; the iiwa's acceleration limits
     st_rrt.py      generic (q, t) RRT-Connect, time-preserving shortcuts, escape planning
-    collision.py   SpaceTimeChecker: is (q, t) / an edge free, with clearance margins
     goals.py       intercept times, pre-grasp IK (+ elbow self-motion), grasp tails
-    controller.py  SpaceTimeRRTController (registered as `st_rrt`)
+    collision.py   SpaceTimeChecker: is (q, t) / an edge free (held object included)
+    motion.py      smoothing planner knots into the executed curve, and verifying it
+    escapes.py     evasive motion primitives and the post-grasp retreat
+    variants.py    named (B) configurations used by the scripts
   grasps.py      grasp candidates (top / tilted / side) from object boxes, geometric validity
   monitor.py     EpisodeMonitor: collisions, clearance, grasp / lift / success
   harness.py     run_episode, run_batch (-> pandas), aggregate

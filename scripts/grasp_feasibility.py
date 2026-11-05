@@ -66,7 +66,7 @@ def evaluate(spec_dict: dict, dT: float) -> list[dict]:
             gg.start([np.asarray(spec.q0, float)], np.random.default_rng(0), n_random_seeds=0)
             feasible = []
             for T in Ts:
-                if gg.generate_for(T, lambda tr: ck.path_free(tr.q, tr.t), ck.state_free, max_per_T=1):
+                if gg.generate_for(T, lambda tr, ck=ck: ck.path_free(tr.q, tr.t), ck.state_free, max_per_T=1):
                     feasible.append(float(T))
             st = gg.stats
             rows.append({

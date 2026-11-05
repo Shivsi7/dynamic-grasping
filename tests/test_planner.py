@@ -98,7 +98,6 @@ def test_a_held_object_must_clear_the_obstacles_too():
     ck = SpaceTimeChecker(spec, world)
     q, t = np.asarray(spec.q0, float), 1.0
     assert ck.state_free(q, t)
-    from pydrake.all import RigidTransform
 
     # hold the object "inside" the first obstacle: free while not held, not free while held
     ck.set_state(q, t)

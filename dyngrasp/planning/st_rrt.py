@@ -27,9 +27,12 @@ and shortcutting.  Rejecting extensions that violate it would waste almost all
 samples (a random sample rarely matches the parent's velocity), so extensions
 *project* the edge velocity into the admissible window around the parent's
 velocity instead (kinodynamic-style steering), and the trees are joined by
-exact single-edge "shots" that must satisfy the bound at both ends.  The start knot's v_in is the velocity of the trajectory being
-executed and a goal root's v_out is the velocity the grasp tail starts with, so
-the plan joins both without a velocity jump; an escape must end at rest.
+exact single-edge "shots" that must satisfy the bound at both ends.  The start
+knot's v_in is the velocity of the trajectory being executed and a goal root's
+v_out is the velocity the grasp tail starts with, so the plan joins both without
+a velocity jump; an escape must end at rest.  (The bound limits acceleration,
+not position: a long segment that must end at a given velocity can bulge away
+from its straight edge, so the smoothed curve is re-verified; see motion.py.)
 
 Nothing here knows about Drake, the iiwa or the scenario: the planner only
 sees joint limits, velocity (and acceleration) limits, goal roots and a

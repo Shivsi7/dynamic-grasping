@@ -2,7 +2,7 @@ import numpy as np
 
 from dyngrasp import scenario as S
 from dyngrasp.baselines import HoldController, NaiveInterceptController
-from dyngrasp.controller import Command, Controller, WSG_OPEN
+from dyngrasp.controller import WSG_OPEN, Command, Controller
 from dyngrasp.harness import aggregate, run_batch, run_episode
 
 

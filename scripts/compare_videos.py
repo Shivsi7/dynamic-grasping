@@ -36,7 +36,8 @@ from PIL import Image, ImageDraw, ImageFont
 from dyngrasp import scenario as S
 from dyngrasp.baselines import HoldController, NaiveInterceptController
 from dyngrasp.harness import advance, build_episode
-from dyngrasp.planning.controller import SpaceTimeRRTController, STRRTConfig
+from dyngrasp.planning.controller import SpaceTimeRRTController
+from dyngrasp.planning.variants import VARIANTS, Variant
 from dyngrasp.scene import look_at_camera
 
 VIEWS = {
@@ -46,42 +47,24 @@ VIEWS = {
     "top": ([0.3, 0.0, 3.2], [0.3, 0.0, 0.0]),
     "robot_eye": ([-1.3, 0.0, 1.6], [0.45, 0.0, 0.3]),
 }
+
+
+def _oracle(scale: float, accel_limits: bool = True):
+    from certify import oracle_config  # scripts/certify.py, next to this script
+
+    return lambda: SpaceTimeRRTController(oracle_config(accel_limits, 20.0, scale))
+
+
+# name -> Variant(label, factory, episode_kw): the (B) variants, the baselines, and the
+# certification oracle (planning "offline": its planning time is free, latency "none")
 CONTROLLERS = {
-    "hold": ("hold (parked)", HoldController),
-    "naive": ("naive: no avoidance", NaiveInterceptController),
-    "st_rrt_nominal": ("(B) RRT, nominal grasp only", lambda: SpaceTimeRRTController(STRRTConfig(grasp_set="nominal"))),
-    "st_rrt_noaccel": ("(B) before: no accel. limits", lambda: SpaceTimeRRTController(STRRTConfig(a_max=None))),
-    "st_rrt": ("(B) now: accel.-limited, smooth", SpaceTimeRRTController),
+    "hold": Variant("hold (parked)", HoldController),
+    "naive": Variant("naive: no avoidance", NaiveInterceptController),
+    **VARIANTS,
+    **{f"oracle_{s}": Variant(f"oracle @ {s} x ref. accel. (20x compute)", _oracle(s), {"latency": "none"})
+       for s in (0.6, 0.8, 1.0, 1.5)},
+    "oracle_noaccel": Variant("oracle, NO accel. limits (20x compute)", _oracle(0.6, False), {"latency": "none"}),
 }
-# per-controller latency override (the oracle plans "offline": its planning time is free)
-LATENCY = {}
-# per-controller harness options
-EPISODE_KW = {}
-# (B) as of commit bde69c7: one acceleration limit for all joints (4 / 6 / 1.5 rad/s^2),
-# no post-grasp safety (hold check, escape fallback), no torque check, and late plans that
-# were already moving spliced in (no velocity check at the stitch).  The goal-work
-# scheduling fix of mix_0073 is not undone.
-CONTROLLERS["st_rrt_before"] = ("(B) before: 4/6 rad/s2 all joints", lambda: SpaceTimeRRTController(STRRTConfig(
-    a_max=4.0, tail_a_max=6.0, a_max_holding=1.5, post_grasp_hold=0.0, escape_fallback=False, torque_check=False)))
-EPISODE_KW["st_rrt_before"] = {"stitch_vtol": np.inf}
-# checkpoint ckpt-safe-hold (72b3097): a grasp whose end is unsafe is rejected (no planned retreat),
-# and the held object is not collision-checked
-CONTROLLERS["st_rrt_ckpt"] = ("(B) checkpoint: no retreat, object unchecked", lambda: SpaceTimeRRTController(
-    STRRTConfig(retreat=False, check_held_object=False)))
-
-
-def _oracle(a, on=True):
-    from certify import oracle_config
-
-    return lambda: SpaceTimeRRTController(oracle_config(on, 20.0, a))
-
-
-for _s in (0.6, 0.8, 1.0, 1.5):
-    CONTROLLERS[f"oracle_{_s}"] = (f"oracle @ {_s} x ref. accel. (20x compute)", _oracle(_s))
-    LATENCY[f"oracle_{_s}"] = "none"
-CONTROLLERS["oracle_noaccel"] = ("oracle, NO accel. limits (20x compute)", _oracle(0.6, on=False))
-LATENCY["oracle_noaccel"] = "none"
-CONTROLLERS["st_rrt"] = ("(B) now: planned retreat, object checked", SpaceTimeRRTController)
 PRESETS = {
     "tall_blocker": lambda: S.tall_blocker(0.1, 0.2),
     "plank_blocker": lambda: S.plank_blocker(0.1, 0.2),
@@ -110,11 +93,11 @@ def _grasp_name(controller, h) -> str:
 
 
 def render_episode(spec, cname: str, views: list[str], fps: float, size, latency):
-    label, factory = CONTROLLERS[cname]
-    controller = factory()
+    variant = CONTROLLERS[cname]
+    label, controller = variant.label, variant.factory()
     cams = {v: look_at_camera(v, *VIEWS[v], size[0], size[1]) for v in views}
-    h = build_episode(spec, controller, cameras=cams, stop_on_collision=False, latency=LATENCY.get(cname, latency),
-                      **EPISODE_KW.get(cname, {}))
+    h = build_episode(spec, controller, cameras=cams, stop_on_collision=False,
+                      **{"latency": latency, **variant.episode_kw})
     h.simulator.Initialize()
     station = h.scene.station
     f_big, f_small = _font(17), _font(13)
