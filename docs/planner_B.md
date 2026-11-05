@@ -300,6 +300,42 @@ latency suggests about +-2 scenes between runs). After the grasp, objects slip a
 in the hand; the fastest object motion is 1.2 m/s (mix_0049, a fallback escape at the
 planner limits while holding the can, still held at the end).
 
+### Planned retreat and the held object (after checkpoint `ckpt-safe-hold`)
+
+The 1 s hold rule above rejects grasps that end in an obstacle's path (mix_0061: every grasp
+ended 0.3-0.5 s before an obstacle arrived; the checkpoint run of mix_0061 before that rule
+grasped and missed the obstacle by 1 mm). Instead:
+
+1. **Planned retreat.** If holding the tail's end pose is not safe for `hold_horizon`, a gentle
+   retreat (escape primitive from the end of the lift, object in hand, gripper kept within 3 cm
+   of its lifted height, gentle limits then planner limits) to a pose that is safe to hold is
+   appended to the tail and checked with it. It is planned lazily, only for the goal the RRT
+   picks (`lazy_retreat`); planning it for every candidate made the first plan arrive late
+   (mix_0026). If no retreat exists, the 1 s hold rule is the fallback, else the goal is dropped.
+2. **The held object is collision-checked.** With the retreat, an obstacle swept through the
+   cracker box hanging below the gripper and knocked it out (mix_0056; the arm itself was 5 cm
+   clear). `SpaceTimeChecker.attach(X_GO, t_closed)` now moves the target with the gripper from
+   the end of the close, and target-obstacle pairs need `margin_obstacle`, for the tail, the
+   retreat, holding, and every escape after the grasp.
+3. **Joint position limits are verified.** A long smoothed segment that must end at the
+   tail's velocity overshot joint 6's limit by 0.2 rad (the arm clipped it: a 29 rad/s^2
+   spike). Plans past a position limit are rejected; a failing smoothed path is retried with
+   its long segments split.
+
+80 held-out scenes, measured latency, to the end of each scene:
+
+| | clean success, held at end | collisions | dropped after success | accel median / p90 / worst | peak torque / limit |
+|---|---|---|---|---|---|
+| checkpoint (v16) | 59 | 0 | 0 | 4.2 / 6.4 / 8.2 rad/s^2 | 0.55 |
+| + retreat (v17) | 61 | 0 | **1** (mix_0056, knocked out) | 4.3 / 7.0 / 9.6 | 0.46 |
+| + held-object check (v18) | 61 | 0 | 0 | 4.3 / 6.4 / 8.2 | 0.43 |
+| **+ lazy retreat (v19, default)** | **63** | **0** | **0** | **4.4 / 7.2 / 8.5** | 0.46 |
+
+v19 vs. the checkpoint: gained mix_0003, 0009, 0061, 0077; lost none. 9 scenes executed a
+planned retreat. The 17 scenes still not grasped are the 11 certified impossible at any
+acceleration and 6 that needed more acceleration in the certification (mix_0024, 0034, 0039,
+0064, 0069, 0072); the certification has not been re-run with these changes.
+
 ## Videos
 
 `scripts/compare_videos.py` renders the same scene under several controllers
@@ -329,9 +365,9 @@ python scripts/compare_videos.py --scenarios <set.yaml> --names mix_0054 --contr
    effect, add a prediction-error option to `WorldModel` (e.g. predict
    parabolic paths as constant velocity). Then `validate=True` triggers real
    replans.
-5. During the lift, the object is not attached to the hand in the collision
-   model (object vs. obstacles is not checked). Escapes while holding are now
-   slow and gentle, but may still use the reduced-margin fallback.
+5. The held object is modelled at its predicted pose relative to the gripper at
+   the end of the close (no slip); object vs. cart / floor is not checked.
+   Escapes while holding may still use the reduced-margin fallback.
 6. Requiring velocity continuity makes the bidirectional search harder (the
    trees must meet in velocity too). Tighter limits than about 3 rad/s^2 fail
    often; persistent trees or kinodynamic trajectory optimization (extension C)

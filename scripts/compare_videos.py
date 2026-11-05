@@ -64,6 +64,10 @@ EPISODE_KW = {}
 CONTROLLERS["st_rrt_before"] = ("(B) before: 4/6 rad/s2 all joints", lambda: SpaceTimeRRTController(STRRTConfig(
     a_max=4.0, tail_a_max=6.0, a_max_holding=1.5, post_grasp_hold=0.0, escape_fallback=False, torque_check=False)))
 EPISODE_KW["st_rrt_before"] = {"stitch_vtol": np.inf}
+# checkpoint ckpt-safe-hold (72b3097): a grasp whose end is unsafe is rejected (no planned retreat),
+# and the held object is not collision-checked
+CONTROLLERS["st_rrt_ckpt"] = ("(B) checkpoint: no retreat, object unchecked", lambda: SpaceTimeRRTController(
+    STRRTConfig(retreat=False, check_held_object=False)))
 
 
 def _oracle(a, on=True):
@@ -77,7 +81,7 @@ for _s in (0.6, 0.8, 1.0, 1.5):
     LATENCY[f"oracle_{_s}"] = "none"
 CONTROLLERS["oracle_noaccel"] = ("oracle, NO accel. limits (20x compute)", _oracle(0.6, on=False))
 LATENCY["oracle_noaccel"] = "none"
-CONTROLLERS["st_rrt"] = ("(B) now: per-joint limits, safe hold", SpaceTimeRRTController)
+CONTROLLERS["st_rrt"] = ("(B) now: planned retreat, object checked", SpaceTimeRRTController)
 PRESETS = {
     "tall_blocker": lambda: S.tall_blocker(0.1, 0.2),
     "plank_blocker": lambda: S.plank_blocker(0.1, 0.2),

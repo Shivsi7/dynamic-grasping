@@ -13,9 +13,15 @@ cart directions, every object.
   apart in every joint and `dt_res` apart in time, midpoint-first so that
   collisions are found early.  The margins absorb the motion between samples
   and the tracking lag of the position-controlled arm.
+* A held object (`attach(X_GO, t_from)`): from t_from on, the target rides with
+  the gripper at the fixed relative pose X_GO and must stay `margin_obstacle`
+  clear of the obstacles (an obstacle sweeping through the object below the
+  hand knocks it out of the grasp).
 """
 
 from __future__ import annotations
+
+from contextlib import contextmanager
 
 import numpy as np
 from pydrake.all import BodyIndex
@@ -83,6 +89,10 @@ class SpaceTimeChecker:
         )
         self._cart_path = spec.cart.path
         self._t_env: float | None = None
+        self._gripper_body = self.kin.gripper_body
+        self._target_body_index = int(self.kin.target_body.index())
+        self._attach = None  # (X_GO, t_from) or None
+        self._attached_now = False
 
         # Pair classification, precomputed per geometry pair on first sight.
         self._robot = self.roles.robot
@@ -108,6 +118,38 @@ class SpaceTimeChecker:
         self._set_env(t)
         self._q_full[self.i_iiwa] = q
         self.plant.SetPositions(self.pctx, self._q_full)
+        self._attached_now = self._attach is not None and t >= self._attach[1]
+        if self._attached_now:
+            X = self.plant.EvalBodyPoseInWorld(self.pctx, self._gripper_body) @ self._attach[0]
+            quat = X.rotation().ToQuaternion()
+            q_full = self._q_full.copy()
+            q_full[self.i_target] = np.concatenate([[quat.w(), quat.x(), quat.y(), quat.z()], X.translation()])
+            self.plant.SetPositions(self.pctx, q_full)
+            self._t_env = None  # the target entry of _q_full is the predicted one again next time
+
+    # ---- held object --------------------------------------------------------------
+    def attach(self, attachment) -> None:
+        """Hold the target at X_GO from t_from on (attachment = (X_GO, t_from)), or None."""
+        self._attach = attachment
+
+    @contextmanager
+    def attached(self, attachment):
+        prev = self._attach
+        self._attach = attachment
+        try:
+            yield
+        finally:
+            self._attach = prev
+
+    def grasp_attachment(self, q: np.ndarray, t: float):
+        """(X_GO, t): the predicted target pose relative to the gripper at (q, t)."""
+        prev, self._attach = self._attach, None
+        try:
+            self.set_state(q, t)
+            X_WG = self.plant.EvalBodyPoseInWorld(self.pctx, self._gripper_body)
+            return X_WG.inverse() @ self.world.target_body_pose(t), float(t)
+        finally:
+            self._attach = prev
 
     def _pair_category(self, id_A, id_B) -> str | None:
         """'obstacle' | 'env' | 'contact' (penetration only), or None if the pair never counts."""
@@ -118,7 +160,10 @@ class SpaceTimeChecker:
         a, b = gb.get(id_A), gb.get(id_B)
         cat = None
         if a is not None and b is not None:
-            if a in self._robot and b in self._robot:
+            T = self._target_body_index
+            if (a == T or b == T) and self.roles.category.get(b if a == T else a) == "obstacle":
+                cat = "held"  # target vs obstacle: counts only while the target is held
+            elif a in self._robot and b in self._robot:
                 if not (a in self._gripper and b in self._gripper):
                     cat = "contact"  # self-collision
             else:
@@ -133,6 +178,8 @@ class SpaceTimeChecker:
         cat = self._pair_category(id_A, id_B)
         if cat is None:
             return None
+        if cat == "held":
+            return self.margin_obstacle if self._attached_now else None
         return {"obstacle": self.margin_obstacle, "env": self.margin_env}.get(cat, 0.0)
 
     def state_free(self, q: np.ndarray, t: float) -> bool:

@@ -90,3 +90,29 @@ def test_executed_motion_respects_the_acceleration_limits():
     assert r.cmd_accel_max < 1.1 * max(c.cfg.tail_a_max), r.cmd_accel_max
     assert r.cmd_speed_ratio_max < 0.95
     assert r.cmd_torque_ratio_max < 1.0, r.cmd_torque_ratio_max
+
+
+def test_a_held_object_must_clear_the_obstacles_too():
+    spec = S.tall_blocker(0.1, 0.2)
+    world = WorldModel(spec)
+    ck = SpaceTimeChecker(spec, world)
+    q, t = np.asarray(spec.q0, float), 1.0
+    assert ck.state_free(q, t)
+    from pydrake.all import RigidTransform
+
+    # hold the object "inside" the first obstacle: free while not held, not free while held
+    ck.set_state(q, t)
+    X_WG = ck.plant.EvalBodyPoseInWorld(ck.pctx, ck._gripper_body)
+    bodies = [ck.plant.get_body(i) for i in ck.plant.GetBodyIndices(ck.kin.obstacles[spec.obstacles[0].name])]
+    body = next(b for b in bodies if ck.plant.GetCollisionGeometriesForBody(b))
+    X_GO = X_WG.inverse() @ ck.plant.EvalBodyPoseInWorld(ck.pctx, body)
+    with ck.attached((X_GO, t + 0.5)):
+        assert ck.state_free(q, t)  # not yet grasped
+        assert not ck.state_free(q, t + 0.5)
+    assert ck.state_free(q, t)
+    # and the attachment from a real state reproduces the predicted object pose
+    X_GO2, tc = ck.grasp_attachment(q, t)
+    with ck.attached((X_GO2, tc)):
+        ck.set_state(q, t)
+        X = ck.plant.EvalBodyPoseInWorld(ck.pctx, ck.kin.target_body)
+        np.testing.assert_allclose(X.translation(), world.target_body_pose(t).translation(), atol=1e-9)

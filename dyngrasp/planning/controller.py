@@ -83,9 +83,18 @@ class STRRTConfig:
     improve: bool = True  # replans look for an earlier intercept while the current plan is valid
     validate: bool = True  # re-check the remaining plan against the world model at each replan
     hold_horizon: float = 1.5  # escape target: holding still for this long is collision-free
-    # After the grasp tail, holding its end pose must be collision-free for this long: time for
-    # a replan (budget) plus a gentle escape.  Without it the arm could finish the grasp in an
-    # obstacle's path, with too little time to get out at the gentle holding limits.
+    # Where the arm ends up after the grasp.  If holding the tail's end pose is collision-free
+    # for `hold_horizon`, fine.  Otherwise a gentle *retreat* (escape primitive, object in hand,
+    # kept lifted) from the end of the lift to a pose that is safe to hold is planned with the
+    # goal and executed as part of the tail (`retreat`).  Failing that, the end pose must at
+    # least be safe for `post_grasp_hold` (time for a replan and an escape); else the goal is
+    # rejected.  Without these the arm could finish the grasp in an obstacle's path.
+    retreat: bool = True
+    retreat_budget: float = 0.1  # wall time (x wall_scale) per retreat search
+    # Plan the retreat only for the goal the RRT picks (goal generation then stays cheap;
+    # a goal whose retreat then fails is dropped).  False: plan it for every goal (certify.py).
+    lazy_retreat: bool = True
+    check_held_object: bool = True  # after the grasp, the object must clear the obstacles too
     post_grasp_hold: float = 1.0
     shortcut_share: float = 0.3  # share of the remaining budget spent on shortcutting
     dT: float = 0.25  # spacing of candidate intercept times
@@ -120,6 +129,7 @@ class _Plan:
     traj: JointTrajectory
     mode: str  # "grasp" | "escape" | "hold"
     goal: GoalCandidate | None = None
+    attach: tuple | None = None  # grasp plans: (X_GO, t_closed), the object held from then on
 
 
 class SpaceTimeRRTController(Controller):
@@ -158,6 +168,8 @@ class SpaceTimeRRTController(Controller):
         self.plans: dict[int, _Plan] = {}  # id(trajectory) -> plan, for trajectories we issued
         self.next_replan = 0.0
         self.grasp_done = False  # a grasp tail has been executed (only escapes after that)
+        self._held = None  # attachment of the object to the gripper for collision checks
+        self._needs_retreat: dict = {}  # id(tail) -> tail: goals accepted pending a retreat
         self.plan_log: list[dict] = []
 
     # ---- helpers ----------------------------------------------------------------------
@@ -203,6 +215,7 @@ class SpaceTimeRRTController(Controller):
             self.goals += self.goalgen.generate_for(
                 T, self._tail_free, self.checker.state_free,
                 cfg.max_goals_per_T, cfg.swivel_steps, cfg.max_ik_per_T, cfg.ik_restarts, cfg.max_tails,
+                finish=self._finish_tail,
             )
             w = time.perf_counter() - w
             self._cost_per_T = max(w, 0.7 * self._cost_per_T + 0.3 * w)  # pessimistic running estimate
@@ -231,6 +244,13 @@ class SpaceTimeRRTController(Controller):
         """Plan with the configured margin; if the start state already violates it (an
         obstacle came close), plan with smaller margins rather than freezing in place."""
         cfg = self.cfg
+        # The object counts as held (it must clear the obstacles too) from the moment the
+        # executing grasp plan closes the gripper, and for good once a grasp was executed.
+        if current is not None and current.mode == "grasp":
+            self._held = current.attach
+        elif not self.grasp_done:
+            self._held = None
+        self.checker.attach(self._held if cfg.check_held_object else None)
         margins = [m for m in cfg.margin_fallbacks if m < cfg.margin_obstacle]
         q_probe = state.q_cmd if state.trajectory is None else state.trajectory.value(state.t + cfg.budget)
         self.checker.margin_obstacle = cfg.margin_obstacle
@@ -337,18 +357,21 @@ class SpaceTimeRRTController(Controller):
             )
             log.update(rrt_ok=res.success, rrt_reason=res.reason, nodes=res.nodes, edges=res.edge_checks,
                        rrt_wall=res.wall)
-            if res.success:
+            if res.success and not self._resolve_retreat(goals[res.goal_index]):
+                log["retreat_failed"] = True
+            elif res.success:
                 g = goals[res.goal_index]
                 v_g = self._tail_v0(g)
                 Q, T = self.rrt.shortcut(res.path_q, res.path_t, max(0.0, self._deadline_left(wall0, 0.85 * budget)),
                                          v_start=v_s, v_end=v_g)
-                path, tail = self._smooth(T, Q, v_s, v_g, WSG_OPEN), self._smooth_tail(g)
-                why = self._verify(path, self.v_max, self.a_max)
+                path, why = self._smooth_verified(T, Q, v_s, v_g, WSG_OPEN, self.v_max, self.a_max)
+                tail = self._smooth_tail(g)
                 log.update(T_goal=g.T, knots=len(T), grasp=g.grasp_name, accel_rejects=res.stats.get("accel_rejects", 0))
                 if why:
                     log["smooth_reject"] = why  # the smoothed curve failed a check: no plan this cycle
                 else:
-                    result = _Plan(JointTrajectory.concatenate([prefix, path, tail]), "grasp", g)
+                    result = _Plan(JointTrajectory.concatenate([prefix, path, tail]), "grasp", g,
+                                   attach=self._attachment(g.tail))
 
         if result is None and fallback is not None:
             result = fallback
@@ -372,8 +395,7 @@ class SpaceTimeRRTController(Controller):
                 parts = [prefix]
                 if len(esc.path_t) > 1:
                     g = prefix.gripper_at(t_s) if prefix.gripper is not None else WSG_OPEN
-                    path = self._smooth(esc.path_t, esc.path_q, v_s, None, g)
-                    why = self._verify(path, v_lim, a_lim)
+                    path, why = self._smooth_verified(esc.path_t, esc.path_q, v_s, None, g, v_lim, a_lim)
                     if why:
                         log["smooth_reject"] = why
                         parts = None
@@ -410,16 +432,85 @@ class SpaceTimeRRTController(Controller):
             return [gentle, (self.v_max, self.a_max)] if self.cfg.escape_fallback else [gentle]
         return [(self.v_max, self.a_max)]
 
+    def _attachment(self, tail: JointTrajectory):
+        """(X_GO, t_closed) for a grasp tail: the object is held from the end of the close."""
+        if not self.cfg.check_held_object:
+            return None
+        tp = self.cfg.tail
+        t_c = tail.t[0] + tp.t_settle + tp.t_descend + tp.t_close
+        return self.checker.grasp_attachment(tail.value(t_c), t_c)
+
     def _tail_free(self, tail: JointTrajectory) -> bool:
-        """The grasp tail is collision-free, and so is holding its end pose for `post_grasp_hold`:
-        the arm ends the grasp with the object in hand somewhere it can stay while it plans
-        its next (gentle) move, not in an obstacle's path."""
-        return (self.checker.path_free(tail.q, tail.t)
-                and (self.cfg.post_grasp_hold <= 0
-                     or self.checker.hold_free(tail.q[-1], tail.t[-1], self.cfg.post_grasp_hold)))
+        """The tail is collision-free, the object included once it is grasped."""
+        with self.checker.attached(self._attachment(tail)):
+            return self.checker.path_free(tail.q, tail.t)
+
+    def _finish_tail(self, tail: JointTrajectory) -> JointTrajectory | None:
+        with self.checker.attached(self._attachment(tail)):
+            return self._finish_tail_held(tail)
+
+    def _finish_tail_held(self, tail: JointTrajectory) -> JointTrajectory | None:
+        """Make sure the grasp ends somewhere safe (see STRRTConfig.retreat): the tail as it
+        is, the tail with a planned retreat after the lift, or None (reject the goal)."""
+        cfg, ck = self.cfg, self.checker
+        if np.any(tail.q < self.robot.q_lower - 1e-6) or np.any(tail.q > self.robot.q_upper + 1e-6):
+            return None
+        if cfg.post_grasp_hold <= 0 or ck.hold_free(tail.q[-1], tail.t[-1], cfg.hold_horizon):
+            return tail
+        if cfg.retreat and cfg.lazy_retreat:
+            self._needs_retreat[id(tail)] = tail
+            return tail
+        if cfg.retreat:
+            r = self._plan_retreat(tail)
+            if r is not None:
+                self.goalgen.stats["retreats"] = self.goalgen.stats.get("retreats", 0) + 1
+                return r
+        if ck.hold_free(tail.q[-1], tail.t[-1], cfg.post_grasp_hold):
+            return tail
+        return None
+
+    def _resolve_retreat(self, g: GoalCandidate) -> bool:
+        """For a goal accepted pending a retreat (lazy_retreat): plan it now and append it to
+        the goal's tail; else keep the tail if its end is safe for post_grasp_hold; else drop
+        the goal.  True if the goal is usable."""
+        if self._needs_retreat.pop(id(g.tail), None) is None:
+            return True
+        tail = g.tail
+        with self.checker.attached(self._attachment(tail)):
+            r = self._plan_retreat(tail)
+            if r is not None:
+                self.goalgen.stats["retreats"] = self.goalgen.stats.get("retreats", 0) + 1
+                g.tail = r
+                return True
+            if self.checker.hold_free(tail.q[-1], tail.t[-1], self.cfg.post_grasp_hold):
+                return True
+        self.goalgen.stats["no_safe_end"] = self.goalgen.stats.get("no_safe_end", 0) + 1
+        self.goals = [x for x in self.goals if x is not g]
+        return False
+
+    def _plan_retreat(self, tail: JointTrajectory) -> JointTrajectory | None:
+        """Tail up to the end of the lift, then a smooth escape primitive (gentle holding
+        limits first, then the planner's) to a pose that is safe to hold for `hold_horizon`,
+        keeping the object lifted (gripper no more than 3 cm lower than at the end of the lift)."""
+        t_split = tail.t[-1] - self.cfg.tail.t_hold
+        q_s, v_s, g = tail.value(t_split), tail.velocity(t_split), tail.gripper_at(t_split)
+        z0 = self.robot.fk(q_s).translation()[2]
+
+        def keeps_lifted(path: JointTrajectory) -> bool:
+            idx = np.unique(np.append(np.arange(0, len(path.t), 10), len(path.t) - 1))
+            return all(self.robot.fk(path.q[i]).translation()[2] >= z0 - 0.03 for i in idx)
+
+        limits = [(self.cfg.v_scale_holding * self.robot.v_limits, self.a_hold), (self.v_max, self.a_max)]
+        for v_lim, a_lim in limits:
+            prim = self._escape_primitive(q_s, v_s, t_s=t_split, gripper=g, wall0=time.perf_counter(),
+                                          budget=self.cfg.retreat_budget, v_lim=v_lim, a_lim=a_lim,
+                                          accept=keeps_lifted)
+            if prim is not None:
+                return JointTrajectory.concatenate([tail.slice_until(t_split), prim])
+        return None
 
     # ---- evasive motion primitives -----------------------------------------------------
-    def _escape_primitive(self, q_s, v_s, t_s, gripper, wall0, budget, v_lim, a_lim):
+    def _escape_primitive(self, q_s, v_s, t_s, gripper, wall0, budget, v_lim, a_lim, accept=None):
         """Structured escapes, tried before the random-tree escape: a single smooth curve from
         (q_s, v_s) to a target at rest (brake in place, go home, swing the base / shoulder /
         elbow away, random nearby targets), fastest first.  Accepted if it respects the limits,
@@ -455,7 +546,7 @@ class SpaceTimeRRTController(Controller):
                                gripper=[gripper, gripper])
                 if self._verify(path, v_lim, a_lim):
                     continue
-                if self.checker.hold_free(qt, t_s + D, cfg.hold_horizon):
+                if self.checker.hold_free(qt, t_s + D, cfg.hold_horizon) and (accept is None or accept(path)):
                     return path
         return None
 
@@ -473,6 +564,32 @@ class SpaceTimeRRTController(Controller):
             return JointTrajectory(T, Q, g)
         return hermite(T, Q, v0, vN, dt=self.period, gripper=g)
 
+    def _smooth_verified(self, T, Q, v0, vN, gripper, v_lim, a_lim, max_seg: float = 0.4):
+        """Smooth and verify; if that fails on position limits or collisions, retry with the
+        long segments split (same straight-line path, knots every <= max_seg s).  A single long
+        cubic segment that must end at the tail's velocity can overshoot the straight edge by
+        tenths of a radian; with short segments the deviation stays local."""
+        path = self._smooth(T, Q, v0, vN, gripper)
+        why = self._verify(path, v_lim, a_lim)
+        if why in ("position", "collision") and self.a_max is not None:
+            T2, Q2 = self._subdivide(np.asarray(T, float), np.asarray(Q, float), max_seg)
+            if len(T2) > len(T):
+                path2 = self._smooth(T2, Q2, v0, vN, gripper)
+                why2 = self._verify(path2, v_lim, a_lim)
+                if not why2:
+                    return path2, ""
+        return path, why
+
+    @staticmethod
+    def _subdivide(T: np.ndarray, Q: np.ndarray, max_seg: float):
+        Ts, Qs = [T[0]], [Q[0]]
+        for i in range(len(T) - 1):
+            n = max(1, int(np.ceil((T[i + 1] - T[i]) / max_seg)))
+            for s in np.arange(1, n + 1) / n:
+                Ts.append(T[i] + s * (T[i + 1] - T[i]))
+                Qs.append(Q[i] + s * (Q[i + 1] - Q[i]))
+        return np.array(Ts), np.array(Qs)
+
     def _smooth_tail(self, g: GoalCandidate) -> JointTrajectory:
         """The tail is already the full-rate (10 ms) differential-IK rollout whose velocities and
         accelerations were checked when it was generated: execute it as it is."""
@@ -483,6 +600,10 @@ class SpaceTimeRRTController(Controller):
         planner's straight edges) and within the velocity / acceleration limits."""
         if len(path.t) < 2:
             return ""
+        # the smoothed curve can overshoot a knot near a joint limit; the arm would clip it
+        # there (a velocity step).  The planner samples 0.05 rad inside the limits.
+        if np.any(path.q < self.robot.q_lower - 1e-6) or np.any(path.q > self.robot.q_upper + 1e-6):
+            return "position"
         v, a = motion_limits(path)
         # the curve may exceed the planner's (conservative) edge speed a little between knots;
         # what matters is the arm's own limit -- checked with or without acceleration limits

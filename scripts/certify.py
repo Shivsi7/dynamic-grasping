@@ -94,13 +94,18 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     gg.start([np.asarray(spec.q0, float)], rng, n_random_seeds=3)
     for k in list(gg._seeds):  # random seeds for every grasp, not only the nominal one
         gg._seeds[(k[0], 99)] = rng.uniform(robot.q_lower, robot.q_upper)
-    def tail_free(tr):  # as the planner: the tail, and holding its end pose for post_grasp_hold
-        return ck.path_free(tr.q, tr.t) and ck.hold_free(tr.q[-1], tr.t[-1], cfg.post_grasp_hold)
+    # as the planner (its own logic, with 10x its retreat search budget): the tail is free with
+    # the object attached once grasped, and the grasp ends somewhere safe (as is, with a
+    # planned retreat, or safe for post_grasp_hold)
+    c0 = SpaceTimeRRTController(STRRTConfig(retreat_budget=10 * cfg.retreat_budget, lazy_retreat=False))
+    c0.reset(world, robot, None)
+    c0.checker = ck
+    tail_free, finish = c0._tail_free, c0._finish_tail
 
     goals = []
     for T in gg.candidate_times(0.0, dT=0.1, max_count=400):
         goals += gg.generate_for(T, tail_free, ck.state_free, max_per_T=30,
-                                 swivel_steps=12, max_ik_per_T=200, ik_restarts=10, max_tails=30)
+                                 swivel_steps=12, max_ik_per_T=200, ik_restarts=10, max_tails=30, finish=finish)
 
     # the same search with the grasp tail's acceleration limit off: does that limit remove all goals?
     gg_free = GoalGenerator(world, robot, cfg.tail_v_scale * robot.v_limits, cfg.tail, grasps, a_max=None)
@@ -108,7 +113,8 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     free_goals = []
     for T in gg_free.candidate_times(0.0, dT=0.1, max_count=400):
         free_goals += gg_free.generate_for(T, tail_free, ck.state_free, max_per_T=2,
-                                           swivel_steps=12, max_ik_per_T=200, ik_restarts=10, max_tails=30)
+                                           swivel_steps=12, max_ik_per_T=200, ik_restarts=10, max_tails=30,
+                                           finish=finish)
     n_free = len(free_goals)
     from dyngrasp.trajectory import motion_limits
     # smallest peak joint acceleration (as a fraction of IIWA_ACCEL_REF) of any feasible grasp

@@ -283,7 +283,7 @@ class GoalGenerator:
         self.grasp_goals = np.zeros(len(self.grasps), int)  # goals found per grasp (ordering)
         self.grasp_stats = {g.name: {"tried": 0, "ik_ok": 0, "goals": 0, "restarts": 0} for g in self.grasps}
         self.stats = {"tried": 0, "ik_fail": 0, "duplicate": 0, "pregrasp_collides": 0, "tail_infeasible": 0,
-                      "tail_collides": 0, "rescued_by_swivel": 0, "goals": 0}
+                      "tail_collides": 0, "no_safe_end": 0, "rescued_by_swivel": 0, "goals": 0}
 
     def _order(self, T: float) -> list[tuple[int, int]]:
         """(grasp, family) keys for time T: grasps that produced goals first, then by prior."""
@@ -302,8 +302,11 @@ class GoalGenerator:
 
     def generate_for(self, T: float, tail_free, state_free, max_per_T: int = 3,
                      swivel_steps: int = 6, max_ik_per_T: int = 10, ik_restarts: int = 3,
-                     max_tails: int = 3) -> list[GoalCandidate]:
+                     max_tails: int = 3, finish=None) -> list[GoalCandidate]:
         """Goal candidates at intercept time T, over grasps and IK families.
+
+        `finish(tail)`, if given, is applied to every collision-free tail: it returns the
+        tail to execute (e.g. with a retreat appended) or None to reject it.
 
         Within a family the IK at T is seeded with the family's solution at the
         previous T, so a family is a consistent branch of the redundant arm.  When a
@@ -356,7 +359,10 @@ class GoalGenerator:
                         why = why or "tail_infeasible"
                     elif not tail_free(self.check_knots(tail)):
                         why, tail = why or "tail_collides", None
+                    elif finish is not None and (done := finish(tail)) is None:
+                        why, tail = why or "no_safe_end", None
                     else:
+                        tail = done if finish is not None else tail
                         break
                 self._lift = self.tp.lift_height
                 if tail is None:
