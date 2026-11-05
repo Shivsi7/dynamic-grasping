@@ -567,3 +567,34 @@ def plank_blocker(
     return _blocker_scenario(
         "plank_blocker", [0.20, 0.04, 0.40], 0.30, obstacle_speed, t_cross, target_speed, object, OBSTACLE_COLORS[2]
     )
+
+
+def pillar_and_blocker(
+    target_speed: float = 0.1,
+    obstacle_speed: float = 0.2,
+    pillar_speed: float = 0.05,
+    offset: float = 0.08,
+    object: str = "soup_can",
+) -> ScenarioSpec:
+    """Two obstacles between the robot and the target.
+
+    * A pillar (0.10 x 0.10 x 1.60 m, out of the arm's reach: it has to go
+      around it) creeping along +y just in front of the conveyor (x = 0.41),
+      `offset` beside the robot-to-target line at t_enter + 2 (on it, no
+      collision-free grasp exists; 5 cm beside it, one does).  It stands on the
+      floor (no rig), between the robot's home heading and the target.
+    * The post from `tall_blocker` (top at 0.50 m: passable over the top),
+      fast, on its rig in the lane nearer the robot (x = 0.26), crossing that
+      line at t_enter + 1.  The two lanes are far enough apart that the rig
+      passes beside the pillar.
+    """
+    spec = _blocker_scenario("pillar_and_blocker", [0.12, 0.12, 0.40], 0.26, obstacle_speed, None, target_speed, object)
+    cart, x = spec.cart, 0.41
+    t_line = cart.t_enter + 2.0
+    pillar = make_obstacle(
+        "pillar", "box", [0.10, 0.10, 1.60], [x, x / cart.x * cart.path.position(t_line)[1] + offset, 0.81], 0.0,
+        pillar_speed, t_line, 1.0, "linear", OBSTACLE_COLORS[1], mount="float",
+    )
+    spec.obstacles.append(pillar)
+    spec.name = f"pillar_and_blocker_v{target_speed:.2f}_o{obstacle_speed:.2f}_p{pillar_speed:.2f}"
+    return spec

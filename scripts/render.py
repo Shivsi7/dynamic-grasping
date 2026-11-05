@@ -159,7 +159,7 @@ def main():
     ap.add_argument("--out", default="results/renders")
     ap.add_argument("--scenario", help="YAML scenario set")
     ap.add_argument("--index", type=int, default=0)
-    ap.add_argument("--preset", choices=["tall_blocker", "plank_blocker", "no_obstacles"], help="one preset (defaults)")
+    ap.add_argument("--preset", choices=["tall_blocker", "plank_blocker", "pillar_and_blocker", "no_obstacles"], help="one preset (defaults)")
     ap.add_argument("--controller", default="naive", choices=sorted(CONTROLLERS))
     ap.add_argument("--times", nargs="+", type=float, default=None)
     ap.add_argument("--gif", action="store_true", help="also write an animated gif of the episode")

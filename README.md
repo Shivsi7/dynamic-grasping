@@ -96,7 +96,11 @@ becomes reachable, when a direct grasp would happen), sit exactly on the
 straight line from the base to the target. They cannot be ignored (a
 straight-in grasp collides) but can be passed on either side or over the top:
 collision-aware IK finds grasp configurations of both kinds, and over-the-top
-stops being possible above a top height of about 0.5 m. Random sets:
+stops being possible above a top height of about 0.5 m.
+`scenario.pillar_and_blocker(...)` combines a 1.6 m pillar (out of reach: only
+passable on a side) creeping in front of the conveyor just beside that line
+(exactly on it, no grasp exists) with the post, faster, in the lane nearer the
+robot. Random sets:
 `generate_scenario_set(seed, n)`; save/load with `save_scenario_set` /
 `load_scenario_set`. `scenarios/dev_v0.yaml` is the shared development set.
 
