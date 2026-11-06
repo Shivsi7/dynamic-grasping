@@ -121,6 +121,7 @@ class HybridController(Controller):
         hold_sample_spacing: float = 0.4,
         n_workers: int = 4,
         optimality_tol: float = 0.1,
+        dodge_sample_spacing: float = 0.1,
     ):
         self._kwargs = {k: v for k, v in locals().items() if k not in ("self", "__class__")}
         self.n_control_points = n_control_points
@@ -138,6 +139,7 @@ class HybridController(Controller):
         # SNOPT's major optimality tolerance: most of a tight solve is spent polishing a plan that is already
         # feasible (pillar_and_blocker: 3.3 s at 1e-3, 0.45 s at 1e-1, nearly the same path)
         self.optimality_tol = optimality_tol
+        self.dodge_sample_spacing = dodge_sample_spacing
         self._workers = []
         self.solver = SnoptSolver()
 
@@ -165,6 +167,7 @@ class HybridController(Controller):
         self.traj = None  # approach: BsplineTrajectory on [0, T], started at self.t0
         self.hold_traj = None  # close, lift, hold: on [0, D], started at self.t0 + T
         self.sent = None  # the JointTrajectory sent to the wrapper
+        self._hit = None  # (parked q, first time holding it is unsafe)
         self.solve_log: list[dict] = []
         self._close_workers()
         if self.n_workers > 1 and not mp.current_process().daemon:  # (a daemon process cannot have children)
@@ -190,22 +193,34 @@ class HybridController(Controller):
         t = state.t
         if self.phase == "track" and state.trajectory is not self.sent:  # arrived late: rejected
             self.phase = "wait"
-        if self.phase == "wait":
-            if t < world.t_enter - self.lead_time - self.budget:
-                return Command(q=state.q_cmd, gripper=WSG_OPEN, info={"phase": "wait"})
-            tic = time.perf_counter()
-            t0 = t + self.budget
-            info, plan = self._first_plan(t, t0, state.q_cmd) if t0 < world.t_exit - 2.0 else ({"ok": False}, None)
-            info["budget"], self.budget = self.budget, max(self.budget, 1.5 * (time.perf_counter() - tic))
-            if plan is None:
-                self.phase, self.q_stay = "no_plan", state.q_cmd
-                return Command(q=self.q_stay, gripper=WSG_OPEN, info={"phase": "no_plan", **info})
-            self.phase, self.sent, self.t0, self.T = "track", plan, t0, info["T"]
-            return Command(trajectory=self.sent, info={"phase": "track", **info})
-        if self.phase == "no_plan":
-            return Command(q=self.q_stay, gripper=WSG_OPEN, info={"phase": "no_plan"})
-        phase = "track" if t < self.t0 + self.T else "hold"
-        return Command(trajectory=self.sent, info={"phase": phase})
+        if self.phase in ("track", "hold"):
+            self.phase = "track" if t < self.t0 + self.T else "hold"
+            return Command(trajectory=self.sent, info={"phase": self.phase})
+        moving = state.trajectory  # a dodge being executed (None: parked at q_cmd)
+        t_plan = world.t_enter - self.lead_time - self.budget  # when the grasp plan is computed
+        if moving is None:
+            t_go = max(t, t_plan) + self.budget if self.phase == "wait" else np.inf  # when a grasp plan could move it
+            t_hit = self._parked_hit(state.q_cmd, t)
+            if t_hit is not None and t + 0.1 < t_hit <= t_go:  # staying put gets hit first: dodge
+                info, dodge = self._dodge(t, t + min(self.plan_budget, 0.5 * (t_hit - t)), state.q_cmd)
+                if dodge is not None:
+                    return Command(trajectory=dodge, info={"phase": "dodge", "t_hit": t_hit, **info})
+                self._hit = (self._hit[0], None)  # no dodge found: carry on as if it were safe
+        stay = Command(q=state.q_cmd, gripper=WSG_OPEN) if moving is None else Command(trajectory=moving)
+        stay.info = {"phase": self.phase}
+        if self.phase == "no_plan" or t < t_plan:
+            return stay
+        tic = time.perf_counter()
+        t0 = t + self.budget
+        q0, v0 = (state.q_cmd, np.zeros(NQ)) if moving is None else (moving.value(t0), moving.velocity(t0))
+        info, plan = self._first_plan(t, t0, q0, v0, moving) if t0 < world.t_exit - 2.0 else ({"ok": False}, None)
+        info["budget"], self.budget = self.budget, max(self.budget, 1.5 * (time.perf_counter() - tic))
+        if plan is None:
+            self.phase = "no_plan"
+            stay.info = {"phase": "no_plan", **info}
+            return stay
+        self.phase, self.sent, self.t0, self.T = "track", plan, t0, info["T"]
+        return Command(trajectory=self.sent, info={"phase": "track", **info})
 
     def _joint_trajectory(self, t, q0) -> JointTrajectory:
         """Hold q0 from t to t0, then the approach (gripper open), then close, lift and hold (closed)."""
@@ -217,17 +232,21 @@ class HybridController(Controller):
         return JointTrajectory(ts, qs, gripper)
 
     # ---- planning ---------------------------------------------------------------
-    def _first_plan(self, t, t0, q0):
-        """(info, JointTrajectory or None): the first seed that gives a feasible approach and hold."""
+    def _first_plan(self, t, t0, q0, v0, prefix=None):
+        """(info, JointTrajectory or None): the first seed that gives a feasible approach and hold, from (q0, v0)
+        at t0; before t0 the trajectory `prefix` (a dodge being executed) or, if None, holding q0."""
         tic = time.perf_counter()
         grasps = self._ik_grasps(t0, q0)
         first = next(grasps, None)
         info, plan = {}, None
         if first is not None:
-            info, plan = self._run_seeds(t, t0, q0, self._first_seeds(t0, q0, first))
+            info, plan = self._run_seeds(t, t0, q0, v0, self._first_seeds(t0, q0, first))
             if plan is None:  # straight lines to the IK grasps of the next grasp times
                 later = (("ik_later", g, None) for g in itertools.islice(grasps, self.n_ik_seeds - 1))
-                info, plan = self._run_seeds(t, t0, q0, later)
+                info, plan = self._run_seeds(t, t0, q0, v0, later)
+        if plan is not None and prefix is not None:
+            k = plan.t >= t0 - 1e-9
+            plan = JointTrajectory.concatenate([prefix.slice_until(t0), JointTrajectory(plan.t[k], plan.q[k], plan.gripper[k])])
         return {**info, "ok": plan is not None, "plan_ms": 1e3 * (time.perf_counter() - tic)}, plan
 
     def _first_seeds(self, t0, q0, grasp):
@@ -243,20 +262,20 @@ class HybridController(Controller):
             if via is not None and not (k == 0 and np.allclose(via, mid, atol=1e-3)):  # (midpoint already free)
                 yield ("ik_via" if k == 0 else "random_via"), grasp, via
 
-    def _run_seeds(self, t, t0, q0, seeds):
+    def _run_seeds(self, t, t0, q0, v0, seeds):
         """(info, JointTrajectory) of the first seed with a feasible plan: in order, or, with workers, the first
         to finish; (info of the last, None) if none."""
         info, k = {}, 0
         if not self._workers:
             for k, seed in enumerate(seeds, 1):
-                info, plan = self._try_seed(t, t0, q0, *seed)
+                info, plan = self._try_seed(t, t0, q0, v0, *seed)
                 if plan is not None:
                     return {**info, "tries": k}, plan
             return {**info, "tries": k}, None
         self._task += 1
         seeds = list(seeds)
         for k, seed in enumerate(seeds):
-            self._workers[k % len(self._workers)][1].send((self._task, t, t0, q0, *seed))
+            self._workers[k % len(self._workers)][1].send((self._task, t, t0, q0, v0, *seed))
         done = 0
         while done < len(seeds):
             for conn in wait([c for _, c in self._workers]):
@@ -268,10 +287,10 @@ class HybridController(Controller):
                     return {**info, "tries": done}, plan
         return {**info, "tries": done}, None
 
-    def _try_seed(self, t, t0, q0, name, grasp, via):
+    def _try_seed(self, t, t0, q0, v0, name, grasp, via):
         """(info, JointTrajectory or None): approach and hold from one seed."""
         ts, qs, self.t_descend = self._path(t0, q0, *grasp, q_via=via)
-        r = self._plan(t0, q0, ts, qs)
+        r = self._plan(t0, q0, v0, ts, qs)
         if not r["ok"]:
             return {**r, "seed": name}, None
         h = self._plan_hold()
@@ -331,8 +350,8 @@ class HybridController(Controller):
         result = Solve(prog, x)
         return result.GetSolution(q)[cw.iiwa_q : cw.iiwa_q + NQ] if result.is_success() else None
 
-    def _plan(self, t0, q0, guess_ts, guess_qs) -> dict:
-        """Approach: from rest at q0 at t0 to the grasp, seeded with the joint path (guess_ts, guess_qs)."""
+    def _plan(self, t0, q0, v0, guess_ts, guess_qs) -> dict:
+        """Approach: from (q0, v0) at t0 to the grasp, seeded with the joint path (guess_ts, guess_qs)."""
         tic = time.perf_counter()
         world = self.world
         T_lo = max(world.t_enter - t0, 0.3)
@@ -346,7 +365,10 @@ class HybridController(Controller):
         trajopt.AddPathEnergyCost(self.energy_weight)
         trajopt.AddDurationConstraint(T_lo, T_hi)
         trajopt.AddPathPositionConstraint(q0, q0, 0.0)
-        trajopt.AddPathVelocityConstraint(np.zeros(NQ), np.zeros(NQ), 0.0)
+        if np.any(v0):  # dodging: start at its velocity (dq/dt = q'(s) / T)
+            self._add(prog, lambda q, qd, t: qd, v0, v0, 0.0, P, T, w, dw, t0)
+        else:
+            trajopt.AddPathVelocityConstraint(np.zeros(NQ), np.zeros(NQ), 0.0)
 
         def at_grasp(q, qd, t):
             _, V = self._ee(q, qd)
@@ -422,6 +444,44 @@ class HybridController(Controller):
         if info["ok"]:
             self.hold_traj = trajopt.ReconstructTrajectory(result)
         return info
+
+    def _parked_hit(self, q, t):
+        """First time >= t (0.05 s steps) at which holding q still breaks the clearance; None if never in the scene."""
+        if self._hit is None or not np.array_equal(self._hit[0], q):
+            cw, x_s, hit = self.cw, slice(self.cw.iiwa_q, self.cw.iiwa_q + NQ), None
+            for tk in np.arange(t, self.world.duration, 0.05):
+                x = cw.full_state(tk)[0].copy()
+                x[x_s] = q
+                if not all(c.CheckSatisfied(x) for c in self.min_distance):
+                    hit = float(tk)
+                    break
+            self._hit = (q.copy(), hit)
+        return self._hit[1]
+
+    def _dodge(self, t, t_s, q):
+        """(info, JointTrajectory or None): hold q until t_s, then keep clear of everything until the end of the
+        scene, from rest to rest, with minimum path energy (it moves only as much as it has to)."""
+        tic = time.perf_counter()
+        D = self.world.duration - t_s
+        trajopt, P, Td, w, dw = self._trajopt(int(np.ceil(D / self.hold_knot_spacing)) + 3, self.accel_limit)
+        prog = trajopt.get_mutable_prog()
+        trajopt.AddPathEnergyCost(1.0)
+        trajopt.AddDurationConstraint(D, D)
+        trajopt.AddPathPositionConstraint(q, q, 0.0)
+        for s in (0.0, 1.0):
+            trajopt.AddPathVelocityConstraint(np.zeros(NQ), np.zeros(NQ), s)
+        for tk in np.arange(self.dodge_sample_spacing, D + 1e-9, self.dodge_sample_spacing):
+            for c in self.min_distance:
+                self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), tk / D, P, Td, w, dw, t_s)
+        self._guess(prog, P, Td, w, np.array([0.0, 1.0]), np.array([q, q]), D)
+        result, info = self._solve(prog, Td, tic)
+        info.update(t0=t_s, dodge=True)
+        if not info["ok"]:
+            return info, None
+        traj = trajopt.ReconstructTrajectory(result)
+        s = np.append(np.arange(0.0, D, self.period), D)
+        ts, qs = np.append(t, t_s + s), np.vstack([q, *(traj.value(x).ravel() for x in s)])
+        return info, JointTrajectory(ts, qs, np.full(len(ts), WSG_OPEN))
 
     # ---- optimisation helpers ------------------------------------------------------
     def _trajopt(self, n_control_points, accel_limit):
