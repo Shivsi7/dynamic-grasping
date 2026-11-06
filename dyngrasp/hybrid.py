@@ -36,9 +36,11 @@ plan that takes longer than its budget arrives after it should have started,
 the wrapper rejects it, and (C) plans again with a budget of 1.5x that time.
 With perfect prediction the plan stays valid, so there is no replanning.
 
-At t0 + T it closes and lifts with (A) (the trajectory keeps the arm moving
-with its final velocity until (A)'s first command takes effect).  If every
-optimisation fails it falls back to (A) for the rest of the episode.
+The same trajectory goes on from the grasp at t0 + T: close, lift and hold
+(`ReactiveQPController.tail`: (A)'s close and lift, run kinematically against
+the prediction and smoothed), like (B)'s grasp tail.  After it, (A) holds that
+pose.  If every optimisation fails it falls back to (A) for the rest of the
+episode.
 """
 
 from __future__ import annotations
@@ -59,9 +61,17 @@ from pydrake.all import (
     Solve,
 )
 
-from dyngrasp.controller import NQ, WSG_OPEN, Command, Controller, RobotModel, RobotState
+from dyngrasp.controller import (
+    NQ,
+    WSG_CLOSED,
+    WSG_OPEN,
+    Command,
+    Controller,
+    RobotModel,
+    RobotState,
+)
 from dyngrasp.reactive import ReactiveQPController
-from dyngrasp.trajectory import JointTrajectory
+from dyngrasp.trajectory import JointTrajectory, hermite
 from dyngrasp.world import WorldModel
 
 
@@ -88,7 +98,6 @@ class HybridController(Controller):
         d_safe: float = 0.04,
         d_safe_env: float = 0.005,
         plan_budget: float = 2.0,
-        handoff: float = 0.3,
         energy_weight: float = 0.1,
         accel_limit: float = 4.0,
         seed: str = "both",
@@ -102,7 +111,7 @@ class HybridController(Controller):
         self.n_control_points = n_control_points
         self.n_collision_samples = n_collision_samples
         self.d_safe, self.d_safe_env = d_safe, d_safe_env
-        self.plan_budget, self.handoff = plan_budget, handoff
+        self.plan_budget = plan_budget
         self.energy_weight = energy_weight
         self.accel_limit = accel_limit
         self.solver = SnoptSolver()
@@ -145,11 +154,10 @@ class HybridController(Controller):
                 self.reactive._start("approach")
 
         if self.phase == "track":
-            if t < self.t0 + self.traj.end_time():
-                return Command(trajectory=self.sent, gripper=WSG_OPEN, info={"phase": "track", **info})
-            self.phase = "reactive"
-            self.reactive._start("close")
-            self.reactive.t_close = t
+            if t < self.sent.end_time:
+                phase = "track" if t < self.t0 + self.traj.end_time() else "tail"
+                return Command(trajectory=self.sent, info={"phase": phase, **info})
+            self.phase, self.reactive = "reactive", self.tail_controller  # holding the lifted pose
 
         cmd = self.reactive.update(state, world)
         cmd.info["phase"] = ("fallback_" if self.phase == "fallback" else "") + cmd.info["phase"]
@@ -157,14 +165,15 @@ class HybridController(Controller):
         return cmd
 
     def _joint_trajectory(self, t, q0) -> JointTrajectory:
-        """Hold q0 from t to t0, then the plan, then its final joint velocity for `handoff` s (until (A) takes over)."""
+        """Hold q0 from t to t0, then the plan to the grasp, then close, lift and hold."""
         T, dt = self.traj.end_time(), self.period
         s = np.arange(0.0, T, dt)
         q_T, v_T = self.traj.value(T).ravel(), self.traj_dot.value(T).ravel()
-        tau = np.arange(0.0, self.handoff + 1e-9, dt)
-        ts = np.concatenate([[t], self.t0 + s, self.t0 + T + tau])
-        qs = np.vstack([q0, *(self.traj.value(x).ravel() for x in s), q_T + np.outer(tau, v_T)])
-        return JointTrajectory(ts, qs)
+        ts = np.concatenate([[t], self.t0 + s])
+        approach = JointTrajectory(ts, np.vstack([q0, *(self.traj.value(x).ravel() for x in s)]), np.full(len(ts), WSG_OPEN))
+        tail_t, tail_q, self.tail_controller = self.reactive.tail(self.world, q_T, v_T, self.t0 + T)
+        tail = hermite(tail_t, tail_q, v_T, np.zeros(NQ), dt, np.full(len(tail_t), WSG_CLOSED))
+        return JointTrajectory.concatenate([approach, tail])
 
     # ---- planning ---------------------------------------------------------------
     def _first_plan(self, t0, q0) -> dict:

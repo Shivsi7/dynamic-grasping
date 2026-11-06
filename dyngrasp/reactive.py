@@ -16,9 +16,13 @@ velocity towards the robot.  The slacks keep the QP feasible when constraints
 conflict; they are penalised so heavily that they are zero otherwise.
 
 Phases: wait -> approach (hover above the grasp) -> descend -> close -> lift.
+The lift is a fixed motion, like (B)'s grasp tail: up `lift_height` in
+`lift_time` (minimum jerk) while slowing down from the object's velocity to
+rest, then hold that pose.
 
 `rollout` runs the same controller kinematically in the predicted world (no
-simulation); the hybrid controller (C) uses it as its initial guess.
+simulation); the hybrid controller (C) uses it as an initial guess, and
+`tail` (close, lift, hold) to plan the end of its motion.
 """
 
 from __future__ import annotations
@@ -55,7 +59,9 @@ class ReactiveQPController(Controller):
         v_scale: float = 0.6,
         lead_time: float = 1.0,
         close_time: float = 0.4,
-        lift_height: float = 0.15,
+        lift_height: float = 0.10,
+        lift_time: float = 0.6,
+        hold_time: float = 0.6,
         d_safe: float = 0.04,
         d_safe_env: float = 0.005,
         d_influence: float = 0.25,
@@ -68,6 +74,7 @@ class ReactiveQPController(Controller):
         self.hover = hover
         self.k_p, self.k_rot, self.max_speed, self.v_scale = k_p, k_rot, max_speed, v_scale
         self.lead_time, self.close_time, self.lift_height = lead_time, close_time, lift_height
+        self.lift_time, self.hold_time = lift_time, hold_time
         self.d_safe, self.d_safe_env, self.d_influence, self.xi = d_safe, d_safe_env, d_influence, xi
         self.horizon, self.n_horizon = horizon, n_horizon
         self.lam, self.mu = lam, mu
@@ -82,7 +89,7 @@ class ReactiveQPController(Controller):
     def _start(self, phase: str) -> None:
         self.phase = phase
         self.t_close = None
-        self.p_lift_ref = None
+        self.lift_start = None  # (t, gripper position, object velocity) when the lift began
         self.v_prev = np.zeros(NQ)
         self.n_active = 0
         self.slack = 0.0
@@ -96,7 +103,7 @@ class ReactiveQPController(Controller):
     def step(self, t: float, q: np.ndarray, X_WG: RigidTransform, world: WorldModel, dt: float):
         """(joint velocity, gripper opening) at (t, q); advances the phase machine."""
         X_grasp = world.grasp_pose(t)
-        v_obj = world.target_velocity(t)
+        v_obj = v_ff = world.target_velocity(t)
         gripper = WSG_OPEN
         if self.phase == "wait":
             if t < world.t_enter - self.lead_time:
@@ -114,14 +121,41 @@ class ReactiveQPController(Controller):
         if self.phase == "close":
             X_des, gripper = X_grasp, WSG_CLOSED
             if t - self.t_close > self.close_time:
-                self.phase, self.p_lift_ref = "lift", X_WG.translation().copy()
+                self.phase, self.lift_start = "lift", (t, X_WG.translation().copy(), v_obj.copy())
         if self.phase == "lift":
-            # Straight up, still riding along with the cart horizontally.
-            self.p_lift_ref = self.p_lift_ref + v_obj * dt
-            X_des, gripper = RigidTransform(X_grasp.rotation(), self.p_lift_ref + [0, 0, self.lift_height]), WSG_CLOSED
-        v = self.qp(t, q, X_WG, X_des, v_obj)
+            p, v_ff = self.lift_reference(t)
+            X_des, gripper = RigidTransform(X_grasp.rotation(), p), WSG_CLOSED
+        v = self.qp(t, q, X_WG, X_des, v_ff)
         self.v_prev = v
         return v, gripper
+
+    def lift_reference(self, t: float) -> tuple[np.ndarray, np.ndarray]:
+        """Gripper position and velocity during the lift: up `lift_height` while the horizontal
+        velocity goes from the object's to zero, both minimum jerk over `lift_time`; then still."""
+        t0, p0, v0 = self.lift_start
+        T = self.lift_time
+        s = float(np.clip((t - t0) / T, 0.0, 1.0))
+        sigma, dsigma = 10 * s**3 - 15 * s**4 + 6 * s**5, (30 * s**2 - 60 * s**3 + 30 * s**4) / T
+        v_h = np.array([v0[0], v0[1], 0.0])
+        p = p0 + v_h * T * (s - (2.5 * s**4 - 3 * s**5 + s**6)) + [0, 0, self.lift_height * sigma]
+        return p, v_h * (1 - sigma) + [0, 0, self.lift_height * dsigma]
+
+    def tail(self, world: WorldModel, q0: np.ndarray, v0: np.ndarray, t0: float, dt: float = 0.02):
+        """Close, lift and hold, run kinematically in the predicted world from the grasp (q0, v0) at t0.
+
+        Returns (times, qs, controller): the joint path and this controller in its state at the end
+        (holding the lifted pose), to take over from there.
+        """
+        c = copy.copy(self)
+        c._start("close")
+        c.t_close, c.v_prev = t0, np.asarray(v0, float)
+        q, ts, qs = np.asarray(q0, float).copy(), [t0], [np.asarray(q0, float).copy()]
+        for k in range(round((self.close_time + self.lift_time + self.hold_time) / dt)):
+            v, _ = c.step(t0 + k * dt, q, self.robot.fk(q), world, dt)
+            q = np.clip(q + v * dt, self.robot.q_lower, self.robot.q_upper)
+            ts.append(t0 + (k + 1) * dt)
+            qs.append(q.copy())
+        return np.array(ts), np.array(qs), c
 
     # ---- the QP ---------------------------------------------------------------
     def qp(self, t: float, q: np.ndarray, X_WG: RigidTransform, X_des: RigidTransform, v_ff: np.ndarray) -> np.ndarray:
