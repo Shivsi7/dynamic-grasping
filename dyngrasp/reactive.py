@@ -19,14 +19,9 @@ Phases: wait -> approach (hover above the grasp) -> descend -> close -> lift.
 The lift is a fixed motion, like (B)'s grasp tail: up `lift_height` in
 `lift_time` (minimum jerk) while slowing down from the object's velocity to
 rest, then hold that pose.
-
-`tail` runs the close, lift and hold kinematically in the predicted world (no
-simulation); the hybrid controller (C) uses it to plan the end of its motion.
 """
 
 from __future__ import annotations
-
-import copy
 
 import numpy as np
 from pydrake.all import MathematicalProgram, OsqpSolver, RigidTransform
@@ -60,7 +55,6 @@ class ReactiveQPController(Controller):
         close_time: float = 0.4,
         lift_height: float = 0.10,
         lift_time: float = 0.6,
-        hold_time: float = 0.6,
         d_safe: float = 0.04,
         d_safe_env: float = 0.005,
         d_influence: float = 0.25,
@@ -73,7 +67,7 @@ class ReactiveQPController(Controller):
         self.hover = hover
         self.k_p, self.k_rot, self.max_speed, self.v_scale = k_p, k_rot, max_speed, v_scale
         self.lead_time, self.close_time, self.lift_height = lead_time, close_time, lift_height
-        self.lift_time, self.hold_time = lift_time, hold_time
+        self.lift_time = lift_time
         self.d_safe, self.d_safe_env, self.d_influence, self.xi = d_safe, d_safe_env, d_influence, xi
         self.horizon, self.n_horizon = horizon, n_horizon
         self.lam, self.mu = lam, mu
@@ -138,23 +132,6 @@ class ReactiveQPController(Controller):
         v_h = np.array([v0[0], v0[1], 0.0])
         p = p0 + v_h * T * (s - (2.5 * s**4 - 3 * s**5 + s**6)) + [0, 0, self.lift_height * sigma]
         return p, v_h * (1 - sigma) + [0, 0, self.lift_height * dsigma]
-
-    def tail(self, world: WorldModel, q0: np.ndarray, v0: np.ndarray, t0: float, dt: float = 0.02):
-        """Close, lift and hold, run kinematically in the predicted world from the grasp (q0, v0) at t0.
-
-        Returns (times, qs, controller): the joint path and this controller in its state at the end
-        (holding the lifted pose), to take over from there.
-        """
-        c = copy.copy(self)
-        c._start("close")
-        c.t_close, c.v_prev = t0, np.asarray(v0, float)
-        q, ts, qs = np.asarray(q0, float).copy(), [t0], [np.asarray(q0, float).copy()]
-        for k in range(round((self.close_time + self.lift_time + self.hold_time) / dt)):
-            v, _ = c.step(t0 + k * dt, q, self.robot.fk(q), world, dt)
-            q = np.clip(q + v * dt, self.robot.q_lower, self.robot.q_upper)
-            ts.append(t0 + (k + 1) * dt)
-            qs.append(q.copy())
-        return np.array(ts), np.array(qs), c
 
     # ---- the QP ---------------------------------------------------------------
     def qp(self, t: float, q: np.ndarray, X_WG: RigidTransform, X_des: RigidTransform, v_ff: np.ndarray) -> np.ndarray:

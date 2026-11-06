@@ -1,25 +1,16 @@
 """(C) Hybrid: IK grasp poses, refined with space-time trajectory optimization.
 
-When (A) would start moving (t_enter - lead_time) the controller
+Shortly before the object comes within reach (t_enter - lead_time) the controller
 
-1. builds initial guesses (`seed`).  Each ends at a collision-free hover pose
-   and the grasp below it, both from inverse kinematics against the predicted
-   obstacles, at the earliest grasp time (0.5 s steps) where IK finds them.
-   The paths may cut through obstacles: they only have to end at a valid grasp.
-   * "ik": straight joint-space lines to the hover pose and the grasp (if that
-     fails to optimise, the same at the next grasp times, up to `n_ik_seeds`);
-   * "random": the same, but via a random configuration halfway to the hover
-     pose (the midpoint of the straight line, each joint moved by up to
-     `random_spread` rad), up to `n_random_seeds` of them, in case the
-     straight line leads the optimiser into a bad local minimum;
-   * "both": each of the above;
-2. refines each with Drake's `KinematicTrajectoryOptimization` and keeps the
-   cheapest feasible result: a cubic B-spline
-   q(s), s in [0, 1], with free duration T and time t = t0 + s T, that
-     * starts at the current state,
+1. finds a collision-free hover pose and the grasp below it by inverse
+   kinematics against the predicted obstacles, at the earliest grasp time
+   (0.5 s steps) that has both;
+2. optimises the approach with Drake's `KinematicTrajectoryOptimization`: a
+   cubic B-spline q(s), s in [0, 1], with free duration T and time
+   t = t0 + s T, that
+     * starts at rest at the current configuration,
      * ends at the grasp pose of the object *at t0 + T*, moving with it,
-     * passes the hover pose above the object at the seed's descent time
-       and comes straight down from there,
+     * passes the hover pose above the object and comes straight down,
      * keeps a minimum distance >= d_safe from the obstacles (and d_safe_env
        from the cart, the floor and the target) at sample times t0 + s_k T,
    minimising duration plus path energy.  The constraints are "space-time":
@@ -27,20 +18,30 @@ When (A) would start moving (t_enter - lead_time) the controller
    gradients include that dependence (Drake's
    MinimumDistanceLowerBoundConstraint is evaluated on the full kinematic
    plant, whose obstacle/cart joints move with t);
-3. sends the result as a `JointTrajectory`, sampled every 5 ms by the wrapper.
+3. optimises the close, lift and hold the same way, with a fixed duration
+   from the grasp to the end of the scene (`_plan_hold`): start in the
+   approach's end state, move with the object while the gripper closes, be at
+   least `lift_height` above the grasp from `close_time + lift_time` on, keep
+   clear of the obstacles, the cart and the floor, end at rest; minimise path
+   energy, with a lower acceleration limit than the approach;
+4. sends hold-still + approach + close/lift/hold as one `JointTrajectory`,
+   sampled every 5 ms by the wrapper; it holds its last pose afterwards.
+
+The initial guess for the approach is straight joint-space lines to the IK
+hover and grasp poses (they may cut through obstacles: they only have to end
+at a valid grasp).  If it does not give a plan, the same via a random
+configuration halfway to the hover pose (the midpoint of the straight line,
+each joint moved by up to `random_spread` rad), up to `n_random_seeds`; then
+straight lines to the IK poses of the next grasp times, up to `n_ik_seeds` in
+all.  The first seed that gives a feasible approach and hold is kept.
 
 Planning time costs simulated time (the harness's measured latency), so the
 plan starts `plan_budget` s after the controller starts computing it: (C)
-plans that much before (A) would start moving and holds still until then.  A
-plan that takes longer than its budget arrives after it should have started,
-the wrapper rejects it, and (C) plans again with a budget of 1.5x that time.
-With perfect prediction the plan stays valid, so there is no replanning.
-
-The same trajectory goes on from the grasp at t0 + T: close, lift and hold
-(`ReactiveQPController.tail`: (A)'s close and lift, run kinematically against
-the prediction and smoothed), like (B)'s grasp tail.  After it, (A) holds that
-pose.  If every optimisation fails it falls back to (A) for the rest of the
-episode.
+plans that much ahead and holds still until then.  A plan that takes longer
+than its budget arrives after it should have started, the wrapper rejects it,
+and (C) plans again with a budget of 1.5x that time.  With perfect prediction
+the plan stays valid, so there is no replanning.  If no seed gives a plan, the
+arm stays where it is.
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ from pydrake.all import (
 )
 from pydrake.autodiffutils import ExtractGradient, ExtractValue, InitializeAutoDiff
 
+from dyngrasp.collision import CollisionWorld
 from dyngrasp.controller import (
     NQ,
     WSG_CLOSED,
@@ -71,8 +73,7 @@ from dyngrasp.controller import (
     RobotModel,
     RobotState,
 )
-from dyngrasp.reactive import ReactiveQPController
-from dyngrasp.trajectory import JointTrajectory, hermite
+from dyngrasp.trajectory import JointTrajectory
 from dyngrasp.world import WorldModel
 
 
@@ -98,134 +99,127 @@ class HybridController(Controller):
         n_collision_samples: int = 30,
         d_safe: float = 0.04,
         d_safe_env: float = 0.005,
+        hover: float = 0.10,
+        lead_time: float = 1.0,
+        v_scale: float = 0.6,
         plan_budget: float = 2.0,
         energy_weight: float = 0.1,
         accel_limit: float = 4.0,
-        seed: str = "both",
         n_ik_seeds: int = 3,
         n_random_seeds: int = 3,
         random_spread: float = 1.0,
-        **reactive_kwargs,
+        close_time: float = 0.4,
+        lift_height: float = 0.10,
+        lift_time: float = 0.6,
+        hold_accel_limit: float = 2.0,
+        hold_knot_spacing: float = 0.5,
+        hold_sample_spacing: float = 0.2,
     ):
-        assert seed in ("ik", "random", "both")
-        self.seed, self.n_ik_seeds = seed, n_ik_seeds
-        self.n_random_seeds, self.random_spread = n_random_seeds, random_spread
-        self.reactive = ReactiveQPController(d_safe=d_safe, d_safe_env=d_safe_env, **reactive_kwargs)
-        self.reactive.period = self.period  # it runs inside this controller's cycle
         self.n_control_points = n_control_points
         self.n_collision_samples = n_collision_samples
         self.d_safe, self.d_safe_env = d_safe, d_safe_env
+        self.hover, self.lead_time, self.v_scale = hover, lead_time, v_scale
         self.plan_budget = plan_budget
         self.energy_weight = energy_weight
         self.accel_limit = accel_limit
+        self.n_ik_seeds, self.n_random_seeds, self.random_spread = n_ik_seeds, n_random_seeds, random_spread
+        self.close_time, self.lift_height, self.lift_time = close_time, lift_height, lift_time
+        self.hold_accel_limit = hold_accel_limit
+        self.hold_knot_spacing, self.hold_sample_spacing = hold_knot_spacing, hold_sample_spacing
         self.solver = SnoptSolver()
 
     # ---- episode ------------------------------------------------------------
     def reset(self, world: WorldModel, robot: RobotModel, state: RobotState):
         self.world, self.robot = world, robot
-        self.reactive.reset(world, robot, state)
-        self.cw = cw = self.reactive.cw
-        self.min_distance = [
-            MinimumDistanceLowerBoundConstraint(cw.plant, bound, cw.plant_context(cw.context(cats)))
-            for cats, bound in [(("obstacle",), self.d_safe), (("cart", "floor", "target"), self.d_safe_env)]
-            if any(cw._geoms[c] for c in cats)
-        ]
+        self.cw = cw = CollisionWorld(world.spec, world)
+
+        def min_distance(groups):
+            return [
+                MinimumDistanceLowerBoundConstraint(cw.plant, bound, cw.plant_context(cw.context(cats)))
+                for cats, bound in groups
+                if any(cw._geoms[c] for c in cats)
+            ]
+
+        obstacles = (("obstacle",), self.d_safe)
+        self.min_distance = min_distance([obstacles, (("cart", "floor", "target"), self.d_safe_env)])
+        self.min_distance_held = min_distance([obstacles, (("cart", "floor"), self.d_safe_env)])  # object in hand
+        self.v_obj = world.target_velocity(world.t_enter)
         self.plant_ad = robot.plant.ToAutoDiffXd()
         self.ctx_ad = self.plant_ad.CreateDefaultContext()
         self.G_ad = self.plant_ad.GetFrameByName("body", self.plant_ad.GetModelInstanceByName("wsg"))
         self.phase = "wait"
         self.budget = self.plan_budget
-        self.traj = None  # BsplineTrajectory on [0, T], started at self.t0
+        self.traj = None  # approach: BsplineTrajectory on [0, T], started at self.t0
+        self.hold_traj = None  # close, lift, hold: on [0, D], started at self.t0 + T
         self.sent = None  # the JointTrajectory sent to the wrapper
         self.solve_log: list[dict] = []
 
     def update(self, state: RobotState, world: WorldModel) -> Command:
         t = state.t
-        info = {}
         if self.phase == "track" and state.trajectory is not self.sent:  # arrived late: rejected
             self.phase = "wait"
         if self.phase == "wait":
-            if t < world.t_enter - self.reactive.lead_time - self.budget:
+            if t < world.t_enter - self.lead_time - self.budget:
                 return Command(q=state.q_cmd, gripper=WSG_OPEN, info={"phase": "wait"})
             tic = time.perf_counter()
             t0 = t + self.budget
             info = self._first_plan(t0, state.q_cmd) if t0 < world.t_exit - 2.0 else {"ok": False}
             info["budget"], self.budget = self.budget, max(self.budget, 1.5 * (time.perf_counter() - tic))
-            if info["ok"]:
-                self.phase, self.sent = "track", self._joint_trajectory(t, state.q_cmd)
-            else:
-                self.phase = "fallback"
-                self.reactive._start("approach")
-
-        if self.phase == "track":
-            if t < self.sent.end_time:
-                phase = "track" if t < self.t0 + self.traj.end_time() else "tail"
-                return Command(trajectory=self.sent, info={"phase": phase, **info})
-            self.phase, self.reactive = "reactive", self.tail_controller  # holding the lifted pose
-
-        cmd = self.reactive.update(state, world)
-        cmd.info["phase"] = ("fallback_" if self.phase == "fallback" else "") + cmd.info["phase"]
-        cmd.info.update(info)
-        return cmd
+            if not info["ok"]:
+                self.phase, self.q_stay = "no_plan", state.q_cmd
+                return Command(q=self.q_stay, gripper=WSG_OPEN, info={"phase": "no_plan", **info})
+            self.phase, self.sent = "track", self._joint_trajectory(t, state.q_cmd)
+            return Command(trajectory=self.sent, info={"phase": "track", **info})
+        if self.phase == "no_plan":
+            return Command(q=self.q_stay, gripper=WSG_OPEN, info={"phase": "no_plan"})
+        phase = "track" if t < self.t0 + self.traj.end_time() else "hold"
+        return Command(trajectory=self.sent, info={"phase": phase})
 
     def _joint_trajectory(self, t, q0) -> JointTrajectory:
-        """Hold q0 from t to t0, then the plan to the grasp, then close, lift and hold."""
-        T, dt = self.traj.end_time(), self.period
-        s = np.arange(0.0, T, dt)
-        q_T, v_T = self.traj.value(T).ravel(), self.traj_dot.value(T).ravel()
-        ts = np.concatenate([[t], self.t0 + s])
-        approach = JointTrajectory(ts, np.vstack([q0, *(self.traj.value(x).ravel() for x in s)]), np.full(len(ts), WSG_OPEN))
-        tail_t, tail_q, self.tail_controller = self.reactive.tail(self.world, q_T, v_T, self.t0 + T)
-        tail = hermite(tail_t, tail_q, v_T, np.zeros(NQ), dt, np.full(len(tail_t), WSG_CLOSED))
-        return JointTrajectory.concatenate([approach, tail])
+        """Hold q0 from t to t0, then the approach (gripper open), then close, lift and hold (closed)."""
+        T, D, dt = self.traj.end_time(), self.hold_traj.end_time(), self.period
+        s1, s2 = np.arange(0.0, T, dt), np.append(np.arange(0.0, D, dt), D)
+        ts = np.concatenate([[t], self.t0 + s1, self.t0 + T + s2])
+        qs = np.vstack([q0, *(self.traj.value(x).ravel() for x in s1), *(self.hold_traj.value(x).ravel() for x in s2)])
+        gripper = np.concatenate([np.full(1 + len(s1), WSG_OPEN), np.full(len(s2), WSG_CLOSED)])
+        return JointTrajectory(ts, qs, gripper)
 
     # ---- planning ---------------------------------------------------------------
     def _first_plan(self, t0, q0) -> dict:
-        """Solve from each seed; keep the cheapest feasible plan."""
+        """Try the seeds in turn; keep the first that gives a feasible approach and hold."""
         grasps = self._ik_grasps(t0, q0)
         first = next(grasps, None)
         if first is None:
-            return {"ok": False, "ik_found": False}
+            return {"ok": False, "tries": 0}
         rng = np.random.default_rng(0)
-        mid = 0.5 * (q0 + first[2])
-        lo, hi = self.robot.q_lower + 0.05, self.robot.q_upper - 0.05
-        sources = []
-        if self.seed in ("ik", "both"):
-            straight = itertools.islice(itertools.chain([first], grasps), self.n_ik_seeds)
-            sources.append(("ik", (self._path(t0, q0, *g) for g in straight)))
-        if self.seed in ("random", "both"):
-            vias = (np.clip(mid + rng.uniform(-1, 1, NQ) * self.random_spread, lo, hi) for _ in range(self.n_random_seeds))
-            sources.append(("random", (self._path(t0, q0, *first, q_via=v) for v in vias)))
-        best, info = None, {}
-        for name, seeds in sources:
-            tic = time.perf_counter()
-            for k, (ts, qs, t_descend) in enumerate(seeds):
-                self.t_descend = t_descend
-                r = self._plan(t0, q0, ts, qs)
-                info[f"{name}_ok"], info[f"{name}_tries"] = r["ok"], k + 1
-                if r["ok"]:
-                    if best is None or r["cost"] < best[0]["cost"]:
-                        best = ({**r, "seed": name}, self.traj, self.traj_dot, self.t_descend)
-                    break
-            info[f"{name}_ms"] = 1e3 * (time.perf_counter() - tic)
-        if best is None:
-            return {**info, "ok": False}
-        r, self.traj, self.traj_dot, self.t_descend = best
-        self.t0 = t0
-        return {**info, **r}
+        mid, lo, hi = 0.5 * (q0 + first[2]), self.robot.q_lower + 0.05, self.robot.q_upper - 0.05
+        vias = [np.clip(mid + rng.uniform(-1, 1, NQ) * self.random_spread, lo, hi) for _ in range(self.n_random_seeds)]
+        seeds = itertools.chain(
+            [("ik", first, None)],
+            (("random", first, v) for v in vias),
+            (("ik_later", g, None) for g in itertools.islice(grasps, self.n_ik_seeds - 1)),
+        )
+        tic, k = time.perf_counter(), 0
+        for k, (name, grasp, via) in enumerate(seeds, 1):
+            ts, qs, self.t_descend = self._path(t0, q0, *grasp, q_via=via)
+            r = self._plan(t0, q0, ts, qs)
+            if r["ok"]:
+                h = self._plan_hold()
+                if h["ok"]:
+                    return {**r, "seed": name, "tries": k, "hold_ms": h["solve_ms"],
+                            "plan_ms": 1e3 * (time.perf_counter() - tic)}
+        return {"ok": False, "tries": k, "plan_ms": 1e3 * (time.perf_counter() - tic)}
 
     def _ik_grasps(self, t0, q0, n_tries=6, descend_time=0.6):
         """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time (0.5 s apart) that has both."""
         world, rng = self.world, np.random.default_rng(0)
-        v_avg = 0.5 * self.reactive.v_scale * self.robot.v_limits
+        v_avg = 0.5 * self.v_scale * self.robot.v_limits
         for t_g in np.arange(max(world.t_enter, t0 + 1.0), world.t_exit - 2.0, 0.5):
             t_d = t_g - descend_time
-            X_h = world.grasp_pose(t_d)
-            X_h = RigidTransform(X_h.rotation(), X_h.translation() + [0, 0, self.reactive.hover])
             best = None
             for k in range(n_tries):  # first from q0, then from random configurations; keep the nearest
                 q_g = self._ik(t_g, world.grasp_pose(t_g), q0 if k == 0 else rng.uniform(self.robot.q_lower, self.robot.q_upper))
-                q_h = None if q_g is None else self._ik(t_d, X_h, q_g)
+                q_h = None if q_g is None else self._ik(t_d, self._pose(t_d, self.hover), q_g)
                 if q_h is None:
                     continue
                 travel = np.max(np.abs(q_h - q0) / v_avg)
@@ -243,6 +237,10 @@ class HybridController(Controller):
         kt, kq = np.array([k[0] for k in knots]), np.array([k[1] for k in knots])
         ts = np.linspace(t0, t_g, 40)
         return ts, np.array([np.interp(ts, kt, kq[:, j]) for j in range(NQ)]).T, t_d
+
+    def _pose(self, t, dz=0.0) -> RigidTransform:
+        X = self.world.grasp_pose(t)
+        return RigidTransform(X.rotation(), X.translation() + [0, 0, dz])
 
     def _ik(self, t, X, q_guess):
         """iiwa q with the gripper at X and >= d_safe + 1 cm from the obstacles where they are at t (None if not found)."""
@@ -264,7 +262,7 @@ class HybridController(Controller):
         return result.GetSolution(q)[cw.iiwa_q : cw.iiwa_q + NQ] if result.is_success() else None
 
     def _plan(self, t0, q0, guess_ts, guess_qs) -> dict:
-        """Solve from rest at q0 at t0, seeded with the joint path (guess_ts, guess_qs)."""
+        """Approach: from rest at q0 at t0 to the grasp, seeded with the joint path (guess_ts, guess_qs)."""
         tic = time.perf_counter()
         world = self.world
         T_lo = max(world.t_enter - t0, 0.3)
@@ -272,80 +270,131 @@ class HybridController(Controller):
         T_guess = float(np.clip(guess_ts[-1] - t0, T_lo, T_hi))
         s_descend = float(np.clip((self.t_descend - t0) / T_guess, 0.3, 0.9))
 
-        N = self.n_control_points
-        trajopt = KinematicTrajectoryOptimization(NQ, N, 4)
+        trajopt, P, T, w, dw = self._trajopt(self.n_control_points, self.accel_limit)
         prog = trajopt.get_mutable_prog()
-        P, T = trajopt.control_points(), trajopt.duration()
-        weights = BsplineTrajectory(trajopt.basis(), [np.eye(N)[:, [j]] for j in range(N)])
-        dweights = weights.MakeDerivative()
-        w = lambda s: weights.value(s).ravel()
-        dw = lambda s: dweights.value(s).ravel()
-
         trajopt.AddDurationCost(1.0)
         trajopt.AddPathEnergyCost(self.energy_weight)
         trajopt.AddDurationConstraint(T_lo, T_hi)
-        margin = 0.05
-        trajopt.AddPositionBounds(self.robot.q_lower + margin, self.robot.q_upper - margin)
-        vmax = self.reactive.v_scale * self.robot.v_limits
-        trajopt.AddVelocityBounds(-vmax, vmax)
-        trajopt.AddAccelerationBounds(-self.accel_limit * np.ones(NQ), self.accel_limit * np.ones(NQ))
         trajopt.AddPathPositionConstraint(q0, q0, 0.0)
         trajopt.AddPathVelocityConstraint(np.zeros(NQ), np.zeros(NQ), 0.0)
 
-        v_obj = world.target_velocity(world.t_enter)
-        hover = self.reactive.hover
-
-        def grasp_target(t, dz=0.0):
-            """Grasp pose at (AutoDiff) time t: the cart moves at constant velocity."""
-            X = world.grasp_pose(_value(t))
-            return X.translation() + v_obj * (t - _value(t)) + [0, 0, dz], X.rotation().matrix()
-
         def at_grasp(q, qd, t):
-            X, V = self._ee(q, qd)
-            p, R = grasp_target(t)
-            return np.concatenate([X.translation() - p, _vee(R.T @ X.rotation().matrix()),
-                                   V.rotational(), V.translational() - v_obj])
+            _, V = self._ee(q, qd)
+            return np.concatenate([self._pose_error(q, qd, t), V.rotational(), V.translational() - self.v_obj])
 
         def at_hover(q, qd, t):
-            X, _ = self._ee(q, qd)
-            p, R = grasp_target(t, hover)
-            return np.concatenate([X.translation() - p, _vee(R.T @ X.rotation().matrix())])
+            return self._pose_error(q, qd, t, self.hover)
 
         def above_grasp(q, qd, t):
             X, _ = self._ee(q, qd)
-            p, _ = grasp_target(t)
-            return X.translation() - p
+            return X.translation() - self._grasp_target(t)[0]
 
         tol_p, tol_r, tol_v = 0.005, 0.02, 0.02
-        tol = np.concatenate([[tol_p] * 3, [tol_r] * 3, [tol_r] * 3, [tol_v] * 3])
+        tol = np.array([tol_p] * 3 + [tol_r] * 3 + [tol_r] * 3 + [tol_v] * 3)
         self._add(prog, at_grasp, -tol, tol, 1.0, P, T, w, dw, t0)
         self._add(prog, at_hover, -tol[:6] * 2, tol[:6] * 2, s_descend, P, T, w, dw, t0)
         for s in np.linspace(s_descend, 1.0, 5)[1:-1]:  # straight down onto the object
-            self._add(prog, above_grasp, [-0.015, -0.015, 0.0], [0.015, 0.015, hover + 0.02], s, P, T, w, dw, t0)
+            self._add(prog, above_grasp, [-0.015, -0.015, 0.0], [0.015, 0.015, self.hover + 0.02], s, P, T, w, dw, t0)
         for s in np.linspace(0.0, 1.0, self.n_collision_samples + 1)[1:]:
             for c in self.min_distance:
                 self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), s, P, T, w, dw, t0)
 
-        # Initial guess: least-squares fit of the seed path on [t0, t0 + T_guess].
-        s_k = np.clip((guess_ts - t0) / T_guess, 0.0, 1.0)
-        M = np.array([w(s) for s in s_k])
-        P_guess = np.linalg.lstsq(M, guess_qs, rcond=None)[0].T
-        prog.SetInitialGuess(P, P_guess)
-        prog.SetInitialGuess(T, T_guess)
-
-        for name, value in [("Major optimality tolerance", 1e-3), ("Major feasibility tolerance", 1e-4)]:
-            prog.SetSolverOption(self.solver.solver_id(), name, value)
-        result = self.solver.Solve(prog)
-        ok = result.is_success()
-        info = {"ok": ok, "solve_ms": 1e3 * (time.perf_counter() - tic), "T": float(result.GetSolution(T)),
-                "T_guess": T_guess, "t0": t0, "cost": result.get_optimal_cost()}
-        self.solve_log.append(info)
-        if ok:
+        self._guess(prog, P, T, w, (guess_ts - t0) / T_guess, guess_qs, T_guess)
+        result, info = self._solve(prog, T, tic)
+        info.update(t0=t0, T_guess=T_guess)
+        if info["ok"]:
             self.traj = trajopt.ReconstructTrajectory(result)
             self.traj_dot = self.traj.MakeDerivative()
             self.t0 = t0
             self.t_descend = t0 + s_descend * self.traj.end_time()
         return info
+
+    def _plan_hold(self) -> dict:
+        """Close, lift and hold until the end of the scene, from the approach's end state at t_g = t0 + T."""
+        tic = time.perf_counter()
+        T = self.traj.end_time()
+        t_g = self.t0 + T
+        q_T, v_T = self.traj.value(T).ravel(), self.traj_dot.value(T).ravel()
+        t_up = self.close_time + self.lift_time
+        D = max(self.world.duration - t_g, t_up + 0.5)
+
+        trajopt, P, Td, w, dw = self._trajopt(int(np.ceil(D / self.hold_knot_spacing)) + 3, self.hold_accel_limit)
+        prog = trajopt.get_mutable_prog()
+        trajopt.AddPathEnergyCost(1.0)
+        trajopt.AddDurationConstraint(D, D)
+        trajopt.AddPathPositionConstraint(q_T, q_T, 0.0)
+        trajopt.AddPathVelocityConstraint(v_T * D, v_T * D, 0.0)  # d/ds = D d/dt
+        trajopt.AddPathVelocityConstraint(np.zeros(NQ), np.zeros(NQ), 1.0)
+
+        tol = np.array([0.005] * 3 + [0.02] * 3)
+        for tk in np.linspace(0.0, self.close_time, 3)[1:]:  # closing: moving with the object
+            self._add(prog, self._pose_error, -tol, tol, tk / D, P, Td, w, dw, t_g)
+        z_lift = self.world.grasp_pose(t_g).translation()[2] + self.lift_height
+
+        def height(q, qd, t):
+            return self._ee(q, qd)[0].translation()[2:]
+
+        for tk in np.arange(t_up, D + 1e-9, self.hold_sample_spacing):  # lifted, and kept there
+            self._add(prog, height, [z_lift], [np.inf], tk / D, P, Td, w, dw, t_g)
+        for tk in np.arange(self.close_time, D + 1e-9, self.hold_sample_spacing):
+            for c in self.min_distance_held:
+                self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), tk / D, P, Td, w, dw, t_g)
+
+        # Initial guess: move with the object, then straight up, then stay (IK poses where they exist).
+        t_c = t_g + self.close_time
+        q_c = self._ik(t_c, self._pose(t_c), q_T)
+        q_c = q_T + v_T * self.close_time if q_c is None else q_c
+        q_l = self._ik(t_g + t_up, self._pose(t_c, self.lift_height), q_c)
+        q_l = q_c if q_l is None else q_l
+        self._guess(prog, P, Td, w, np.array([0.0, self.close_time, t_up, D]) / D, np.array([q_T, q_c, q_l, q_l]), D)
+        result, info = self._solve(prog, Td, tic)
+        info.update(t0=t_g, hold=True)
+        if info["ok"]:
+            self.hold_traj = trajopt.ReconstructTrajectory(result)
+        return info
+
+    # ---- optimisation helpers ------------------------------------------------------
+    def _trajopt(self, n_control_points, accel_limit):
+        """A cubic B-spline trajectory optimisation within the joint limits, and its basis functions w(s), w'(s)."""
+        N = n_control_points
+        trajopt = KinematicTrajectoryOptimization(NQ, N, 4)
+        margin = 0.05
+        trajopt.AddPositionBounds(self.robot.q_lower + margin, self.robot.q_upper - margin)
+        vmax = self.v_scale * self.robot.v_limits
+        trajopt.AddVelocityBounds(-vmax, vmax)
+        trajopt.AddAccelerationBounds(-accel_limit * np.ones(NQ), accel_limit * np.ones(NQ))
+        weights = BsplineTrajectory(trajopt.basis(), [np.eye(N)[:, [j]] for j in range(N)])
+        dweights = weights.MakeDerivative()
+        return (trajopt, trajopt.control_points(), trajopt.duration(),
+                lambda s: weights.value(s).ravel(), lambda s: dweights.value(s).ravel())
+
+    @staticmethod
+    def _guess(prog, P, T, w, s_k, qs, T_guess):
+        """Initial guess: least-squares fit of the control points to the path qs at s_k (interpolated)."""
+        s = np.linspace(0.0, 1.0, 40)
+        q = np.array([np.interp(s, np.clip(s_k, 0.0, 1.0), qs[:, j]) for j in range(NQ)]).T
+        prog.SetInitialGuess(P, np.linalg.lstsq(np.array([w(x) for x in s]), q, rcond=None)[0].T)
+        prog.SetInitialGuess(T, T_guess)
+
+    def _solve(self, prog, T, tic):
+        for name, value in [("Major optimality tolerance", 1e-3), ("Major feasibility tolerance", 1e-4)]:
+            prog.SetSolverOption(self.solver.solver_id(), name, value)
+        result = self.solver.Solve(prog)
+        info = {"ok": result.is_success(), "solve_ms": 1e3 * (time.perf_counter() - tic),
+                "T": float(result.GetSolution(T)), "cost": result.get_optimal_cost(),
+                "status": result.get_solver_details().info}
+        self.solve_log.append(info)
+        return result, info
+
+    def _grasp_target(self, t, dz=0.0):
+        """Grasp pose (position, rotation matrix) at (AutoDiff) time t: the cart moves at constant velocity."""
+        X = self.world.grasp_pose(_value(t))
+        return X.translation() + self.v_obj * (t - _value(t)) + [0, 0, dz], X.rotation().matrix()
+
+    def _pose_error(self, q, qd, t, dz=0.0):
+        X, _ = self._ee(q, qd)
+        p, R = self._grasp_target(t, dz)
+        return np.concatenate([X.translation() - p, _vee(R.T @ X.rotation().matrix())])
 
     @staticmethod
     def _add(prog, f, lb, ub, s, P, T, w, dw, t0):
