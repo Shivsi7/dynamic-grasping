@@ -118,7 +118,7 @@ class HybridController(Controller):
         lift_time: float = 0.6,
         hold_accel_limit: float = 2.0,
         hold_knot_spacing: float = 0.5,
-        hold_sample_spacing: float = 0.2,
+        hold_sample_spacing: float = 0.4,
         obstacle_clearance: str = "fixed",
         track_margin: float = 0.005,
         sample_dt: float = 0.05,
