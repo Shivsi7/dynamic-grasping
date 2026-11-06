@@ -1,0 +1,6474 @@
+- name: tall_blocker_v0.05_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.5888888888888889
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.011111111111111
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5738095238095239
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.026190476190476
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.10_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6000000000000001
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.0
+      - 0.30000000000000004
+      t_start: -4.0
+      t_end: 12.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.10_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5857142857142859
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.0142857142857142
+      - 0.30000000000000004
+      t_start: -4.0
+      t_end: 12.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.5888888888888889
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.011111111111111
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5738095238095239
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.026190476190476
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.20_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6000000000000001
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.0
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.20_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5857142857142859
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.0142857142857142
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.5888888888888889
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.011111111111111
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5738095238095239
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.026190476190476
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6000000000000001
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.0
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5857142857142859
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.0142857142857142
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.30_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 2.333333333333333
+      t_end: 7.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.30_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: 2.333333333333333
+      t_end: 7.666666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.50_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.5888888888888889
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.011111111111111
+      - 0.30000000000000004
+      t_start: 1.9
+      t_end: 5.1
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.50_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5738095238095239
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.026190476190476
+      - 0.30000000000000004
+      t_start: 1.9
+      t_end: 5.1
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.50_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6000000000000001
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.0
+      - 0.30000000000000004
+      t_start: 2.4
+      t_end: 5.6
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.50_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5857142857142859
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.0142857142857142
+      - 0.30000000000000004
+      t_start: 2.4
+      t_end: 5.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6000000000000001
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.0
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5857142857142857
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.0142857142857142
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.10_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: -4.0
+      t_end: 12.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.10_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: -4.0
+      t_end: 12.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6000000000000001
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.0
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5857142857142857
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.0142857142857142
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.20_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.20_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6000000000000001
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.0
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5857142857142857
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.0142857142857142
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.30_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: 2.333333333333333
+      t_end: 7.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.30_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: 2.333333333333333
+      t_end: 7.666666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.50_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6000000000000001
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.0
+      - 0.30000000000000004
+      t_start: 1.9
+      t_end: 5.1
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.50_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5857142857142857
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.0142857142857142
+      - 0.30000000000000004
+      t_start: 1.9
+      t_end: 5.1
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.50_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 2.4
+      t_end: 5.6
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.50_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: 2.4
+      t_end: 5.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.10_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.10_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: -4.0
+      t_end: 12.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.10_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: -4.0
+      t_end: 12.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.7555555555555555
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.8444444444444446
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.7523809523809524
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.8476190476190477
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.20_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.20_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.7555555555555555
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.8444444444444446
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.7523809523809524
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.8476190476190477
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.30_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.7555555555555555
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.8444444444444446
+      - 0.30000000000000004
+      t_start: 2.333333333333333
+      t_end: 7.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.30_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.7523809523809524
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.8476190476190477
+      - 0.30000000000000004
+      t_start: 2.333333333333333
+      t_end: 7.666666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.50_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 1.9
+      t_end: 5.1
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.50_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: 1.9
+      t_end: 5.1
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.50_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: 2.4
+      t_end: 5.6
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.50_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: 2.4
+      t_end: 5.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.7555555555555555
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.8444444444444446
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.7523809523809524
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.8476190476190477
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6444444444444446
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9555555555555555
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6333333333333334
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9666666666666667
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.10_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.7111111111111111
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.888888888888889
+      - 0.30000000000000004
+      t_start: -4.0
+      t_end: 12.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.10_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.7047619047619048
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.8952380952380953
+      - 0.30000000000000004
+      t_start: -4.0
+      t_end: 12.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.8444444444444446
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.7555555555555555
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.8476190476190477
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.7523809523809524
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6444444444444446
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9555555555555555
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6333333333333334
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9666666666666667
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.20_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.7111111111111111
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.888888888888889
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.20_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.7047619047619048
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.8952380952380953
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.8444444444444446
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.7555555555555555
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.8476190476190477
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.7523809523809524
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6444444444444446
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9555555555555555
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6333333333333334
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9666666666666667
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.7111111111111111
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.888888888888889
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.7047619047619048
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.8952380952380953
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.30_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.8444444444444446
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.7555555555555555
+      - 0.30000000000000004
+      t_start: 2.333333333333333
+      t_end: 7.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.30_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.8476190476190477
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.7523809523809524
+      - 0.30000000000000004
+      t_start: 2.333333333333333
+      t_end: 7.666666666666667
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.50_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6444444444444446
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9555555555555555
+      - 0.30000000000000004
+      t_start: 1.9
+      t_end: 5.1
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.50_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6333333333333334
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9666666666666667
+      - 0.30000000000000004
+      t_start: 1.9
+      t_end: 5.1
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.50_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.7111111111111111
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.888888888888889
+      - 0.30000000000000004
+      t_start: 2.4
+      t_end: 5.6
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.50_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.7047619047619048
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.8952380952380953
+      - 0.30000000000000004
+      t_start: 2.4
+      t_end: 5.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.30_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.8444444444444446
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.7555555555555555
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.30_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.4
+    y_end: 1.0
+    speed: 0.3
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.8476190476190477
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.7523809523809524
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 7.833333333333333
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.05_o0.20_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6142857142857143
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9857142857142858
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -1.0103174603174603
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.5896825396825398
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.05_o0.40_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6142857142857143
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9857142857142858
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -1.0103174603174603
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.5896825396825398
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.05_o0.20_p0.05_off0.08
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6142857142857143
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9857142857142858
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9803174603174603
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6196825396825398
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.05_o0.40_p0.05_off0.08
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6142857142857143
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9857142857142858
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9803174603174603
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6196825396825398
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.05_o0.20_p0.05_off0.12
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6142857142857143
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9857142857142858
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9403174603174603
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6596825396825398
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.05_o0.40_p0.05_off0.12
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6142857142857143
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9857142857142858
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9403174603174603
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6596825396825398
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.10_o0.20_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6349206349206349
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9650793650793652
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9452380952380952
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6547619047619049
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.10_o0.40_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6349206349206349
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9650793650793652
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9452380952380952
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6547619047619049
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.10_o0.20_p0.05_off0.08
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6349206349206349
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9650793650793652
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9152380952380953
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6847619047619048
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.10_o0.40_p0.05_off0.08
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6349206349206349
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9650793650793652
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9152380952380953
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6847619047619048
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.10_o0.20_p0.05_off0.12
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6349206349206349
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9650793650793652
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8752380952380953
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.7247619047619048
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.10_o0.40_p0.05_off0.12
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6349206349206349
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9650793650793652
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8752380952380953
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.7247619047619048
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.20_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8801587301587301
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.71984126984127
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.40_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8801587301587301
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.71984126984127
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.20_p0.05_off0.08
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8501587301587301
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.74984126984127
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.40_p0.05_off0.08
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8501587301587301
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.74984126984127
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.20_p0.05_off0.12
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8101587301587302
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.7898412698412699
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.40_p0.05_off0.12
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8101587301587302
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.7898412698412699
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
