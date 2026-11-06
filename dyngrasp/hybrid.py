@@ -29,11 +29,14 @@ Shortly before the object comes within reach (t_enter - lead_time) the controlle
 
 The initial guess for the approach is straight joint-space lines to the IK
 hover and grasp poses (they may cut through obstacles: they only have to end
-at a valid grasp).  If it does not give a plan, the same via a random
-configuration halfway to the hover pose (the midpoint of the straight line,
-each joint moved by up to `random_spread` rad), up to `n_random_seeds`; then
+at a valid grasp).  If it does not give a plan, the same via a collision-free
+configuration halfway to the hover pose: the nearest (IK, obstacles where they
+are then) to the straight line's midpoint, then to `n_random_seeds` random
+configurations around it (each joint moved by up to `random_spread` rad); then
 straight lines to the IK poses of the next grasp times, up to `n_ik_seeds` in
-all.  The first seed that gives a feasible approach and hold is kept.
+all.  The first seed that gives a feasible approach and hold is kept.  With
+`n_workers` > 1 the seeds run in parallel processes and the first to finish
+with a plan is kept.
 
 Planning time costs simulated time (the harness's measured latency), so the
 plan starts `plan_budget` s after the controller starts computing it: (C)
@@ -47,7 +50,9 @@ arm stays where it is.
 from __future__ import annotations
 
 import itertools
+import multiprocessing as mp
 import time
+from multiprocessing.connection import wait
 
 import numpy as np
 from pydrake.all import (
@@ -119,7 +124,9 @@ class HybridController(Controller):
         sample_dt: float = 0.05,
         clearance_pref: float = 0.05,
         clearance_weight: float = 100.0,
+        n_workers: int = 1,
     ):
+        self._kwargs = {k: v for k, v in locals().items() if k not in ("self", "__class__")}
         self.n_control_points = n_control_points
         self.n_collision_samples = n_collision_samples
         self.d_safe, self.d_safe_env = d_safe, d_safe_env
@@ -137,6 +144,8 @@ class HybridController(Controller):
         self.obstacle_clearance = obstacle_clearance
         self.track_margin, self.sample_dt = track_margin, sample_dt
         self.clearance_pref, self.clearance_weight = clearance_pref, clearance_weight
+        self.n_workers = n_workers  # > 1: try the seeds in parallel, in that many processes
+        self._workers = []
         self.solver = SnoptSolver()
 
     # ---- episode ------------------------------------------------------------
@@ -165,6 +174,25 @@ class HybridController(Controller):
         self.hold_traj = None  # close, lift, hold: on [0, D], started at self.t0 + T
         self.sent = None  # the JointTrajectory sent to the wrapper
         self.solve_log: list[dict] = []
+        self._close_workers()
+        if self.n_workers > 1 and not mp.current_process().daemon:  # (a daemon process cannot have children)
+            ctx = mp.get_context("spawn")
+            for _ in range(self.n_workers):
+                conn, child = ctx.Pipe()
+                p = ctx.Process(target=_seed_worker, args=(child, world.spec, self._kwargs), daemon=True)
+                p.start()
+                self._workers.append((p, conn))
+            for _, conn in self._workers:  # set up before the episode starts, so it costs no simulated time
+                conn.recv()
+            self._task = 0
+
+    def _close_workers(self):
+        for p, _ in self._workers:
+            p.terminate()
+        self._workers = []
+
+    def __del__(self):
+        self._close_workers()
 
     def update(self, state: RobotState, world: WorldModel) -> Command:
         t = state.t
@@ -175,16 +203,16 @@ class HybridController(Controller):
                 return Command(q=state.q_cmd, gripper=WSG_OPEN, info={"phase": "wait"})
             tic = time.perf_counter()
             t0 = t + self.budget
-            info = self._first_plan(t0, state.q_cmd) if t0 < world.t_exit - 2.0 else {"ok": False}
+            info, plan = self._first_plan(t, t0, state.q_cmd) if t0 < world.t_exit - 2.0 else ({"ok": False}, None)
             info["budget"], self.budget = self.budget, max(self.budget, 1.5 * (time.perf_counter() - tic))
-            if not info["ok"]:
+            if plan is None:
                 self.phase, self.q_stay = "no_plan", state.q_cmd
                 return Command(q=self.q_stay, gripper=WSG_OPEN, info={"phase": "no_plan", **info})
-            self.phase, self.sent = "track", self._joint_trajectory(t, state.q_cmd)
+            self.phase, self.sent, self.t0, self.T = "track", plan, t0, info["T"]
             return Command(trajectory=self.sent, info={"phase": "track", **info})
         if self.phase == "no_plan":
             return Command(q=self.q_stay, gripper=WSG_OPEN, info={"phase": "no_plan"})
-        phase = "track" if t < self.t0 + self.traj.end_time() else "hold"
+        phase = "track" if t < self.t0 + self.T else "hold"
         return Command(trajectory=self.sent, info={"phase": phase})
 
     def _joint_trajectory(self, t, q0) -> JointTrajectory:
@@ -197,30 +225,65 @@ class HybridController(Controller):
         return JointTrajectory(ts, qs, gripper)
 
     # ---- planning ---------------------------------------------------------------
-    def _first_plan(self, t0, q0) -> dict:
-        """Try the seeds in turn; keep the first that gives a feasible approach and hold."""
+    def _first_plan(self, t, t0, q0):
+        """(info, JointTrajectory or None): the first seed that gives a feasible approach and hold."""
+        tic = time.perf_counter()
         grasps = self._ik_grasps(t0, q0)
         first = next(grasps, None)
-        if first is None:
-            return {"ok": False, "tries": 0}
-        rng = np.random.default_rng(0)
-        mid, lo, hi = 0.5 * (q0 + first[2]), self.robot.q_lower + 0.05, self.robot.q_upper - 0.05
-        vias = [np.clip(mid + rng.uniform(-1, 1, NQ) * self.random_spread, lo, hi) for _ in range(self.n_random_seeds)]
-        seeds = itertools.chain(
-            [("ik", first, None)],
-            (("random", first, v) for v in vias),
-            (("ik_later", g, None) for g in itertools.islice(grasps, self.n_ik_seeds - 1)),
-        )
-        tic, k = time.perf_counter(), 0
-        for k, (name, grasp, via) in enumerate(seeds, 1):
-            ts, qs, self.t_descend = self._path(t0, q0, *grasp, q_via=via)
-            r = self._plan(t0, q0, ts, qs)
-            if r["ok"]:
-                h = self._plan_hold()
-                if h["ok"]:
-                    return {**r, "seed": name, "tries": k, "hold_ms": h["solve_ms"],
-                            "plan_ms": 1e3 * (time.perf_counter() - tic)}
-        return {"ok": False, "tries": k, "plan_ms": 1e3 * (time.perf_counter() - tic)}
+        info, plan = {}, None
+        if first is not None:
+            info, plan = self._run_seeds(t, t0, q0, self._first_seeds(t0, q0, first))
+            if plan is None:  # straight lines to the IK grasps of the next grasp times
+                later = (("ik_later", g, None) for g in itertools.islice(grasps, self.n_ik_seeds - 1))
+                info, plan = self._run_seeds(t, t0, q0, later)
+        return {**info, "ok": plan is not None, "plan_ms": 1e3 * (time.perf_counter() - tic)}, plan
+
+    def _first_seeds(self, t0, q0, grasp):
+        """Straight lines to the first IK grasp; then the same via the nearest collision-free configuration,
+        halfway to the hover pose, to the straight line's midpoint, and to random configurations around it."""
+        t_d, _, q_h, _ = grasp
+        yield "ik", grasp, None
+        t_mid, mid = 0.5 * (t0 + t_d), 0.5 * (q0 + q_h)
+        rng, lo, hi = np.random.default_rng(0), self.robot.q_lower + 0.05, self.robot.q_upper - 0.05
+        for k in range(1 + self.n_random_seeds):
+            target = mid if k == 0 else np.clip(mid + rng.uniform(-1, 1, NQ) * self.random_spread, lo, hi)
+            via = self._ik(t_mid, None, target)
+            if via is not None and not (k == 0 and np.allclose(via, mid, atol=1e-3)):  # (midpoint already free)
+                yield ("ik_via" if k == 0 else "random_via"), grasp, via
+
+    def _run_seeds(self, t, t0, q0, seeds):
+        """(info, JointTrajectory) of the first seed with a feasible plan: in order, or, with workers, the first
+        to finish; (info of the last, None) if none."""
+        info, k = {}, 0
+        if not self._workers:
+            for k, seed in enumerate(seeds, 1):
+                info, plan = self._try_seed(t, t0, q0, *seed)
+                if plan is not None:
+                    return {**info, "tries": k}, plan
+            return {**info, "tries": k}, None
+        self._task += 1
+        seeds = list(seeds)
+        for k, seed in enumerate(seeds):
+            self._workers[k % len(self._workers)][1].send((self._task, t, t0, q0, *seed))
+        done = 0
+        while done < len(seeds):
+            for conn in wait([c for _, c in self._workers]):
+                task, info, plan = conn.recv()
+                if task != self._task:  # a seed of an earlier plan, still running when that one was found
+                    continue
+                done += 1
+                if plan is not None:
+                    return {**info, "tries": done}, plan
+        return {**info, "tries": done}, None
+
+    def _try_seed(self, t, t0, q0, name, grasp, via):
+        """(info, JointTrajectory or None): approach and hold from one seed."""
+        ts, qs, self.t_descend = self._path(t0, q0, *grasp, q_via=via)
+        r = self._plan(t0, q0, ts, qs)
+        if not r["ok"]:
+            return {**r, "seed": name}, None
+        h = self._plan_hold()
+        return {**r, "seed": name, "ok": h["ok"], "hold_ms": h["solve_ms"]}, self._joint_trajectory(t, q0) if h["ok"] else None
 
     def _ik_grasps(self, t0, q0, n_tries=6, descend_time=0.6):
         """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time (0.5 s apart) that has both."""
@@ -255,7 +318,8 @@ class HybridController(Controller):
         return RigidTransform(X.rotation(), X.translation() + [0, 0, dz])
 
     def _ik(self, t, X, q_guess):
-        """iiwa q with the gripper at X and >= d_safe + 1 cm from the obstacles where they are at t (None if not found)."""
+        """iiwa q with the gripper at X (or, if X is None, nearest to q_guess) and >= d_safe + 1 cm from the
+        obstacles where they are at t (None if not found)."""
         cw, plant = self.cw, self.cw.plant
         ctx = cw.context(("obstacle",))
         cw.set_time(ctx, t, q_guess)
@@ -266,9 +330,12 @@ class HybridController(Controller):
         world_joints = np.ones(len(x), bool)
         world_joints[cw.iiwa_q : cw.iiwa_q + NQ] = False
         prog.AddBoundingBoxConstraint(x[world_joints], x[world_joints], q[world_joints])
-        G = plant.GetFrameByName("body", cw.kin.wsg)
-        ik.AddPositionConstraint(G, np.zeros(3), plant.world_frame(), X.translation() - 0.003, X.translation() + 0.003)
-        ik.AddOrientationConstraint(G, RotationMatrix(), plant.world_frame(), X.rotation(), 0.01)
+        if X is None:  # the nearest collision-free configuration to q_guess
+            prog.AddQuadraticErrorCost(np.eye(NQ), q_guess, q[cw.iiwa_q : cw.iiwa_q + NQ])
+        else:
+            G = plant.GetFrameByName("body", cw.kin.wsg)
+            ik.AddPositionConstraint(G, np.zeros(3), plant.world_frame(), X.translation() - 0.003, X.translation() + 0.003)
+            ik.AddOrientationConstraint(G, RotationMatrix(), plant.world_frame(), X.rotation(), 0.01)
         ik.AddMinimumDistanceLowerBoundConstraint(self.d_safe + 0.01, 0.2)
         result = Solve(prog, x)
         return result.GetSolution(q)[cw.iiwa_q : cw.iiwa_q + NQ] if result.is_success() else None
@@ -522,3 +589,12 @@ class HybridController(Controller):
         plant.SetPositions(ctx, iiwa, q)
         plant.SetVelocities(ctx, iiwa, qd)
         return plant.CalcRelativeTransform(ctx, plant.world_frame(), G), G.CalcSpatialVelocityInWorld(ctx)
+
+
+def _seed_worker(conn, spec, kwargs):
+    """A process that plans one seed per task (HybridController with n_workers > 1)."""
+    c = HybridController(**{**kwargs, "n_workers": 1})
+    c.reset(WorldModel(spec), RobotModel(), None)
+    conn.send("ready")
+    for task, *args in iter(conn.recv, None):
+        conn.send((task, *c._try_seed(*args)))
