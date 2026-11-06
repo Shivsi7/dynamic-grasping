@@ -20,9 +20,8 @@ The lift is a fixed motion, like (B)'s grasp tail: up `lift_height` in
 `lift_time` (minimum jerk) while slowing down from the object's velocity to
 rest, then hold that pose.
 
-`rollout` runs the same controller kinematically in the predicted world (no
-simulation); the hybrid controller (C) uses it as an initial guess, and
-`tail` (close, lift, hold) to plan the end of its motion.
+`tail` runs the close, lift and hold kinematically in the predicted world (no
+simulation); the hybrid controller (C) uses it to plan the end of its motion.
 """
 
 from __future__ import annotations
@@ -198,26 +197,3 @@ class ReactiveQPController(Controller):
             return np.zeros(NQ)
         self.slack = float(np.sum(result.GetSolution(s))) if rows else 0.0
         return result.GetSolution(v)
-
-    # ---- kinematic rollout in the predicted world -------------------------------
-    def rollout(self, world: WorldModel, q0: np.ndarray, t0: float, dt: float = 0.03, t_max: float = 8.0):
-        """Run this controller from (q0, t0) in the predicted world until it reaches the grasp.
-
-        Returns (times, qs, t_descend, reached): the joint path, when the descent
-        from the hover pose began (None if never), and whether the grasp was reached.
-        """
-        c = copy.copy(self)
-        c._start("approach")
-        q, t = np.asarray(q0, float).copy(), t0
-        ts, qs, t_descend = [t], [q.copy()], None
-        while t < t0 + t_max:
-            v, _ = c.step(t, q, self.robot.fk(q), world, dt)
-            if c.phase == "descend" and t_descend is None:
-                t_descend = t
-            if c.phase == "close":
-                return np.array(ts), np.array(qs), t_descend, True
-            q = np.clip(q + v * dt, self.robot.q_lower, self.robot.q_upper)
-            t += dt
-            ts.append(t)
-            qs.append(q.copy())
-        return np.array(ts), np.array(qs), t_descend, False

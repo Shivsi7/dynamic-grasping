@@ -1,17 +1,17 @@
-"""(C) Hybrid: roll out (A) against the prediction, refine with space-time trajectory optimization.
+"""(C) Hybrid: IK grasp poses, refined with space-time trajectory optimization.
 
 When (A) would start moving (t_enter - lead_time) the controller
 
-1. builds initial guesses (`seed`):
-   * "rollout": rolls out the reactive controller (A) kinematically against the
-     predicted target and obstacle motion (`ReactiveQPController.rollout`): a
-     joint path from the current configuration to the grasp;
-   * "ik": a straight joint-space path to a collision-free hover pose and then
-     to the grasp below it, both from inverse kinematics against the predicted
-     obstacles, at the earliest grasp time (0.5 s steps) where IK finds them
-     (if that fails to optimise, the next such times, up to `n_ik_seeds`).
-     It may cut through obstacles: it only has to end at a valid grasp, which
-     is what (A)'s rollout misses when (A) gets stuck in a local minimum;
+1. builds initial guesses (`seed`).  Each ends at a collision-free hover pose
+   and the grasp below it, both from inverse kinematics against the predicted
+   obstacles, at the earliest grasp time (0.5 s steps) where IK finds them.
+   The paths may cut through obstacles: they only have to end at a valid grasp.
+   * "ik": straight joint-space lines to the hover pose and the grasp (if that
+     fails to optimise, the same at the next grasp times, up to `n_ik_seeds`);
+   * "random": the same, but via a random configuration halfway to the hover
+     pose (the midpoint of the straight line, each joint moved by up to
+     `random_spread` rad), up to `n_random_seeds` of them, in case the
+     straight line leads the optimiser into a bad local minimum;
    * "both": each of the above;
 2. refines each with Drake's `KinematicTrajectoryOptimization` and keeps the
    cheapest feasible result: a cubic B-spline
@@ -102,10 +102,13 @@ class HybridController(Controller):
         accel_limit: float = 4.0,
         seed: str = "both",
         n_ik_seeds: int = 3,
+        n_random_seeds: int = 3,
+        random_spread: float = 1.0,
         **reactive_kwargs,
     ):
-        assert seed in ("rollout", "ik", "both")
+        assert seed in ("ik", "random", "both")
         self.seed, self.n_ik_seeds = seed, n_ik_seeds
+        self.n_random_seeds, self.random_spread = n_random_seeds, random_spread
         self.reactive = ReactiveQPController(d_safe=d_safe, d_safe_env=d_safe_env, **reactive_kwargs)
         self.reactive.period = self.period  # it runs inside this controller's cycle
         self.n_control_points = n_control_points
@@ -178,14 +181,21 @@ class HybridController(Controller):
     # ---- planning ---------------------------------------------------------------
     def _first_plan(self, t0, q0) -> dict:
         """Solve from each seed; keep the cheapest feasible plan."""
-        world, sources, info = self.world, [], {}
-        if self.seed in ("rollout", "both"):
-            ts, qs, t_descend, reached = self.reactive.rollout(world, q0, t0, t_max=world.t_exit - 2.0 - t0)
-            sources.append(("rollout", [(ts, qs, t_descend if t_descend is not None else ts[-1] - 0.3 * (ts[-1] - t0))]))
-            info["rollout_reached"] = reached
+        grasps = self._ik_grasps(t0, q0)
+        first = next(grasps, None)
+        if first is None:
+            return {"ok": False, "ik_found": False}
+        rng = np.random.default_rng(0)
+        mid = 0.5 * (q0 + first[2])
+        lo, hi = self.robot.q_lower + 0.05, self.robot.q_upper - 0.05
+        sources = []
         if self.seed in ("ik", "both"):
-            sources.append(("ik", itertools.islice(self._ik_seeds(t0, q0), self.n_ik_seeds)))
-        best = None
+            straight = itertools.islice(itertools.chain([first], grasps), self.n_ik_seeds)
+            sources.append(("ik", (self._path(t0, q0, *g) for g in straight)))
+        if self.seed in ("random", "both"):
+            vias = (np.clip(mid + rng.uniform(-1, 1, NQ) * self.random_spread, lo, hi) for _ in range(self.n_random_seeds))
+            sources.append(("random", (self._path(t0, q0, *first, q_via=v) for v in vias)))
+        best, info = None, {}
         for name, seeds in sources:
             tic = time.perf_counter()
             for k, (ts, qs, t_descend) in enumerate(seeds):
@@ -203,8 +213,8 @@ class HybridController(Controller):
         self.t0 = t0
         return {**info, **r}
 
-    def _ik_seeds(self, t0, q0, n_tries=6, descend_time=0.6):
-        """Yields (ts, qs, t_descend): q0 -> IK hover pose -> IK grasp, for each grasp time (0.5 s apart) that has both."""
+    def _ik_grasps(self, t0, q0, n_tries=6, descend_time=0.6):
+        """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time (0.5 s apart) that has both."""
         world, rng = self.world, np.random.default_rng(0)
         v_avg = 0.5 * self.reactive.v_scale * self.robot.v_limits
         for t_g in np.arange(max(world.t_enter, t0 + 1.0), world.t_exit - 2.0, 0.5):
@@ -221,10 +231,17 @@ class HybridController(Controller):
                 if t0 + travel <= t_d and (best is None or travel < best[0]):
                     best = (travel, q_h, q_g)
             if best is not None:
-                _, q_h, q_g = best
-                ts = np.linspace(t0, t_g, 40)
-                qs = np.array([np.interp(ts, [t0, t_d, t_g], [q0[j], q_h[j], q_g[j]]) for j in range(NQ)]).T
-                yield ts, qs, t_d
+                yield t_d, t_g, best[1], best[2]
+
+    @staticmethod
+    def _path(t0, q0, t_d, t_g, q_h, q_g, q_via=None):
+        """(ts, qs, t_d): straight joint-space lines q0 -> (q_via halfway to t_d) -> q_h at t_d -> q_g at t_g."""
+        knots = [(t0, q0), (t_d, q_h), (t_g, q_g)]
+        if q_via is not None:
+            knots.insert(1, (0.5 * (t0 + t_d), q_via))
+        kt, kq = np.array([k[0] for k in knots]), np.array([k[1] for k in knots])
+        ts = np.linspace(t0, t_g, 40)
+        return ts, np.array([np.interp(ts, kt, kq[:, j]) for j in range(NQ)]).T, t_d
 
     def _ik(self, t, X, q_guess):
         """iiwa q with the gripper at X and >= d_safe + 1 cm from the obstacles where they are at t (None if not found)."""
