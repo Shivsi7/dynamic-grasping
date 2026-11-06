@@ -16,6 +16,7 @@ velocity towards the robot.  The slacks keep the QP feasible when constraints
 conflict; they are penalised so heavily that they are zero otherwise.
 
 Phases: wait -> approach (hover above the grasp) -> descend -> close -> lift.
+While waiting it holds its start pose through the same QP, so it dodges obstacles then too.
 The lift is a fixed motion, like (B)'s grasp tail: up `lift_height` in
 `lift_time` (minimum jerk) while slowing down from the object's velocity to
 rest, then hold that pose.  From the lift on, the gripper's height counts
@@ -81,6 +82,7 @@ class ReactiveQPController(Controller):
         self.robot = robot
         self.cw = collision or CollisionWorld(world.spec, world)
         self.cw.rows(state.q, state.t, self.d_influence)  # warm up the geometry engine outside the timed cycles
+        self.X_rest = state.X_WG  # where it waits
         self._start("wait")
 
     def _start(self, phase: str) -> None:
@@ -102,10 +104,10 @@ class ReactiveQPController(Controller):
         X_grasp = world.grasp_pose(t)
         v_obj = v_ff = world.target_velocity(t)
         gripper = WSG_OPEN
-        if self.phase == "wait":
-            if t < world.t_enter - self.lead_time:
-                return np.zeros(NQ), gripper
-            self.phase = "approach"
+        if self.phase == "wait":  # hold the start pose; the dampers still push the arm out of an obstacle's way
+            X_des, v_ff = self.X_rest, np.zeros(3)
+            if t >= world.t_enter - self.lead_time:
+                self.phase, v_ff = "approach", v_obj
         if self.phase == "approach":
             X_des = RigidTransform(X_grasp.rotation(), X_grasp.translation() + [0, 0, self.hover])
             err = pose_error(X_WG, X_des)
