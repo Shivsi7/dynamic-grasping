@@ -47,7 +47,9 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
   t0 + s T; their velocities give the derivative with respect to T, so moving the grasp later
   also moves every obstacle sample.
 * Cost: duration plus path energy. Velocity bounds (0.6 x datasheet) and acceleration bounds
-  (4 rad/s^2) on the plan. Solver: SNOPT.
+  (4 rad/s^2) on the plan. Solver: SNOPT, major optimality tolerance 1e-1: most of a tighter solve
+  polishes a plan that is already feasible (`pillar_and_blocker`: 3.3 s at 1e-3, 0.45 s at
+  1e-1, nearly the same path).
 
 ### 4.2 Initial guesses (`_first_plan`, `_ik_grasps`, `_path`)
 
@@ -109,8 +111,9 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
 
 **These numbers are from the version before the planned close/lift/hold and the new
 initial guesses (rollout of (A) + IK, (A) closing and lifting); to be rerun.** On the four
-report scenes (measured latency), the current version grasps and holds in `tall_blocker`,
-`mix_0077` and `mix_0061`, and is hit while parked in `pillar_and_blocker` (7.7 s plan).
+report scenes (measured latency, one episode at a time), the current version grasps and
+holds in all four: `tall_blocker`, `pillar_and_blocker` (first plan 1.8 s), `mix_0077` and
+`mix_0061`.
 
 All runs scored to the end of each scene, 8 episodes in parallel on a 10-core machine, one
 run per scene, with compute time costing simulated time (`measured`) and with planning time
