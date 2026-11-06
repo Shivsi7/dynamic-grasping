@@ -60,6 +60,7 @@ from pydrake.all import (
     SnoptSolver,
     Solve,
 )
+from pydrake.autodiffutils import ExtractGradient, ExtractValue, InitializeAutoDiff
 
 from dyngrasp.controller import (
     NQ,
@@ -348,14 +349,29 @@ class HybridController(Controller):
 
     @staticmethod
     def _add(prog, f, lb, ub, s, P, T, w, dw, t0):
-        """Constraint lb <= f(q(s), qdot(s), t0 + s T) <= ub on the control points active at s and T."""
+        """Constraint lb <= f(q(s), qdot(s), t0 + s T) <= ub on the control points active at s and T.
+
+        q, qdot and t are linear in the control points (and T); their gradients are built with
+        numpy and handed to f as AutoDiff, which is much faster than AutoDiff arithmetic in Python."""
         ws, dws = w(s), dw(s)
         idx = np.flatnonzero((np.abs(ws) > 1e-12) | (np.abs(dws) > 1e-12))
         ws, dws = ws[idx], dws[idx]
+        Jq = np.hstack([np.kron(ws, np.eye(NQ)), np.zeros((NQ, 1))])  # dq/d(P, T)
+        Jt = np.append(np.zeros(len(idx) * NQ), s)  # dt/d(P, T)
 
         def g(z):
-            Pz, Tz = z[:-1].reshape(len(idx), NQ).T, z[-1]
-            return f(Pz @ ws, Pz @ dws / Tz, t0 + s * Tz)
+            if z.dtype != object:
+                Pz, Tz = z[:-1].reshape(len(idx), NQ).T, z[-1]
+                return f(Pz @ ws, Pz @ dws / Tz, t0 + s * Tz)
+            zv, G = ExtractValue(z).ravel(), ExtractGradient(z)
+            Pz, Tz = zv[:-1].reshape(len(idx), NQ).T, zv[-1]
+            qd = Pz @ dws / Tz
+            Jqd = np.hstack([np.kron(dws, np.eye(NQ)) / Tz, -qd[:, None] / Tz])
+            return f(
+                InitializeAutoDiff(Pz @ ws, Jq @ G).ravel(),
+                InitializeAutoDiff(qd, Jqd @ G).ravel(),
+                InitializeAutoDiff([t0 + s * Tz], (Jt @ G)[None, :])[0, 0],
+            )
 
         prog.AddConstraint(g, np.asarray(lb, float), np.asarray(ub, float), np.concatenate([P[:, idx].T.ravel(), [T]]))
 
@@ -364,10 +380,15 @@ class HybridController(Controller):
         cw, s = self.cw, slice(self.cw.iiwa_q, self.cw.iiwa_q + NQ)
 
         def f(q, qd, t):
-            q_full, qdot_full = cw.full_state(_value(t))
-            x = q_full + qdot_full * (t - _value(t))
-            x[s] = q
-            return constraint.Eval(x)
+            x, xdot = cw.full_state(_value(t))
+            x = x.copy()
+            if q.dtype != object:
+                x[s] = q
+                return constraint.Eval(x)
+            x[s] = ExtractValue(q).ravel()
+            dx = np.outer(xdot, ExtractGradient(np.array([t]))[0])  # the world moves with t
+            dx[s] = ExtractGradient(q)
+            return constraint.Eval(InitializeAutoDiff(x, dx).ravel())
 
         return f
 
