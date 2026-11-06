@@ -114,11 +114,11 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
 Commit `a999669`. All runs: compute time costs simulated time (`measured`), scored to the
 end of each scene, one run per scene; sets as in `planner_A.md`. First 8 episodes in parallel
 (seeds then run in turn, see 4.2); every failure was then run again alone, with the default
-4 seed processes, and that result counts (13 of 65 failures became successes).
+4 seed processes, and that result counts (14 of 67 failures became successes).
 
 | set | scenes | success | collision | dropped | timeout | no plan found | plans rejected (late) |
 |---|---|---|---|---|---|---|---|
-| dev | 20 | 16 | 1 | 0 | 3 | 3 | 0 |
+| dev | 20 | 17 | 0 | 0 | 3 | 3 | 0 |
 | post grid | 48 | 38 | 0 | 0 | 10 | 10 | 7 |
 | plank grid | 48 | 38 | 0 | 0 | 10 | 10 | 8 |
 | pillar grid | 18 | 6 | 12 | 0 | 0 | 8 | 4 |
@@ -126,7 +126,7 @@ end of each scene, one run per scene; sets as in `planner_A.md`. First 8 episode
 
 * "no plan found": no plan from any initial guess (in an earlier check, most such scenes had
   no collision-free IK grasp, 8.3); the arm stays parked, and a moving obstacle can hit it there (8 of the 12 pillar
-  collisions). 43 of the 57 failures are of this kind.
+  collisions). 43 of the 53 failures are of this kind.
 * "plans rejected (late)": the first plan took longer than its 2 s budget and was redone
   later; 20 of these 25 episodes still succeed.
 * Median first-plan compute 0.7-1.3 s per set (worst 7.2 s, in the held-out set). Median
