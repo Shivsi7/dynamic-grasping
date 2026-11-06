@@ -61,9 +61,10 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
      random configurations around it (each joint moved by up to 1 rad), in case the
      straight line leads the optimiser into a bad local minimum;
   3. straight lines to the IK poses of the next grasp times, up to 2.
-* `n_workers` > 1 runs the seeds in parallel processes (started in `reset`, so they cost no
-  simulated time) and keeps the first to finish with a plan. Off by default: with four
-  SNOPT processes at once each solve was 30-60 % slower, and the first seed usually works.
+* The seeds run in `n_workers` (4) parallel processes, started in `reset` so they cost no
+  simulated time, and the first to finish with a plan is kept (`n_workers=1`: in turn).
+  Inside a daemon process (`multiprocessing.Pool`) they run in turn. Four SNOPT processes at
+  once make each solve 30-60 % slower, so this pays off when the first seed fails.
 
 ### 4.3 Close, lift and hold (`_plan_hold`)
 

@@ -119,7 +119,7 @@ class HybridController(Controller):
         hold_accel_limit: float = 2.0,
         hold_knot_spacing: float = 0.5,
         hold_sample_spacing: float = 0.4,
-        n_workers: int = 1,
+        n_workers: int = 4,
     ):
         self._kwargs = {k: v for k, v in locals().items() if k not in ("self", "__class__")}
         self.n_control_points = n_control_points
