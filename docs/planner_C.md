@@ -56,10 +56,14 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
   end at a valid grasp.
 * Tried in turn, until one gives a feasible approach and hold:
   1. straight joint-space lines to the hover pose and down to the grasp;
-  2. the same via a random configuration halfway to the hover pose (the midpoint of the
-     straight line, each joint moved by up to 1 rad), up to 3, in case the straight line
-     leads the optimiser into a bad local minimum;
+  2. the same via a collision-free configuration halfway to the hover pose: the nearest
+     (IK against the obstacles at that time) to the straight line's midpoint, then to 3
+     random configurations around it (each joint moved by up to 1 rad), in case the
+     straight line leads the optimiser into a bad local minimum;
   3. straight lines to the IK poses of the next grasp times, up to 2.
+* `n_workers` > 1 runs the seeds in parallel processes (started in `reset`, so they cost no
+  simulated time) and keeps the first to finish with a plan. Off by default: with four
+  SNOPT processes at once each solve was 30-60 % slower, and the first seed usually works.
 
 ### 4.3 Close, lift and hold (`_plan_hold`)
 
@@ -67,13 +71,21 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
   every 0.5 s, starting in the approach's end state (position and velocity).
 * Constraints: at the grasp pose of the moving object at 0.2 and 0.4 s (closing); the gripper
   at least 10 cm above the grasp height from 1.0 s on; clearance to the obstacles (4 cm) and
-  the cart and floor (5 mm) every 0.2 s; at rest at the end. The target is left out of the
+  the cart and floor (5 mm) every 0.4 s; at rest at the end. The target is left out of the
   clearance: it is in the hand.
 * Cost: path energy, so the arm stays still unless an obstacle comes. Acceleration bound
   2 rad/s^2 (gentler than the approach).
 * The object in the hand is not part of the collision model.
 
-### 4.4 Planning time costs time (`update`, `_joint_trajectory`)
+### 4.4 Optional: speed-dependent clearance (`obstacle_clearance="speed"`)
+
+* Replaces the fixed 4 cm in both optimisations: every 0.05 s, per obstacle,
+  d >= 5 mm + (obstacle speed + arm speed) x spacing / 2, plus a cost on
+  max(0, 5 cm - d)^2 (as a slack).
+* Off by default: on the 214 scenes (measured latency, 8 episodes in parallel) the first
+  plan took 6.0 s instead of 1.8 s (median), and only 17 scenes succeeded instead of 89.
+
+### 4.5 Planning time costs time (`update`, `_joint_trajectory`)
 
 * With `latency="measured"` a command takes effect after the wall time it took to compute.
   (C) therefore plans ahead (`plan_budget`) and sends a time-indexed `JointTrajectory`, so
@@ -85,7 +97,7 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
 * No replanning: with perfect prediction the plan stays valid, and re-solving from the
   plan's own reference does not change it.
 
-### 4.5 Simulation details that mattered
+### 4.6 Simulation details that mattered
 
 * (C) commands every 5 ms: the iiwa driver differentiates the position command every 5 ms,
   and a 10 ms command made its velocity reference alternate between 2v and 0.
