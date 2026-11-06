@@ -16,14 +16,15 @@ cycle) but local: it can get stuck behind an obstacle it would have to go around
 | # | file | what it does | start with |
 |---|---|---|---|
 | 1 | `dyngrasp/collision.py` | robot vs. world signed distances, witness points and Jacobians at a predicted (q, t) | `CollisionWorld.rows` |
-| 2 | `dyngrasp/reactive.py` | the phase machine, the QP, and a kinematic rollout of the controller | `step`, `qp`, `rollout` |
+| 2 | `dyngrasp/reactive.py` | the phase machine, the QP, the lift | `step`, `qp`, `lift_reference` |
 
 Tests: `tests/test_controllers.py` (in Drake, together with (C)).
 
 ## 3. One control cycle (`ReactiveQPController.step`)
 
 1. Phase: wait (until 1 s before the object is reachable) -> approach (10 cm above the
-   grasp) -> descend -> close (0.4 s) -> lift (15 cm, riding along with the cart).
+   grasp) -> descend -> close (0.4 s) -> lift (10 cm in 0.6 s, minimum jerk, slowing from the
+   object's velocity to rest) -> hold that pose.
 2. Desired gripper twist: P control on the pose error plus the object's velocity as
    feedforward, capped at 0.8 m/s.
 3. `CollisionWorld.rows`: every robot-world pair closer than 25 cm, against the predicted
@@ -53,10 +54,10 @@ Tests: `tests/test_controllers.py` (in Drake, together with (C)).
 * A cycle takes about one control period, so with `latency="measured"` its commands take
   effect about 10 ms late; the previous velocity keeps being integrated meanwhile.
 
-### 4.4 Rollout
+### 4.4 Lift
 
-* `rollout` runs the same controller kinematically against the prediction (no simulation).
-  (C) uses it as one of its initial guesses.
+* A fixed motion, like (B)'s grasp tail: up 10 cm in 0.6 s while slowing from the object's
+  velocity to rest, then hold. The QP tracks it, so the dampers still apply.
 
 ## 5. Tools
 
@@ -89,9 +90,8 @@ Compute per cycle about 2 ms on average; the slowest cycle of an episode about 2
 
 1. **Local minima**: behind an obstacle it has to go around (the pillar) it stops and waits;
    it grasps in 2 of the 18 pillar scenes.
-2. **The lift never ends**: after the grasp it keeps lifting towards 15 cm above the grasp
-   point while following the cart. As the cart leaves, the arm stretches out and the object
-   sinks below 5 cm, or is shaken loose: 27 of the 80 held-out scenes end "dropped".
-3. **No acceleration limits**: only velocities are limited. Phase switches (wait -> approach,
-   close -> lift) are velocity steps: peaks of 100-300 rad/s^2, above the joint torques.
+2. **Holding**: an obstacle coming at the held arm makes the dampers push it away (about
+   0.2 m/s); the arm sinks and the object is shaken loose. (B) plans a retreat instead.
+3. **No acceleration limits**: only velocities are limited. Phase switches (wait -> approach)
+   are velocity steps: peaks of 100-300 rad/s^2, above the joint torques.
 4. Velocity dampers keep a margin to obstacles but do not guarantee it (slacks).

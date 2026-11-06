@@ -57,7 +57,7 @@ dyngrasp/
   grasps.py      grasp candidates (top / tilted / side) from object boxes, geometric validity
   collision.py   CollisionWorld: robot <-> world signed distances / Jacobians at a predicted (q, t)
   reactive.py    (A) ReactiveQPController: diff-IK QP with swept-volume velocity dampers
-  hybrid.py      (C) HybridController: rollout of (A) -> space-time KinematicTrajectoryOptimization
+  hybrid.py      (C) HybridController: IK-seeded space-time KinematicTrajectoryOptimization, grasp to scene end
   monitor.py     EpisodeMonitor: collisions, clearance, grasp / lift / success
   harness.py     run_episode, run_batch (-> pandas), aggregate
   viz.py         Meshcat helper
@@ -193,29 +193,29 @@ joint velocity / position limits and, for every robot <-> world pair closer than
 25 cm, the velocity damper `n^T J v >= -xi (phi - d_s) + n^T v_world` (slacked).
 The pairs are computed against the predicted world at t, t + 0.1 and t + 0.2 s,
 so the arm keeps out of each obstacle's swept volume over the next 0.2 s. Phases:
-wait -> approach (10 cm above the grasp) -> descend -> close -> lift.
+wait -> approach (10 cm above the grasp) -> descend -> close -> lift (10 cm in
+0.6 s, slowing to rest) -> hold.
 
-**(C) `hybrid`** (`dyngrasp/hybrid.py`). When (A) would start moving, build two
-initial guesses: (A) rolled out kinematically against the prediction
-(`ReactiveQPController.rollout`), and a straight joint-space path to a hover
-pose and a grasp pose found by collision-aware inverse kinematics against the
-predicted obstacles (earliest grasp time with a solution; the path may cut
-through obstacles, the optimiser fixes that; if it does not converge, the next
-grasp times, up to 3). The IK guess covers the cases
-where (A) gets stuck in a local minimum, e.g. behind the pillar of
-`pillar_and_blocker`; `seed="rollout"` / `"ik"` keeps only one of them. Refine
-each with Drake's `KinematicTrajectoryOptimization` and keep the cheaper (cubic
-B-spline, free duration T, SNOPT): start at the current state, pass the hover
-pose and come straight down, end at the grasp pose *of time t0 + T* moving with
-the object, and keep `MinimumDistanceLowerBoundConstraint` clearance (4 cm to
-obstacles, 5 mm to cart / floor / target) at 30 sample times t0 + s_k T. The
-world's joints in the kinematic plant move with T, so the constraints and their
-gradients are space-time. Planning time costs simulated time, so (C) plans
-`plan_budget` (2 s) ahead: it starts computing that much before (A) would
-move, holds still meanwhile, and sends hold + plan as one `JointTrajectory`; a
-plan that overruns its budget is rejected by the wrapper and redone with 1.5x
-the time it took. After T, (A) closes and lifts. If every solve fails, (C)
-falls back to (A). Design, code map and results: `docs/planner_A.md`, `docs/planner_C.md`.
+**(C) `hybrid`** (`dyngrasp/hybrid.py`). Shortly before the object is
+reachable, find a hover pose and a grasp pose by collision-aware inverse
+kinematics against the predicted obstacles (earliest grasp time with a
+solution), and optimise the approach with Drake's
+`KinematicTrajectoryOptimization` (cubic B-spline, free duration T, SNOPT):
+start at rest, pass the hover pose and come straight down, end at the grasp pose
+*of time t0 + T* moving with the object, and keep
+`MinimumDistanceLowerBoundConstraint` clearance (4 cm to obstacles, 5 mm to
+cart / floor / target) at 30 sample times t0 + s_k T. The world's joints in the
+kinematic plant move with T, so the constraints and their gradients are
+space-time. Initial guesses, tried in turn: a straight joint-space path to the
+IK poses (it may cut through obstacles, the optimiser fixes that), the same via
+a random configuration halfway (up to 3), the next grasp times (up to 2). A
+second optimisation (fixed duration, to the end of the scene) closes while
+moving with the object, lifts 10 cm and holds, still keeping clear of the
+obstacles. Planning time costs simulated time, so (C) plans `plan_budget`
+(2 s) ahead, holds still meanwhile, and sends hold + approach + close, lift and
+hold as one `JointTrajectory`; a plan that overruns its budget is rejected by
+the wrapper and redone with 1.5x the time it took. Without a plan the arm stays
+put. Design, code map and results: `docs/planner_A.md`, `docs/planner_C.md`.
 
 `CollisionWorld` (`dyngrasp/collision.py`) is the shared geometry layer: the
 kinematic diagram with only robot <-> world pairs left in, rows for (A), and
