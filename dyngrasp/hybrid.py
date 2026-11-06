@@ -45,6 +45,12 @@ than its budget arrives after it should have started, the wrapper rejects it,
 and (C) plans again with a budget of 1.5x that time.  With perfect prediction
 the plan stays valid, so there is no replanning.  If no seed gives a plan, the
 arm stays where it is.
+
+While parked, (C) checks whether holding still breaks the clearance before a
+grasp plan could move the arm (or ever, once no plan was found).  If so it
+dodges: a clearance-only optimisation from rest to the end of the scene, with
+minimum path energy (`_dodge`).  A grasp plan then starts from the dodge's
+state at t0.
 """
 
 from __future__ import annotations

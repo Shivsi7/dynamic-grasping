@@ -12,7 +12,9 @@ path to a hover pose and a grasp pose from collision-aware IK; if that gives no 
 same through a collision-free configuration halfway, then straight paths to the IK poses of
 later grasp times. The second runs from the grasp to the end of the scene: move with the
 object while the gripper closes, lift 10 cm and hold, still keeping clear of the obstacles.
-Both are sent as one joint trajectory; (A) is not used. The exact problems are in section 8.
+Both are sent as one joint trajectory; (A) is not used. If staying parked would be hit before
+a grasp plan moves the arm, (C) first solves a third, clearance-only optimisation (a dodge)
+and plans the grasp from it. The exact problems are in section 8.
 
 ## 2. Code map and reading order
 
@@ -27,14 +29,16 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
 ## 3. One planning cycle (`HybridController.update`)
 
 1. Wait at rest until `plan_budget` (2 s) before `t_enter - lead_time` (1 s before the
-   object is reachable).
-2. `_first_plan` for the start time t0 = now + budget: for each initial guess in turn,
-   optimise the approach (`_plan`), then the close, lift and hold (`_plan_hold`); keep the
-   first that gives both.
+   object is reachable). While parked, check whether holding still gets too close to
+   anything before a grasp plan could move the arm (`_parked_hit`); if so, dodge (4.6).
+2. `_first_plan` for the start time t0 = now + budget, from where the arm is then (parked,
+   or on the dodge): for each initial guess in turn, optimise the approach (`_plan`), then
+   the close, lift and hold (`_plan_hold`); keep the first that gives both.
 3. Send hold (until t0) + approach + close, lift and hold as one `JointTrajectory`, sampled
    by the wrapper every 5 ms. It holds its last pose afterwards.
 4. If the plan arrived late (the wrapper rejected it), plan again with 1.5x the time the
-   last plan took. If no plan is found, the arm stays where it is.
+   last plan took. If no plan is found, the arm stays where it is (dodging first if it
+   would be hit there) or keeps dodging.
 
 ## 4. Key ideas
 
@@ -100,6 +104,20 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
   and a 10 ms command made its velocity reference alternate between 2v and 0.
 * The box collision model's links 5 and 7 overlap past |q6| of about 1.75 rad (the joint
   goes to 2.09); the pair is filtered in the simulation as in the planning model.
+
+### 4.6 Dodging (`_parked_hit`, `_dodge`)
+
+* While parked, (C) checks every 0.05 s of the predicted scene whether holding still breaks
+  the clearance (4 cm to obstacles, 5 mm to the cart, floor and target). This takes about
+  20 ms, once per parked pose.
+* If that happens before a grasp plan could move the arm (or at any time, once no grasp plan
+  was found), it optimises a dodge: from rest at the parked pose to the end of the scene,
+  clearance every 0.1 s, minimum path energy, so the arm moves only as much as it has to.
+  Its budget is half the time left before the hit (at most 2 s).
+* The grasp plan then starts from the dodge's state at t0, moving: the approach's start
+  velocity is the dodge's, and the dodge is kept before t0.
+* `mix_0023`: an obstacle reaches the parked arm at 1.48 s; the dodge took 0.17 s and the
+  arm kept 4.3 cm away (there is no IK grasp in this scene, so it then just keeps dodging).
 
 ## 5. Tools
 
@@ -180,7 +198,7 @@ $$
 \begin{aligned}
 \min_{P,\,T}\quad & T + \lambda \textstyle\sum_j \lVert r'_j \rVert^2 \qquad (\lambda = 0.1;\ \text{an upper bound on } \textstyle\int_0^1 \lVert q'(s) \rVert^2 ds) \\
 \text{s.t.}\quad & \max(t_{enter} - t_0,\ 0.3) \le T \le t_{exit} - 1.5 - t_0 \\
-& q(0) = q_0, \quad q'(0) = 0 \\
+& q(0) = q_0, \quad \dot q(0) = v_0 \\
 & q_{lo} + 0.05 \le q(s) \le q_{hi} - 0.05, \quad |\dot q(s)| \le 0.6\, v_{max}, \quad |\ddot q(s)| \le 4 \qquad \forall s \\
 & \textbf{grasp } (s = 1):\ |p_G - p^*(t)| \le 0.005, \ |e_R| \le 0.02, \ |\omega_G| \le 0.02, \ |v_G - v_{obj}| \le 0.02 \\
 & \textbf{hover } (s = s_d):\ |p_G - p^*(t) - h\,\hat z| \le 0.01, \ |e_R| \le 0.04 \\
@@ -189,7 +207,8 @@ $$
 \end{aligned}
 $$
 
-* $q_0$: where the arm is when (C) starts planning; $t_0$ = now + `plan_budget`.
+* $q_0, v_0$: where the arm will be at $t_0$ = now + `plan_budget`: parked ($v_0 = 0$, imposed as $q'(0) = 0$), or
+  on the dodge.
 * $v_{max}$: the iiwa datasheet joint speeds, scaled by `v_scale` (0.6). $|\ddot q| \le$ `accel_limit` (4 rad/s²).
 * $h$ = `hover` (0.10 m).
 * $s_d = \mathrm{clip}\big((t_d - t_0)/T_{guess},\ 0.3,\ 0.9\big)$ is fixed, where $t_d$ is the initial
@@ -251,3 +270,24 @@ Drake's `InverseKinematics`, with the obstacles fixed where they are at time $t$
   * If the midpoint is already collision-free, it adds nothing to the straight line and is skipped.
 * **Paths (`_path`):** straight lines in joint space, $q_0 \to$ (halfway configuration at $(t_0 + t_d)/2$)
   $\to q_h$ at $t_d \to q_g$ at $t_g$.
+
+### 8.4 Dodge (`_parked_hit`, `_dodge`)
+
+* $t_{hit}$: the first $t \ge$ now (0.05 s steps) at which holding the parked $q_p$ breaks
+  $d_O(q_p, t) \ge 0.04$ or $d_{C \cup F \cup Tg}(q_p, t) \ge 0.005$.
+* Dodge if now $+ 0.1 < t_{hit} \le t_{go}$. $t_{go}$, when a grasp plan could move the arm: $\max(\text{now},\ t_{plan})$
+  $+$ `plan_budget` while waiting for one ($t_{plan}$ = when the grasp plan is computed), $\infty$ once none was found.
+* It starts at $t_s$ = now $+ \min(2,\ (t_{hit} - \text{now})/2)$ and lasts to the end of the scene, $D = t_{end} - t_s$, with
+  $N_d = \lceil D/0.5 \rceil + 3$ control points. $t = t_s + sD$, $\tau = t - t_s$.
+
+$$
+\begin{aligned}
+\min_{P}\quad & \textstyle\sum_j \lVert r'_j \rVert^2 \\
+\text{s.t.}\quad & q(0) = q_p, \quad q'(0) = q'(1) = 0 \\
+& q_{lo} + 0.05 \le q(s) \le q_{hi} - 0.05, \quad |\dot q(s)| \le 0.6\, v_{max}, \quad |\ddot q(s)| \le 4 \qquad \forall s \\
+& \textbf{clearance } (\tau = 0.1,\ 0.2, \dots \le D):\ d_O(q, t) \ge 0.04, \quad d_{C \cup F \cup Tg}(q, t) \ge 0.005
+\end{aligned}
+$$
+
+* Samples every `dodge_sample_spacing` (0.1 s). Initial guess: staying at $q_p$. Same solver settings as 8.1.
+* If it finds no dodge, (C) carries on as before (parked).

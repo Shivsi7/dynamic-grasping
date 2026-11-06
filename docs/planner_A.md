@@ -22,7 +22,8 @@ Tests: `tests/test_controllers.py` (in Drake, together with (C)).
 
 ## 3. One control cycle (`ReactiveQPController.step`)
 
-1. Phase: wait (until 1 s before the object is reachable) -> approach (10 cm above the
+1. Phase: wait (until 1 s before the object is reachable; the QP holds the start pose, so
+   the dampers still push the arm out of an obstacle's way) -> approach (10 cm above the
    grasp) -> descend -> close (0.4 s) -> lift (10 cm in 0.6 s, minimum jerk, slowing from the
    object's velocity to rest) -> hold that pose.
 2. Desired gripper twist: P control on the pose error plus the object's velocity as
