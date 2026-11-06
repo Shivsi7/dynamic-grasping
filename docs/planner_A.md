@@ -69,22 +69,25 @@ Tests: `tests/test_controllers.py` (in Drake, together with (C)).
 
 ## 6. Current results
 
-All runs: compute time costs simulated time (`latency="measured"`), scored to the end of each
-scene, 8 episodes in parallel on a 10-core machine, one run per scene. Scenario sets in
-`scenarios/`: `dev_v0.yaml` (20), `preset_grids.yaml` (48 post, 48 plank, 18 pillar scenes),
-`heldout_mixed_s5000.yaml` ((B)'s 80 held-out scenes).
+Commit `a999669`. All runs: compute time costs simulated time (`latency="measured"`), scored
+to the end of each scene, 8 episodes in parallel on a 10-core machine, one run per scene
+((A)'s cycle takes about 3 ms of its 10 ms period, so the parallel load hardly matters).
+Scenario sets in `scenarios/`: `dev_v0.yaml` (20), `preset_grids.yaml` (48 post, 48 plank,
+18 pillar scenes), `heldout_mixed_s5000.yaml` ((B)'s 80 held-out scenes).
 
 | set | scenes | success | collision | dropped | timeout |
 |---|---|---|---|---|---|
-| dev | 20 | 8 | 2 | 4 | 6 |
-| post grid | 48 | 30 | 0 | 4 | 14 |
-| plank grid | 48 | 28 | 0 | 4 | 16 |
+| dev | 20 | 12 | 2 | 0 | 6 |
+| post grid | 48 | 34 | 0 | 0 | 14 |
+| plank grid | 48 | 32 | 0 | 1 | 15 |
 | pillar grid | 18 | 2 | 0 | 0 | 16 |
-| held-out mixed | 80 | 28 | 7 | 27 | 18 |
+| held-out mixed | 80 | 52 | 7 | 4 | 17 |
 
-"dropped": lifted, then lost, or not lifted (5 cm) any more when the scene ends. Median peak
-commanded joint acceleration 150-190 rad/s^2; median peak torque 2.0-2.3x the joint limits.
-Compute per cycle about 2 ms on average; the slowest cycle of an episode about 20 ms (median).
+"dropped": lifted, then lost, or not lifted (5 cm) any more when the scene ends. Before the
+fixed lift and the height weighting the held-out set gave 28 successes and 27 dropped.
+Median peak commanded joint acceleration 100-190 rad/s^2; median peak torque 1.3-2.4x the
+joint limits. Compute per cycle about 3 ms on average; the slowest cycle of an episode
+25-45 ms (median).
 
 ## 7. Limitations and open questions
 
