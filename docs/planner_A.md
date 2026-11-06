@@ -91,7 +91,8 @@ Compute per cycle about 2 ms on average; the slowest cycle of an episode about 2
 1. **Local minima**: behind an obstacle it has to go around (the pillar) it stops and waits;
    it grasps in 2 of the 18 pillar scenes.
 2. **Holding**: an obstacle coming at the held arm makes the dampers push it away (about
-   0.2 m/s); the arm sinks and the object is shaken loose. (B) plans a retreat instead.
+   0.2 m/s) and the arm swings back afterwards; that can shake the object loose (`mix_0061`).
+   (B) plans a retreat and (C) plans the hold instead.
 3. **No acceleration limits**: only velocities are limited. Phase switches (wait -> approach)
    are velocity steps: peaks of 100-300 rad/s^2, above the joint torques.
 4. Velocity dampers keep a margin to obstacles but do not guarantee it (slacks).

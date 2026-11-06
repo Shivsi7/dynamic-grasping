@@ -18,7 +18,9 @@ conflict; they are penalised so heavily that they are zero otherwise.
 Phases: wait -> approach (hover above the grasp) -> descend -> close -> lift.
 The lift is a fixed motion, like (B)'s grasp tail: up `lift_height` in
 `lift_time` (minimum jerk) while slowing down from the object's velocity to
-rest, then hold that pose.
+rest, then hold that pose.  From the lift on, the gripper's height counts
+`lift_z_weight` times more in the tracking cost, so an obstacle pushing the
+held arm moves it sideways rather than down.
 """
 
 from __future__ import annotations
@@ -63,6 +65,7 @@ class ReactiveQPController(Controller):
         n_horizon: int = 3,
         lam: float = 5e-3,
         mu: float = 5e-3,
+        lift_z_weight: float = 10.0,
     ):
         self.hover = hover
         self.k_p, self.k_rot, self.max_speed, self.v_scale = k_p, k_rot, max_speed, v_scale
@@ -71,6 +74,7 @@ class ReactiveQPController(Controller):
         self.d_safe, self.d_safe_env, self.d_influence, self.xi = d_safe, d_safe_env, d_influence, xi
         self.horizon, self.n_horizon = horizon, n_horizon
         self.lam, self.mu = lam, mu
+        self.lift_z_weight = lift_z_weight
         self.solver = OsqpSolver()
 
     def reset(self, world: WorldModel, robot: RobotModel, state: RobotState, collision: CollisionWorld | None = None):
@@ -141,6 +145,9 @@ class ReactiveQPController(Controller):
         if speed > self.max_speed:
             V[3:] *= self.max_speed / speed
         J = self.robot.jacobian(q)
+        if self.phase == "lift":  # holding: keep the height first, give way to obstacles sideways
+            w = np.array([1, 1, 1, 1, 1, self.lift_z_weight])
+            J, V = w[:, None] * J, w * V
 
         prog = MathematicalProgram()
         v = prog.NewContinuousVariables(NQ, "v")
