@@ -27,12 +27,18 @@ When (A) would start moving (t_enter - lead_time) the controller
    gradients include that dependence (Drake's
    MinimumDistanceLowerBoundConstraint is evaluated on the full kinematic
    plant, whose obstacle/cart joints move with t);
-3. tracks the result with position commands, re-solving every `replan_period`
-   from the current reference, warm-started with its remainder.  With perfect
-   prediction one solve suffices; re-solving only corrects prediction errors.
+3. sends the result as a `JointTrajectory`, sampled every 5 ms by the wrapper.
 
-At t0 + T it closes and lifts with (A).  If every first optimisation fails it
-falls back to (A) for the whole episode.
+Planning time costs simulated time (the harness's measured latency), so the
+plan starts `plan_budget` s after the controller starts computing it: (C)
+plans that much before (A) would start moving and holds still until then.  A
+plan that takes longer than its budget arrives after it should have started,
+the wrapper rejects it, and (C) plans again with a budget of 1.5x that time.
+With perfect prediction the plan stays valid, so there is no replanning.
+
+At t0 + T it closes and lifts with (A) (the trajectory keeps the arm moving
+with its final velocity until (A)'s first command takes effect).  If every
+optimisation fails it falls back to (A) for the rest of the episode.
 """
 
 from __future__ import annotations
@@ -55,6 +61,7 @@ from pydrake.all import (
 
 from dyngrasp.controller import NQ, WSG_OPEN, Command, Controller, RobotModel, RobotState
 from dyngrasp.reactive import ReactiveQPController
+from dyngrasp.trajectory import JointTrajectory
 from dyngrasp.world import WorldModel
 
 
@@ -80,7 +87,8 @@ class HybridController(Controller):
         n_collision_samples: int = 30,
         d_safe: float = 0.04,
         d_safe_env: float = 0.005,
-        replan_period: float = 0.5,
+        plan_budget: float = 2.0,
+        handoff: float = 0.3,
         energy_weight: float = 0.1,
         accel_limit: float = 4.0,
         seed: str = "both",
@@ -94,7 +102,7 @@ class HybridController(Controller):
         self.n_control_points = n_control_points
         self.n_collision_samples = n_collision_samples
         self.d_safe, self.d_safe_env = d_safe, d_safe_env
-        self.replan_period = replan_period
+        self.plan_budget, self.handoff = plan_budget, handoff
         self.energy_weight = energy_weight
         self.accel_limit = accel_limit
         self.solver = SnoptSolver()
@@ -113,42 +121,50 @@ class HybridController(Controller):
         self.ctx_ad = self.plant_ad.CreateDefaultContext()
         self.G_ad = self.plant_ad.GetFrameByName("body", self.plant_ad.GetModelInstanceByName("wsg"))
         self.phase = "wait"
+        self.budget = self.plan_budget
         self.traj = None  # BsplineTrajectory on [0, T], started at self.t0
+        self.sent = None  # the JointTrajectory sent to the wrapper
         self.solve_log: list[dict] = []
 
     def update(self, state: RobotState, world: WorldModel) -> Command:
         t = state.t
         info = {}
+        if self.phase == "track" and state.trajectory is not self.sent:  # arrived late: rejected
+            self.phase = "wait"
         if self.phase == "wait":
-            if t < world.t_enter - self.reactive.lead_time:
+            if t < world.t_enter - self.reactive.lead_time - self.budget:
                 return Command(q=state.q_cmd, gripper=WSG_OPEN, info={"phase": "wait"})
-            info = self._first_plan(t, state.q_cmd)
-            self.phase = "track" if info["ok"] else "fallback"
-            if self.phase == "fallback":
+            tic = time.perf_counter()
+            t0 = t + self.budget
+            info = self._first_plan(t0, state.q_cmd) if t0 < world.t_exit - 2.0 else {"ok": False}
+            info["budget"], self.budget = self.budget, max(self.budget, 1.5 * (time.perf_counter() - tic))
+            if info["ok"]:
+                self.phase, self.sent = "track", self._joint_trajectory(t, state.q_cmd)
+            else:
+                self.phase = "fallback"
                 self.reactive._start("approach")
 
         if self.phase == "track":
-            if t >= self.t0 + self.traj.end_time():
-                self.phase = "reactive"
-                self.reactive._start("close")
-                self.reactive.t_close = t
-            else:
-                if t >= self.t_replan and t < self.t_descend - 0.2:
-                    ts = np.linspace(t, self.t0 + self.traj.end_time(), 40)
-                    qs = np.array([self.q_ref(tt) for tt in ts])
-                    info = self._plan(t, self.q_ref(t), self.qdot_ref(t), ts, qs)
-                return Command(q=self.q_ref(t), gripper=WSG_OPEN, info={"phase": "track", **info})
+            if t < self.t0 + self.traj.end_time():
+                return Command(trajectory=self.sent, gripper=WSG_OPEN, info={"phase": "track", **info})
+            self.phase = "reactive"
+            self.reactive._start("close")
+            self.reactive.t_close = t
 
         cmd = self.reactive.update(state, world)
         cmd.info["phase"] = ("fallback_" if self.phase == "fallback" else "") + cmd.info["phase"]
         cmd.info.update(info)
         return cmd
 
-    def q_ref(self, t: float) -> np.ndarray:
-        return self.traj.value(np.clip(t - self.t0, 0.0, self.traj.end_time())).ravel()
-
-    def qdot_ref(self, t: float) -> np.ndarray:
-        return self.traj_dot.value(np.clip(t - self.t0, 0.0, self.traj.end_time())).ravel()
+    def _joint_trajectory(self, t, q0) -> JointTrajectory:
+        """Hold q0 from t to t0, then the plan, then its final joint velocity for `handoff` s (until (A) takes over)."""
+        T, dt = self.traj.end_time(), self.period
+        s = np.arange(0.0, T, dt)
+        q_T, v_T = self.traj.value(T).ravel(), self.traj_dot.value(T).ravel()
+        tau = np.arange(0.0, self.handoff + 1e-9, dt)
+        ts = np.concatenate([[t], self.t0 + s, self.t0 + T + tau])
+        qs = np.vstack([q0, *(self.traj.value(x).ravel() for x in s), q_T + np.outer(tau, v_T)])
+        return JointTrajectory(ts, qs)
 
     # ---- planning ---------------------------------------------------------------
     def _first_plan(self, t0, q0) -> dict:
@@ -165,7 +181,7 @@ class HybridController(Controller):
             tic = time.perf_counter()
             for k, (ts, qs, t_descend) in enumerate(seeds):
                 self.t_descend = t_descend
-                r = self._plan(t0, q0, np.zeros(NQ), ts, qs)
+                r = self._plan(t0, q0, ts, qs)
                 info[f"{name}_ok"], info[f"{name}_tries"] = r["ok"], k + 1
                 if r["ok"]:
                     if best is None or r["cost"] < best[0]["cost"]:
@@ -220,8 +236,8 @@ class HybridController(Controller):
         result = Solve(prog, x)
         return result.GetSolution(q)[cw.iiwa_q : cw.iiwa_q + NQ] if result.is_success() else None
 
-    def _plan(self, t0, q0, v0, guess_ts, guess_qs) -> dict:
-        """Solve from (q0, v0) at t0, seeded with the joint path (guess_ts, guess_qs)."""
+    def _plan(self, t0, q0, guess_ts, guess_qs) -> dict:
+        """Solve from rest at q0 at t0, seeded with the joint path (guess_ts, guess_qs)."""
         tic = time.perf_counter()
         world = self.world
         T_lo = max(world.t_enter - t0, 0.3)
@@ -247,12 +263,7 @@ class HybridController(Controller):
         trajopt.AddVelocityBounds(-vmax, vmax)
         trajopt.AddAccelerationBounds(-self.accel_limit * np.ones(NQ), self.accel_limit * np.ones(NQ))
         trajopt.AddPathPositionConstraint(q0, q0, 0.0)
-        # q'(0) = v0: r'(0) - v0 T = 0, linear in (P, T).
-        prog.AddLinearEqualityConstraint(
-            np.hstack([np.kron(dw(0.0), np.eye(NQ)), -v0.reshape(-1, 1)]),
-            np.zeros(NQ),
-            np.concatenate([P.T.ravel(), [T]]),
-        )
+        trajopt.AddPathVelocityConstraint(np.zeros(NQ), np.zeros(NQ), 0.0)
 
         v_obj = world.target_velocity(world.t_enter)
         hover = self.reactive.hover
@@ -307,7 +318,6 @@ class HybridController(Controller):
             self.traj_dot = self.traj.MakeDerivative()
             self.t0 = t0
             self.t_descend = t0 + s_descend * self.traj.end_time()
-        self.t_replan = t0 + self.replan_period
         return info
 
     @staticmethod
