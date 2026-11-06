@@ -144,8 +144,7 @@ On the four report scenes (one episode at a time) (C) grasps and holds in `tall_
    that leads SNOPT into a bad local minimum can take several seconds. With measured
    latency the arm stays parked while (C) computes, and an obstacle can hit it there;
    without a plan it stays parked.
-2. **The object in the hand** is not in the collision model of the hold.
-3. **One plan**: no replanning, which is fine with perfect prediction; with prediction errors
+2. **One plan**: no replanning, which is fine with perfect prediction; with prediction errors
    the plan would go stale.
 
 ## 8. The optimisation problems, exactly
