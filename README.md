@@ -210,9 +210,12 @@ pose and come straight down, end at the grasp pose *of time t0 + T* moving with
 the object, and keep `MinimumDistanceLowerBoundConstraint` clearance (4 cm to
 obstacles, 5 mm to cart / floor / target) at 30 sample times t0 + s_k T. The
 world's joints in the kinematic plant move with T, so the constraints and their
-gradients are space-time. The plan is tracked with position commands and
-re-solved every 0.5 s (warm start: the remainder of the current plan); after
-T, (A) closes and lifts. If every first solve fails, (C) falls back to (A).
+gradients are space-time. Planning time costs simulated time, so (C) plans
+`plan_budget` (2 s) ahead: it starts computing that much before (A) would
+move, holds still meanwhile, and sends hold + plan as one `JointTrajectory`; a
+plan that overruns its budget is rejected by the wrapper and redone with 1.5x
+the time it took. After T, (A) closes and lifts. If every solve fails, (C)
+falls back to (A). Design, code map and results: `docs/planner_A.md`, `docs/planner_C.md`.
 
 `CollisionWorld` (`dyngrasp/collision.py`) is the shared geometry layer: the
 kinematic diagram with only robot <-> world pairs left in, rows for (A), and
