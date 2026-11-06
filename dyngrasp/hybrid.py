@@ -280,7 +280,6 @@ class HybridController(Controller):
     def _ik_grasps(self, t0, q0, n_tries=6, descend_time=0.6):
         """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time (0.5 s apart) that has both."""
         world, rng = self.world, np.random.default_rng(0)
-        v_avg = 0.5 * self.v_scale * self.robot.v_limits
         for t_g in np.arange(max(world.t_enter, t0 + 1.0), world.t_exit - 2.0, 0.5):
             t_d = t_g - descend_time
             best = None
@@ -289,8 +288,8 @@ class HybridController(Controller):
                 q_h = None if q_g is None else self._ik(t_d, self._pose(t_d, self.hover), q_g)
                 if q_h is None:
                     continue
-                travel = np.max(np.abs(q_h - q0) / v_avg)
-                if t0 + travel <= t_d and (best is None or travel < best[0]):
+                travel = np.max(np.abs(q_h - q0) / self.robot.v_limits)  # whether it is reachable in time: the optimiser's call
+                if best is None or travel < best[0]:
                     best = (travel, q_h, q_g)
             if best is not None:
                 yield t_d, t_g, best[1], best[2]
