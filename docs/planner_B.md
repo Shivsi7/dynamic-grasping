@@ -172,13 +172,14 @@ What the pieces are for:
 
 | script | question it answers |
 |---|---|
-| `scripts/stress_planner.py --scenarios <set> --controllers st_rrt --settle 30` | how does (B) do on many scenes? (`--settle 30`: simulate to the end of each scene, so post-grasp drops / collisions count) |
+| `scripts/stress_planner.py --scenarios <set> --controllers st_rrt` | how does (B) do on many scenes? (simulated to the end of each scene, so post-grasp drops / collisions count) |
 | `scripts/certify.py --results <results.csv> --scenarios <set>` | for each scene (B) did not grasp: was abstaining correct? exhaustive goal search, a time-optimal bound, and an "oracle" (same planner, 20x compute, planning free) at several acceleration limits |
 | `scripts/compare_videos.py --scenarios <set> --names mix_0061 --controllers st_rrt_ckpt st_rrt` | side-by-side videos with live status, joint acceleration and object speed |
 | `scripts/grasp_feasibility.py` | which grasp candidates are kinematically possible / hold the object |
 
-The monitor (`dyngrasp/monitor.py`) scores `success` (lifted 5 cm, held 0.5 s, no collision)
-and, after it, `held_at_end`, `dropped_after_success`, `obj_speed_max_after_grasp`, `slip_max`.
+The monitor (`dyngrasp/monitor.py`) scores `success` (lifted 5 cm, held 0.5 s, no collision,
+still held at the end of the scene) and, after the grasp, `held_at_end`, `dropped_after_success`,
+`obj_speed_max_after_grasp`, `slip_max`.
 The wrapper reports `cmd_accel_max` and `cmd_torque_ratio_max` for every controller.
 
 ## 6. Current results
@@ -219,4 +220,4 @@ So at most 69 of 80 scenes are possible at all, and (B) grasps 63.
    velocity too); much tighter acceleration limits fail often.
 6. **To agree with the team**: compare (A) and (B) under `latency="measured"` with at most one
    episode per physical core; `reset()` is untimed (may build models, must not plan); the
-   acceleration limits; scoring to the end of the scene (`--settle`).
+   acceleration limits. (Scoring to the end of the scene is now the harness default.)

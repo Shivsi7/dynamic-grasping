@@ -236,6 +236,8 @@ One row per episode in `results.csv`:
 | `outcome` | `collision` / `success` / `dropped` / `timeout` (collision takes precedence) |
 | `success`, `collided` | separately, so "grasped despite a collision" is visible |
 | `t_grasp`, `t_lift`, `t_success` | first in-hand, first in-hand-and-lifted, held 0.5 s |
+| `held_at_end`, `dropped_after_success`, `obj_speed_max_after_grasp`, `slip_max` | after the grasp: still held at the end? flung or shaken? |
+| `cmd_speed_ratio_max`, `cmd_accel_max`, `cmd_accel_p99`, `cmd_torque_ratio_max` | commanded joint motion: peak speed / limit, acceleration (rad/s²), torque / limit |
 | `t_first_collision`, `collision_with`, `collision_category` | obstacle / cart (carrier or conveyor) / floor / target |
 | `min_clearance_obstacles` (+ time), `min_clearance_environment` | signed distance, robot to obstacles / cart+floor |
 | `n_cycles`, `compute_mean_ms`, `compute_max_ms`, `compute_p95_ms` | wall time of `update()` per cycle |
@@ -246,8 +248,11 @@ Definitions (see `monitor.py`): a **collision** is any contact between a robot
 body (iiwa links 1–7, WSG) and an obstacle, the cart, the floor, or the target,
 except the gripper touching the target. The object is **in hand** when the
 finger-pad point lies inside its bounding box and the gripper is not open;
-**success** is in-hand and ≥ 5 cm above the rest height for 0.5 s. By default an
-episode stops at the first collision (`--keep-going` to continue).
+**success** is in-hand and ≥ 5 cm above the rest height for 0.5 s, and still
+in hand and lifted when the scene ends: episodes are simulated to the end of the
+scene after a success (`settle_after_success`), so a controller that flings the
+object away or carries it into an obstacle afterwards does not score. By default
+an episode stops at the first collision (`--keep-going` to continue).
 
 Baselines on `no_obstacles`: `naive` grasps the soup can, gelatin box, potted
 meat can and sugar box; it is too slow to converge for the cracker box and the

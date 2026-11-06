@@ -39,7 +39,7 @@ def mixed_set(seed: int, n: int) -> list:
     return specs
 
 
-def run_one(spec_dict: dict, cname: str, latency, settle: float = 0.0) -> dict:
+def run_one(spec_dict: dict, cname: str, latency, settle: float = float("inf")) -> dict:
     from dyngrasp.baselines import HoldController, NaiveInterceptController
     from dyngrasp.harness import run_episode
     from dyngrasp.planning.variants import VARIANTS, Variant
@@ -84,8 +84,8 @@ def main():
     ap.add_argument("--controllers", nargs="+", default=["st_rrt"])
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--latency", default="measured")
-    ap.add_argument("--settle", type=float, default=0.0,
-                    help="keep simulating this long after success (to the scene's end at most): is it still held?")
+    ap.add_argument("--settle", type=float, default=float("inf"),
+                    help="keep simulating this long after success (default: to the scene's end): is it still held?")
     ap.add_argument("--out", default="results/stress")
     args = ap.parse_args()
     latency = args.latency if args.latency in ("measured", "none") else float(args.latency)

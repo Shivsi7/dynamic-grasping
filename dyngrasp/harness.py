@@ -5,11 +5,16 @@
 
 Outcome of an episode (in order of precedence):
     collision         a robot body touched an obstacle / the cart / the floor / the target (non-finger)
-    success           object lifted and held for HOLD_TIME without any collision
-    dropped           lifted, then lost
+    success           object lifted and held for HOLD_TIME without any collision, and still
+                      in hand and lifted when the episode ends
+    dropped           lifted, then lost (before or after HOLD_TIME)
     timeout           nothing of the above by `spec.duration`
 `success` and `collided` are also reported separately, so "success despite a
 collision" is visible (outcome == "collision" and success == True).
+
+Scoring runs to the end of the scene: by default (`settle_after_success=inf`)
+the episode keeps going after HOLD_TIME, so flinging the object away or
+carrying it into an obstacle afterwards is not a success.
 
 Latency: by default (`latency="measured"`) a controller's commands take effect
 only after its measured compute time has elapsed in simulated time, so slow
@@ -171,7 +176,7 @@ def run_episode(
     stop_on_collision: bool = True,
     keep_log: bool = True,
     monitor_hz: float = 100.0,
-    settle_after_success: float = 0.0,
+    settle_after_success: float = np.inf,
     latency: str | float = "measured",
     compute_scale: float = 1.0,
     stitch_vtol: float = 0.03,
@@ -203,12 +208,12 @@ def run_episode(
 def summarize(spec, controller, h: EpisodeHandles, t_end: float, wall: float, keep_log: bool) -> EpisodeResult:
     m = h.monitor
     collided = len(m.collisions) > 0
-    success = m.t_success is not None
+    success = m.t_success is not None and m.held_at_end
     if collided:
         outcome = "collision"
     elif success:
         outcome = "success"
-    elif m.dropped:
+    elif m.dropped or m.t_success is not None:
         outcome = "dropped"
     else:
         outcome = "timeout"
