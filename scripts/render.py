@@ -3,6 +3,7 @@
 
     python scripts/render.py --out results/renders        # all presets, contact sheets + gif
     python scripts/render.py --scenario scenarios/dev_v0.yaml --index 3 --times 0 3 4 5
+    python scripts/render.py --preset tall_blocker --controller hybrid --video   # mp4 (needs ffmpeg)
 
 No Meshcat, no browser: the images come from Drake's VTK renderer through
 cameras added to the station.  Each snapshot is annotated with the time, the
@@ -12,17 +13,20 @@ controller phase, and the scripted vs. simulated position of every moving body.
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
-from PIL import Image, ImageDraw  # noqa: E402
+from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 from dyngrasp import scenario as S  # noqa: E402
 from dyngrasp.baselines import HoldController, NaiveInterceptController  # noqa: E402
 from dyngrasp.harness import advance, build_episode  # noqa: E402
+from dyngrasp.hybrid import HybridController  # noqa: E402
+from dyngrasp.reactive import ReactiveQPController  # noqa: E402
 from dyngrasp.scene import look_at_camera  # noqa: E402
 
 # name -> (camera position, look-at point)
@@ -31,8 +35,15 @@ VIEWS = {
     "side": ([0.3, -2.6, 0.9], [0.3, 0.0, 0.4]),  # along +y: the corridor and the lane edge-on
     "top": ([0.3, 0.0, 3.2], [0.3, 0.0, 0.0]),  # straight down
     "robot_eye": ([-1.3, 0.0, 1.6], [0.45, 0.0, 0.3]),  # from behind the robot towards the cart
+    "close34": ([1.35, -1.15, 1.0], [0.4, -0.15, 0.32]),  # front34, closer in
+    "rear34": ([-0.9, -0.9, 1.3], [0.45, -0.1, 0.3]),  # from behind the robot's shoulder: over / around obstacles
 }
-CONTROLLERS = {"hold": HoldController, "naive": NaiveInterceptController}
+CONTROLLERS = {
+    "hold": HoldController,
+    "naive": NaiveInterceptController,
+    "reactive": ReactiveQPController,
+    "hybrid": HybridController,
+}
 
 
 def snapshots(spec, controller, times, views, size=(640, 480)):
@@ -104,22 +115,65 @@ def gif(spec, controller, path, view="front34", fps=10, size=(480, 360)):
     return path
 
 
+def video(spec, controller, path, views=("rear34", "close34"), fps=25, size=(640, 480), tail=1.5):
+    """MP4 of one episode, the views side by side, until `tail` s after success or the first collision."""
+    cams = {name: look_at_camera(name, *VIEWS[name], size[0], size[1]) for name in views}
+    h = build_episode(spec, controller, cameras=cams, stop_on_collision=False)
+    h.simulator.Initialize()
+    sc = h.scene.station.GetMyContextFromRoot(h.simulator.get_context())
+    w, hh = size[0] * len(views), size[1]
+    ffmpeg = subprocess.Popen(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{hh}",
+         "-r", str(fps), "-i", "-", "-vcodec", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", str(path)],
+        stdin=subprocess.PIPE,
+    )
+    font = ImageFont.load_default(size=18)
+    m, t_stop = h.monitor, spec.duration
+    for t in np.arange(0.0, spec.duration + 1e-9, 1.0 / fps):
+        if t > t_stop:
+            break
+        m.done = False  # keep going past a success or a collision
+        advance(h, t)
+        if m.t_success is not None:
+            t_stop = min(t_stop, m.t_success + tail)
+        if m.collisions:
+            t_stop = min(t_stop, m.collisions[0].t + tail)
+        frame = Image.new("RGB", (w, hh))
+        for i, name in enumerate(views):
+            frame.paste(Image.fromarray(np.array(h.scene.station.GetOutputPort(f"{name}.rgb_image").Eval(sc).data)[:, :, :3]), (i * size[0], 0))
+        phase = h.controller_system.log[-1].get("phase", "") if h.controller_system.log else ""
+        status = "success" if m.t_success else "lifted" if m.t_lift else "grasped" if m.t_grasp else ""
+        clear = f"{100 * m.min_clearance_obstacles:.1f} cm" if np.isfinite(m.min_clearance_obstacles) else "-"
+        d = ImageDraw.Draw(frame)
+        d.text((10, 8), f"{controller.name}   t = {t:5.2f} s   phase: {phase}", fill="black", font=font)
+        d.text((10, hh - 28), f"collisions: {len(m.collisions)}   min clearance to obstacles: {clear}   {status}",
+               fill="firebrick" if m.collisions else "black", font=font)
+        ffmpeg.stdin.write(frame.tobytes())
+    ffmpeg.stdin.close()
+    ffmpeg.wait()
+    return path
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="results/renders")
     ap.add_argument("--scenario", help="YAML scenario set")
     ap.add_argument("--index", type=int, default=0)
+    ap.add_argument("--preset", choices=["tall_blocker", "plank_blocker", "pillar_and_blocker", "no_obstacles"], help="one preset (defaults)")
     ap.add_argument("--controller", default="naive", choices=sorted(CONTROLLERS))
     ap.add_argument("--times", nargs="+", type=float, default=None)
     ap.add_argument("--gif", action="store_true", help="also write an animated gif of the episode")
-    ap.add_argument("--views", nargs="+", default=list(VIEWS), choices=list(VIEWS))
+    ap.add_argument("--video", action="store_true", help="write only an mp4 of the episode (default views rear34 close34)")
+    ap.add_argument("--views", nargs="+", default=None, choices=list(VIEWS))
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    views = {k: VIEWS[k] for k in args.views}
+    views = {k: VIEWS[k] for k in args.views or ["front34", "side", "top", "robot_eye"]}
 
     if args.scenario:
         jobs = [(S.load_scenario_set(args.scenario)[args.index], args.controller)]
+    elif args.preset:
+        jobs = [(getattr(S, args.preset)(), args.controller)]
     else:
         jobs = [
             (S.no_obstacles(0.15, object="sugar_box"), "naive"),
@@ -128,6 +182,9 @@ def main():
             (S.sample_scenario(np.random.default_rng(5), n_obstacles=4, name="random_s5", seed=5), "hold"),
         ]
     for spec, cname in jobs:
+        if args.video:
+            print("wrote", video(spec, CONTROLLERS[cname](), out / f"{spec.name}__{cname}.mp4", views=args.views or ("rear34", "close34")))
+            continue
         times = args.times or sorted({0.0, spec.cart.t_enter, spec.cart.t_enter + 1.0, spec.cart.t_enter + 2.0, spec.cart.t_closest, min(spec.duration, spec.cart.t_exit)})
         frames = snapshots(spec, CONTROLLERS[cname](), times, views)
         p = contact_sheet(frames, views, out / f"{spec.name}__{cname}.png")

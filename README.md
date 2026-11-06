@@ -9,8 +9,10 @@ state. The proposal (with milestones and the division of work) is on Gradescope;
 drop a copy in `docs/` when convenient.
 
 This repository holds the shared infrastructure: the Drake scene, the
-`WorldModel` (predicted state), the controller API, the evaluation harness and
-two reference controllers. (A) and (B) plug into the `Controller` API below.
+`WorldModel` (predicted state), the controller API, the evaluation harness,
+two reference controllers, the reactive controller (A) and the hybrid
+extension (C) (see [Controllers (A) and (C)](#controllers-a-and-c)). (B) plugs
+into the `Controller` API below.
 
 ## Setup
 
@@ -27,7 +29,9 @@ python scripts/demo_scene.py   # opens Meshcat: tall blocker vs. the naive contr
 `HEADLESS=1` disables Meshcat (no browser wait, no real-time pacing); use it for
 batch runs and for checking that something works. `python scripts/render.py
 --gif` writes annotated snapshots and GIFs of the presets to `results/renders/`
-from fixed cameras, with scripted vs. simulated positions printed under each row.
+from fixed cameras, with scripted vs. simulated positions printed under each row;
+`python scripts/render.py --preset tall_blocker --controller hybrid --video --out
+results/videos` writes an MP4 of one episode (needs `ffmpeg`).
 
 ## Layout
 
@@ -51,6 +55,9 @@ dyngrasp/
     escapes.py     evasive motion primitives and the post-grasp retreat
     variants.py    named (B) configurations used by the scripts
   grasps.py      grasp candidates (top / tilted / side) from object boxes, geometric validity
+  collision.py   CollisionWorld: robot <-> world signed distances / Jacobians at a predicted (q, t)
+  reactive.py    (A) ReactiveQPController: diff-IK QP with swept-volume velocity dampers
+  hybrid.py      (C) HybridController: rollout of (A) -> space-time KinematicTrajectoryOptimization
   monitor.py     EpisodeMonitor: collisions, clearance, grasp / lift / success
   harness.py     run_episode, run_batch (-> pandas), aggregate
   viz.py         Meshcat helper
@@ -58,10 +65,10 @@ scripts/
   demo_scene.py  watch one scenario in Meshcat
   run_eval.py    batch evaluation -> results/<name>/results.csv + scenarios.yaml
   summarize.py   tables (markdown) and figures from results.csv
-  render.py      headless PNG contact sheets / GIFs of scenarios (no browser needed)
   stress_planner.py  many generated scenarios in parallel, failure tables
   grasp_feasibility.py  which grasp candidates are reachable / collision-free / physically hold
   compare_videos.py  side-by-side MP4s of one scene under several controllers
+  render.py      headless PNG contact sheets / GIFs / MP4s of scenarios (no browser needed)
 scenarios/       shared scenario sets (YAML), so everyone runs the same episodes
 tests/           pytest
 ```
@@ -103,7 +110,11 @@ becomes reachable, when a direct grasp would happen), sit exactly on the
 straight line from the base to the target. They cannot be ignored (a
 straight-in grasp collides) but can be passed on either side or over the top:
 collision-aware IK finds grasp configurations of both kinds, and over-the-top
-stops being possible above a top height of about 0.5 m. Random sets:
+stops being possible above a top height of about 0.5 m.
+`scenario.pillar_and_blocker(...)` combines a 1.6 m pillar (out of reach: only
+passable on a side) creeping in front of the conveyor just beside that line
+(exactly on it, no grasp exists) with the post, faster, in the lane nearer the
+robot. Random sets:
 `generate_scenario_set(seed, n)`; save/load with `save_scenario_set` /
 `load_scenario_set`. `scenarios/dev_v0.yaml` is the shared development set.
 
@@ -172,6 +183,40 @@ boxes nearly touch at ordinary wrist angles), so `qo.HasCollisions()` and a
 `MinimumDistanceLowerBoundConstraint` in `InverseKinematics` can be used directly.
 
 Register the controller in `scripts/run_eval.py`'s `CONTROLLERS` dict.
+
+## Controllers (A) and (C)
+
+**(A) `reactive`** (`dyngrasp/reactive.py`). Every 10 ms, a QP in the joint
+velocities v (Drake `MathematicalProgram` + OSQP): track a velocity-matched
+gripper pose (P control + the target's velocity as feedforward), subject to
+joint velocity / position limits and, for every robot <-> world pair closer than
+25 cm, the velocity damper `n^T J v >= -xi (phi - d_s) + n^T v_world` (slacked).
+The pairs are computed against the predicted world at t, t + 0.1 and t + 0.2 s,
+so the arm keeps out of each obstacle's swept volume over the next 0.2 s. Phases:
+wait -> approach (10 cm above the grasp) -> descend -> close -> lift.
+
+**(C) `hybrid`** (`dyngrasp/hybrid.py`). When (A) would start moving, build two
+initial guesses: (A) rolled out kinematically against the prediction
+(`ReactiveQPController.rollout`), and a straight joint-space path to a hover
+pose and a grasp pose found by collision-aware inverse kinematics against the
+predicted obstacles (earliest grasp time with a solution; the path may cut
+through obstacles, the optimiser fixes that; if it does not converge, the next
+grasp times, up to 3). The IK guess covers the cases
+where (A) gets stuck in a local minimum, e.g. behind the pillar of
+`pillar_and_blocker`; `seed="rollout"` / `"ik"` keeps only one of them. Refine
+each with Drake's `KinematicTrajectoryOptimization` and keep the cheaper (cubic
+B-spline, free duration T, SNOPT): start at the current state, pass the hover
+pose and come straight down, end at the grasp pose *of time t0 + T* moving with
+the object, and keep `MinimumDistanceLowerBoundConstraint` clearance (4 cm to
+obstacles, 5 mm to cart / floor / target) at 30 sample times t0 + s_k T. The
+world's joints in the kinematic plant move with T, so the constraints and their
+gradients are space-time. The plan is tracked with position commands and
+re-solved every 0.5 s (warm start: the remainder of the current plan); after
+T, (A) closes and lifts. If every first solve fails, (C) falls back to (A).
+
+`CollisionWorld` (`dyngrasp/collision.py`) is the shared geometry layer: the
+kinematic diagram with only robot <-> world pairs left in, rows for (A), and
+per-category contexts / full-state-at-time-t for (C).
 
 ## Evaluation
 
