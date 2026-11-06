@@ -5,12 +5,14 @@ Branch `planner-a-c-reactive-hybrid`. Controller name in the scripts: `hybrid`.
 ## 1. The idea in one paragraph
 
 (C) plans the whole episode once, as two space-time trajectory optimisations (Drake's
-`KinematicTrajectoryOptimization`). The approach has a free duration, ends at the grasp pose
-of the object at the end time, and keeps clear of the obstacles where they are at each
-sample time; its initial guess is a straight joint-space path to a collision-aware IK grasp
-(if that fails, the same via a random configuration halfway). The second optimisation runs
-from the grasp to the end of the scene: move with the object while the gripper closes, lift
-10 cm, and hold, still keeping clear of the obstacles. Both are sent as one joint trajectory.
+`KinematicTrajectoryOptimization`, solved with SNOPT). The first, the approach, has a free
+duration, ends at the grasp pose of the object at its end time, and keeps clear of the
+obstacles where they are at each sample time. Its initial guess is a straight joint-space
+path to a hover pose and a grasp pose from collision-aware IK; if that gives no plan, the
+same through a collision-free configuration halfway, then straight paths to the IK poses of
+later grasp times. The second runs from the grasp to the end of the scene: move with the
+object while the gripper closes, lift 10 cm and hold, still keeping clear of the obstacles.
+Both are sent as one joint trajectory; (A) is not used. The exact problems are in section 8.
 
 ## 2. Code map and reading order
 
@@ -109,13 +111,12 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
 
 ## 6. Current results
 
-**These numbers are from the version before the planned close/lift/hold and the new
-initial guesses (rollout of (A) + IK, (A) closing and lifting); to be rerun.** On the four
-report scenes (measured latency, one episode at a time), the current version grasps and
-holds in all four: `tall_blocker`, `pillar_and_blocker` (first plan 1.8 s), `mix_0077` and
-`mix_0061`.
+On the four report scenes (measured latency, one episode at a time), the current version
+grasps and holds in all four: `tall_blocker`, `pillar_and_blocker` (first plan 1.8 s),
+`mix_0077` and `mix_0061`.
 
-All runs scored to the end of each scene, 8 episodes in parallel on a 10-core machine, one
+**The rest of this section is from an earlier version (initial guesses: rollout of (A) and
+IK; (A) closed and lifted after the approach); to be rerun.** All runs scored to the end of each scene, 8 episodes in parallel on a 10-core machine, one
 run per scene, with compute time costing simulated time (`measured`) and with planning time
 free (`none`). Sets as in `planner_A.md`.
 
@@ -134,9 +135,115 @@ the grids is 1.7-2.4 s later than with planning time free. The plan itself stays
 
 ## 7. Limitations and open questions
 
-1. **Compute**: around a pillar the approach needs hundreds of SNOPT iterations (several
-   seconds); the hold adds 0.1-2 s. With measured latency the arm stays parked while (C)
-   computes, and an obstacle can hit it there; without a plan it stays parked.
+1. **Compute**: the first plan takes about 1-2 s (`pillar_and_blocker`: 1.8 s); a seed
+   that leads SNOPT into a bad local minimum can take several seconds. With measured
+   latency the arm stays parked while (C) computes, and an obstacle can hit it there;
+   without a plan it stays parked.
 2. **The object in the hand** is not in the collision model of the hold.
 3. **One plan**: no replanning, which is fine with perfect prediction; with prediction errors
    the plan would go stale.
+
+## 8. The optimisation problems, exactly
+
+Defaults are the `HybridController` constructor arguments (in brackets).
+
+**Notation.** All in the world frame.
+
+* A plan is a cubic B-spline (clamped, uniform knots) $q(s) = \sum_{j=1}^{N} b_j(s)\,P_j$, $s \in [0, 1]$,
+  with control points $P_j \in \mathbb{R}^7$, executed as $t = t_0 + sT$. So $\dot q = q'(s)/T$ and
+  $\ddot q = q''(s)/T^2$. Drake's B-spline derivative control points are $r'_j$ (for $q'$) and $r''_j$ (for $q''$).
+* $p_G, R_G$: position and orientation of the WSG body frame at $q$. $\omega_G, v_G$: its angular and linear
+  velocity at $(q, \dot q)$.
+* $p^*(t), R^*$: the grasp pose of the object at time $t$ (`WorldModel.grasp_pose`, nominal top-down).
+  $v_{obj}$: the carrier's velocity, constant while the object is in reach, so $p^*(t) = p^*(\bar t) + v_{obj}(t - \bar t)$.
+* $e_R = \tfrac12 (R - R^\top)^\vee$ with $R = R^{*\top} R_G$: the rotation error, $\sin\theta$ times the axis.
+* $d_{\mathcal C}(q, t)$: the smallest signed distance between the robot (iiwa links 1-7 and the WSG, fingers
+  open) at $q$ and the world geometries of the categories $\mathcal C$, posed where the prediction puts them at
+  $t$. The categories are obstacles $O$, cart (conveyor and carrier) $C$, floor $F$ and target $Tg$.
+* $d_{\mathcal C}(q, t) \ge lb$ is Drake's `MinimumDistanceLowerBoundConstraint`:
+  $\mathrm{SmoothOverMax}_i\ \varphi\big((d_i - d_{inf})/(d_{inf} - lb)\big)/\varphi(-1) \le 1$ over the robot-world
+  pairs $i$, with $d_{inf} = lb + 0.01$ m and $\varphi$ the quadratically smoothed hinge. The world's
+  configuration at $t = t_0 + sT$ is linearised as $x_w(\bar t) + \dot x_w(\bar t)(t - \bar t)$, so the
+  gradient with respect to $T$ includes the obstacles' motion.
+* Inequalities between vectors hold per component. "$\forall s$" bounds are imposed on the control points of
+  $q$, $q'$ or $q''$, so by the convex-hull property they hold for all $s$ (conservatively).
+
+### 8.1 Approach (`_plan`)
+
+Variables: $P_1, \dots, P_N$ ($N$ = 12) and $T$. $t = t_0 + sT$ throughout.
+
+$$
+\begin{aligned}
+\min_{P,\,T}\quad & T + \lambda \textstyle\sum_j \lVert r'_j \rVert^2 \qquad (\lambda = 0.1;\ \text{an upper bound on } \textstyle\int_0^1 \lVert q'(s) \rVert^2 ds) \\
+\text{s.t.}\quad & \max(t_{enter} - t_0,\ 0.3) \le T \le t_{exit} - 1.5 - t_0 \\
+& q(0) = q_0, \quad q'(0) = 0 \\
+& q_{lo} + 0.05 \le q(s) \le q_{hi} - 0.05, \quad |\dot q(s)| \le 0.6\, v_{max}, \quad |\ddot q(s)| \le 4 \qquad \forall s \\
+& \textbf{grasp } (s = 1):\ |p_G - p^*(t)| \le 0.005, \ |e_R| \le 0.02, \ |\omega_G| \le 0.02, \ |v_G - v_{obj}| \le 0.02 \\
+& \textbf{hover } (s = s_d):\ |p_G - p^*(t) - h\,\hat z| \le 0.01, \ |e_R| \le 0.04 \\
+& \textbf{descent } (s = s_d + \tfrac{i}{4}(1 - s_d),\ i = 1, 2, 3):\ p_G - p^*(t) \in [-0.015, 0.015]^2 \times [0,\ h + 0.02] \\
+& \textbf{clearance } (s = \tfrac{k}{30},\ k = 1, \dots, 30):\ d_O(q, t) \ge 0.04, \quad d_{C \cup F \cup Tg}(q, t) \ge 0.005
+\end{aligned}
+$$
+
+* $q_0$: where the arm is when (C) starts planning; $t_0$ = now + `plan_budget`.
+* $v_{max}$: the iiwa datasheet joint speeds, scaled by `v_scale` (0.6). $|\ddot q| \le$ `accel_limit` (4 rad/s²).
+* $h$ = `hover` (0.10 m).
+* $s_d = \mathrm{clip}\big((t_d - t_0)/T_{guess},\ 0.3,\ 0.9\big)$ is fixed, where $t_d$ is the initial
+  guess's descent time.
+* The obstacle and environment bounds are `d_safe` (0.04 m) and `d_safe_env` (0.005 m), checked at
+  `n_collision_samples` (30) times.
+* Initial guess: $T_{guess}$ = the guess's grasp time $- t_0$ (clipped to the bounds on $T$), and the control
+  points fitted by least squares to the guess path at 40 points.
+* Solver: SNOPT, major optimality tolerance `optimality_tol` (0.1), major feasibility tolerance 1e-4. A plan is
+  accepted if SNOPT reports success.
+
+### 8.2 Close, lift and hold (`_plan_hold`)
+
+* It starts at the grasp, $t_g = t_0 + T^*$ (the approach's solved duration), in the approach's end state
+  $q_T, \dot q_T$.
+* Its duration is fixed: $D = \max(t_{end} - t_g,\ t_{up} + 0.5)$, with $t_{up} = 0.4 + 0.6 = 1.0$ s
+  (`close_time` + `lift_time`) and $t_{end}$ the end of the scene.
+* $N_h = \lceil D/0.5 \rceil + 3$ control points (`hold_knot_spacing`).
+* $t = t_g + sD$, and $\tau = t - t_g$ is the time since the grasp.
+
+$$
+\begin{aligned}
+\min_{P}\quad & \textstyle\sum_j \lVert r'_j \rVert^2 \\
+\text{s.t.}\quad & q(0) = q_T, \quad q'(0) = D\,\dot q_T, \quad q'(1) = 0 \\
+& q_{lo} + 0.05 \le q(s) \le q_{hi} - 0.05, \quad |\dot q(s)| \le 0.6\, v_{max}, \quad |\ddot q(s)| \le 2 \qquad \forall s \\
+& \textbf{closing } (\tau = 0.2,\ 0.4):\ |p_G - p^*(t)| \le 0.005, \ |e_R| \le 0.02 \\
+& \textbf{lifted } (\tau = 1.0,\ 1.4,\ 1.8, \dots \le D):\ z_G \ge z^*(t_g) + 0.10 \\
+& \textbf{clearance } (\tau = 0.4,\ 0.8,\ 1.2, \dots \le D):\ d_O(q, t) \ge 0.04, \quad d_{C \cup F}(q, t) \ge 0.005
+\end{aligned}
+$$
+
+* $|\ddot q| \le$ `hold_accel_limit` (2 rad/s²). The lift height is `lift_height` (0.10 m). Samples are every
+  `hold_sample_spacing` (0.4 s).
+* The target is left out of the clearance because it is in the hand. The object is not collision-checked
+  against the obstacles.
+* The gripper is commanded closed from $t_g$ on.
+* Initial guess: $q_T$, then $q_c$ at $\tau = 0.4$, then $q_l$ from $\tau = 1.0$ to $D$, interpolated in
+  joint space.
+  * $q_c$: IK of the grasp pose at $t_g + 0.4$. If IK fails, $q_T + 0.4\,\dot q_T$.
+  * $q_l$: IK of the same pose raised by 0.10 m. If IK fails, $q_c$.
+* Same solver settings as 8.1.
+
+### 8.3 IK for the initial guesses (`_ik_grasps`, `_first_seeds`, `_ik`)
+
+Drake's `InverseKinematics`, with the obstacles fixed where they are at time $t$, and $d_O(q, t) \ge 0.05$
+(`d_safe` + 1 cm, influence offset 0.2 m).
+
+* **Grasp and hover poses:** find $q$ with $|p_G - p_X| \le 0.003$ and $\angle(R_G, R_X) \le 0.01$ rad (no
+  cost; the initial guess as below).
+  * Grasp times $t_g$ step by 0.5 s from $\max(t_{enter}, t_0 + 1)$ to $t_{exit} - 2$. For each:
+    * the grasp $q_g$ at $t_g$;
+    * the hover $q_h$ at $t_d = t_g - 0.6$: the grasp pose raised by $h$, IK started from $q_g$.
+  * Up to 6 tries per grasp time: first from $q_0$, then from random configurations. Keep the pair whose
+    hover is nearest to $q_0$ in $\max_j |q_{h,j} - q_{0,j}|/v_j$ ($v_j$: datasheet speed of joint $j$).
+* **Halfway configuration:** $\min \lVert q - q_{target} \rVert^2$ subject to the clearance, at
+  $t = (t_0 + t_d)/2$.
+  * $q_{target}$ is first the midpoint $(q_0 + q_h)/2$, then that midpoint with each joint moved by up to
+    `random_spread` (1 rad) at random (`n_random_seeds`: 3).
+  * If the midpoint is already collision-free, it adds nothing to the straight line and is skipped.
+* **Paths (`_path`):** straight lines in joint space, $q_0 \to$ (halfway configuration at $(t_0 + t_d)/2$)
+  $\to q_h$ at $t_d \to q_g$ at $t_g$.
