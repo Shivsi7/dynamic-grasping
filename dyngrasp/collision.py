@@ -42,6 +42,8 @@ class DistanceRow:
     category: str  # obstacle | cart | floor | target
     robot_body: str
     other_body: str
+    J: np.ndarray  # (3, 7) translational Jacobian of the robot witness point
+    v_world: np.ndarray  # (3,) velocity of the world witness point
 
 
 class CollisionWorld:
@@ -142,6 +144,8 @@ class CollisionWorld:
                     category=cat,
                     robot_body=self.roles.body_name(robot_b),
                     other_body=self.roles.body_name(other_b),
+                    J=J_r[:, self.iiwa_v : self.iiwa_v + NQ],
+                    v_world=J_o @ v_full,
                 )
             )
         return out
