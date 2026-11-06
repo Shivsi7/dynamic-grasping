@@ -77,15 +77,7 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
   2 rad/s^2 (gentler than the approach).
 * The object in the hand is not part of the collision model.
 
-### 4.4 Optional: speed-dependent clearance (`obstacle_clearance="speed"`)
-
-* Replaces the fixed 4 cm in both optimisations: every 0.05 s, per obstacle,
-  d >= 5 mm + (obstacle speed + arm speed) x spacing / 2, plus a cost on
-  max(0, 5 cm - d)^2 (as a slack).
-* Off by default: on the 214 scenes (measured latency, 8 episodes in parallel) the first
-  plan took 6.0 s instead of 1.8 s (median), and only 17 scenes succeeded instead of 89.
-
-### 4.5 Planning time costs time (`update`, `_joint_trajectory`)
+### 4.4 Planning time costs time (`update`, `_joint_trajectory`)
 
 * With `latency="measured"` a command takes effect after the wall time it took to compute.
   (C) therefore plans ahead (`plan_budget`) and sends a time-indexed `JointTrajectory`, so
@@ -97,7 +89,7 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
 * No replanning: with perfect prediction the plan stays valid, and re-solving from the
   plan's own reference does not change it.
 
-### 4.6 Simulation details that mattered
+### 4.5 Simulation details that mattered
 
 * (C) commands every 5 ms: the iiwa driver differentiates the position command every 5 ms,
   and a 10 ms command made its velocity reference alternate between 2v and 0.

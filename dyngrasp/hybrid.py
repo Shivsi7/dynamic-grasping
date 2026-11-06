@@ -119,11 +119,6 @@ class HybridController(Controller):
         hold_accel_limit: float = 2.0,
         hold_knot_spacing: float = 0.5,
         hold_sample_spacing: float = 0.4,
-        obstacle_clearance: str = "fixed",
-        track_margin: float = 0.005,
-        sample_dt: float = 0.05,
-        clearance_pref: float = 0.05,
-        clearance_weight: float = 100.0,
         n_workers: int = 1,
     ):
         self._kwargs = {k: v for k, v in locals().items() if k not in ("self", "__class__")}
@@ -138,12 +133,6 @@ class HybridController(Controller):
         self.close_time, self.lift_height, self.lift_time = close_time, lift_height, lift_time
         self.hold_accel_limit = hold_accel_limit
         self.hold_knot_spacing, self.hold_sample_spacing = hold_knot_spacing, hold_sample_spacing
-        # "fixed": >= d_safe from the obstacles at the samples.  "speed": every sample_dt, per obstacle,
-        # d_i >= track_margin + (v_obs_i + v_arm) sample_dt / 2, plus clearance_weight max(0, clearance_pref - d_i)^2.
-        assert obstacle_clearance in ("fixed", "speed")
-        self.obstacle_clearance = obstacle_clearance
-        self.track_margin, self.sample_dt = track_margin, sample_dt
-        self.clearance_pref, self.clearance_weight = clearance_pref, clearance_weight
         self.n_workers = n_workers  # > 1: try the seeds in parallel, in that many processes
         self._workers = []
         self.solver = SnoptSolver()
@@ -160,10 +149,9 @@ class HybridController(Controller):
                 if any(cw._geoms[c] for c in cats)
             ]
 
-        obstacles = [(("obstacle",), self.d_safe)] if self.obstacle_clearance == "fixed" else []
-        self.min_distance = min_distance([*obstacles, (("cart", "floor", "target"), self.d_safe_env)])
-        self.min_distance_held = min_distance([*obstacles, (("cart", "floor"), self.d_safe_env)])  # object in hand
-        self.obstacle_names = [o.name for o in world.spec.obstacles]
+        obstacles = (("obstacle",), self.d_safe)
+        self.min_distance = min_distance([obstacles, (("cart", "floor", "target"), self.d_safe_env)])
+        self.min_distance_held = min_distance([obstacles, (("cart", "floor"), self.d_safe_env)])  # object in hand
         self.v_obj = world.target_velocity(world.t_enter)
         self.plant_ad = robot.plant.ToAutoDiffXd()
         self.ctx_ad = self.plant_ad.CreateDefaultContext()
@@ -377,10 +365,6 @@ class HybridController(Controller):
         for s in np.linspace(0.0, 1.0, self.n_collision_samples + 1)[1:]:
             for c in self.min_distance:
                 self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), s, P, T, w, dw, t0)
-        if self.obstacle_clearance == "speed":
-            n = int(np.ceil(T_guess / self.sample_dt))
-            for k in range(1, n + 1):
-                self._add_obstacle_clearance(prog, k, n, P, T, w, dw, t0)
 
         self._guess(prog, P, T, w, (guess_ts - t0) / T_guess, guess_qs, T_guess)
         result, info = self._solve(prog, T, tic)
@@ -422,10 +406,6 @@ class HybridController(Controller):
         for tk in np.arange(self.close_time, D + 1e-9, self.hold_sample_spacing):
             for c in self.min_distance_held:
                 self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), tk / D, P, Td, w, dw, t_g)
-        if self.obstacle_clearance == "speed":
-            n = int(np.ceil(D / self.sample_dt))
-            for k in range(1, n + 1):
-                self._add_obstacle_clearance(prog, k, n, P, Td, w, dw, t_g)
 
         # Initial guess: move with the object, then straight up, then stay (IK poses where they exist).
         t_c = t_g + self.close_time
@@ -510,57 +490,6 @@ class HybridController(Controller):
             )
 
         prog.AddConstraint(g, np.asarray(lb, float), np.asarray(ub, float), np.concatenate([P[:, idx].T.ravel(), [T]]))
-
-    def _add_obstacle_clearance(self, prog, k, n, P, T, w, dw, t0):
-        """Sample k of n (s = k / n, spacing h = T / n): per obstacle i, with slack e_i >= 0 costing w e_i^2,
-            d_i - (v_obs_i + v_arm) h / 2 >= track_margin   and   d_i + e_i >= clearance_pref.
-        d_i: signed distance to obstacle i where it is at t (CollisionWorld.rows); v_arm: speed of the
-        robot's witness point under the plan's qdot (its gradient in q through the Jacobian is left out)."""
-        s, m = k / n, len(self.obstacle_names)
-        ws, dws = w(s), dw(s)
-        idx = np.flatnonzero((np.abs(ws) > 1e-12) | (np.abs(dws) > 1e-12))
-        ws, dws, nP = ws[idx], dws[idx], len(idx) * NQ
-        e = prog.NewContinuousVariables(m, "e")
-        prog.AddBoundingBoxConstraint(0.0, np.inf, e)
-        prog.AddQuadraticCost(2.0 * self.clearance_weight * np.eye(m), np.zeros(m), e, is_convex=True)
-        prog.SetInitialGuess(e, np.zeros(m))
-        far = self.clearance_pref + 0.1  # beyond this an obstacle is ignored at this sample
-
-        def g(z):
-            zv = ExtractValue(z).ravel() if z.dtype == object else z
-            Pz, Tz, ez = zv[:nP].reshape(len(idx), NQ).T, zv[nP], zv[nP + 1 :]
-            q, qd, t = Pz @ ws, Pz @ dws / Tz, t0 + s * Tz
-            h = Tz / n
-            val = np.concatenate([np.full(m, far), np.full(m, far) + ez])
-            jac = np.zeros((2 * m, 2 * NQ + 1))  # d val / d (q, qd, t)
-            rows = {}
-            for r in self.cw.rows(q, t, far):
-                if r.category == "obstacle" and (r.other_body not in rows or r.phi < rows[r.other_body].phi):
-                    rows[r.other_body] = r
-            for i, name in enumerate(self.obstacle_names):
-                if name not in rows:
-                    continue
-                r = rows[name]
-                v = r.J @ qd
-                v_arm, v_obs = np.linalg.norm(v), np.linalg.norm(r.v_world)
-                val[i] = r.phi - (v_obs + v_arm) * h / 2
-                val[m + i] = r.phi + ez[i]
-                jac[[i, m + i], :NQ] = r.a
-                jac[[i, m + i], 2 * NQ] = -r.vn
-                jac[i, NQ : 2 * NQ] = -h / 2 * (v @ r.J) / max(v_arm, 1e-9)
-                jac[i, 2 * NQ] -= (v_obs + v_arm) / (2 * n) / s  # h = (t - t0) / (s n)
-            if z.dtype != object:
-                return val
-            J_qqdt = np.vstack([  # d (q, qd, t) / d (P, T)
-                np.hstack([np.kron(ws, np.eye(NQ)), np.zeros((NQ, 1))]),
-                np.hstack([np.kron(dws, np.eye(NQ)) / Tz, -qd[:, None] / Tz]),
-                np.append(np.zeros(nP), s)[None, :],
-            ])
-            J = np.hstack([jac @ J_qqdt, np.vstack([np.zeros((m, m)), np.eye(m)])])
-            return InitializeAutoDiff(val, J @ ExtractGradient(z)).ravel()
-
-        lb = np.concatenate([np.full(m, self.track_margin), np.full(m, self.clearance_pref)])
-        prog.AddConstraint(g, lb, np.full(2 * m, np.inf), np.concatenate([P[:, idx].T.ravel(), [T], e]))
 
     def _clearance(self, constraint):
         """Minimum distance at (q, t): the world's joints are where the prediction puts them at t."""
