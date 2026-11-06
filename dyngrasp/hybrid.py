@@ -120,6 +120,7 @@ class HybridController(Controller):
         hold_knot_spacing: float = 0.5,
         hold_sample_spacing: float = 0.4,
         n_workers: int = 4,
+        optimality_tol: float = 0.1,
     ):
         self._kwargs = {k: v for k, v in locals().items() if k not in ("self", "__class__")}
         self.n_control_points = n_control_points
@@ -134,6 +135,9 @@ class HybridController(Controller):
         self.hold_accel_limit = hold_accel_limit
         self.hold_knot_spacing, self.hold_sample_spacing = hold_knot_spacing, hold_sample_spacing
         self.n_workers = n_workers  # > 1: try the seeds in parallel, in that many processes
+        # SNOPT's major optimality tolerance: most of a tight solve is spent polishing a plan that is already
+        # feasible (pillar_and_blocker: 3.3 s at 1e-3, 0.45 s at 1e-1, nearly the same path)
+        self.optimality_tol = optimality_tol
         self._workers = []
         self.solver = SnoptSolver()
 
@@ -444,7 +448,7 @@ class HybridController(Controller):
         prog.SetInitialGuess(T, T_guess)
 
     def _solve(self, prog, T, tic):
-        for name, value in [("Major optimality tolerance", 1e-3), ("Major feasibility tolerance", 1e-4)]:
+        for name, value in [("Major optimality tolerance", self.optimality_tol), ("Major feasibility tolerance", 1e-4)]:
             prog.SetSolverOption(self.solver.solver_id(), name, value)
         result = self.solver.Solve(prog)
         info = {"ok": result.is_success(), "solve_ms": 1e3 * (time.perf_counter() - tic),
