@@ -3,8 +3,8 @@
 Shortly before the object comes within reach (t_enter - lead_time) the controller
 
 1. finds a collision-free hover pose and the grasp below it by inverse
-   kinematics against the predicted obstacles, at the earliest grasp time
-   (0.5 s steps) that has both;
+   kinematics against the predicted obstacles, at the grasp time nearest the
+   target's closest approach to the robot (0.5 s steps outward) that has both;
 2. optimises the approach with Drake's `KinematicTrajectoryOptimization`: a
    cubic B-spline q(s), s in [0, 1], with free duration T and time
    t = t0 + s T, that
@@ -130,6 +130,7 @@ class HybridController(Controller):
         optimality_tol: float = 0.1,
         dodge_sample_spacing: float = 0.1,
         refine_tol: float = 1e-2,
+        exit_margin: float = 1.2,
     ):
         self._kwargs = {k: v for k, v in locals().items() if k not in ("self", "__class__")}
         self.n_control_points = n_control_points
@@ -153,6 +154,7 @@ class HybridController(Controller):
         # sending the loose plan (C) keeps the best it has at the deadline
         self.refine_tol = refine_tol
         self.refine_inline = True  # (False in a seed worker)
+        self.exit_margin = exit_margin  # grasp at least this long before the target leaves reach (close + lift: 1 s)
         self.deadline = np.inf  # wall time (time.time()) by which the plan being computed is needed
         self._workers = []
         self.solver = SnoptSolver()
@@ -230,7 +232,7 @@ class HybridController(Controller):
         t0 = t + self.budget
         self.deadline = time.time() + self.budget - 0.05
         q0, v0 = (state.q_cmd, np.zeros(NQ)) if moving is None else (moving.value(t0), moving.velocity(t0))
-        info, plan = self._first_plan(t, t0, q0, v0, moving) if t0 < world.t_exit - 2.0 else ({"ok": False}, None)
+        info, plan = self._first_plan(t, t0, q0, v0, moving) if t0 < world.t_exit - self.exit_margin else ({"ok": False}, None)
         info["budget"], self.budget = self.budget, max(self.budget, 1.5 * (time.perf_counter() - tic))
         if plan is None:
             self.phase = "no_plan"
@@ -339,9 +341,13 @@ class HybridController(Controller):
             yield result(r, h)
 
     def _ik_grasps(self, t0, q0, n_tries=6, descend_time=0.6):
-        """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time (0.5 s apart) that has both."""
+        """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time that has both: 0.5 s
+        apart, outward from the target's closest approach to the robot (earlier first), where the arm reaches it best."""
         world, rng = self.world, np.random.default_rng(0)
-        for t_g in np.arange(max(world.t_enter, t0 + 1.0), world.t_exit - 2.0, 0.5):
+        lo, hi = max(world.t_enter, t0 + 1.0), world.t_exit - self.exit_margin
+        t_c = np.clip(world.t_closest, lo, hi)
+        times = np.concatenate([np.arange(t_c, lo - 1e-9, -0.5), np.arange(t_c + 0.5, hi + 1e-9, 0.5)])
+        for t_g in sorted(times, key=lambda x: (abs(x - t_c), x)):
             t_d = t_g - descend_time
             best = None
             for k in range(n_tries):  # first from q0, then from random configurations; keep the nearest
@@ -398,7 +404,7 @@ class HybridController(Controller):
         tic = time.perf_counter()
         world = self.world
         T_lo = max(world.t_enter - t0, 0.3)
-        T_hi = world.t_exit - 1.5 - t0
+        T_hi = world.t_exit - self.exit_margin - t0
         T_guess = self.traj.end_time() if warm else float(np.clip(guess_ts[-1] - t0, T_lo, T_hi))
         s_descend = float(np.clip((self.t_descend - t0) / T_guess, 0.3, 0.9))
 
