@@ -28,8 +28,7 @@ def test_reactive_and_hybrid_grasp_past_the_tall_blocker():
 def test_hybrid_gets_around_the_pillar():
     # planning time free: this optimisation takes ~10 s, so with measured latency (C) misses the pillar scene
     r = run_episode(S.pillar_and_blocker(), HybridController(), latency="none")
-    # (2 cm near the grasp, at the optimiser's samples: it dips just below between them)
-    assert r.outcome == "success" and not r.collided and r.min_clearance_obstacles > 0.015
+    assert r.outcome == "success" and not r.collided and r.min_clearance_obstacles > 0.02
 
 
 def test_hybrid_plan_ends_at_the_moving_grasp_pose():

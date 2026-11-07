@@ -11,9 +11,8 @@ Shortly before the object comes within reach (t_enter - lead_time) the controlle
      * starts at rest at the current configuration,
      * ends at the grasp pose of the object *at t0 + T*, moving with it,
      * passes the hover pose above the object and comes straight down,
-     * keeps a minimum distance >= d_safe from the obstacles (d_safe_grasp
-       from the hover pose on) and d_safe_env from the cart, the floor and the
-       target, at sample times t0 + s_k T,
+     * keeps a minimum distance >= d_safe from the obstacles (and d_safe_env
+       from the cart, the floor and the target) at sample times t0 + s_k T,
    minimising duration plus path energy.  The constraints are "space-time":
    where the object and the obstacles are at sample k depends on T, and the
    gradients include that dependence (Drake's
@@ -23,8 +22,7 @@ Shortly before the object comes within reach (t_enter - lead_time) the controlle
    from the grasp to the end of the scene (`_plan_hold`): start in the
    approach's end state, move with the object while the gripper closes, be at
    least `lift_height` above the grasp from `close_time + lift_time` on, keep
-   clear of the obstacles (d_safe_grasp while closing and lifting, then
-   d_safe), the cart and the floor, end at rest; minimise path
+   clear of the obstacles, the cart and the floor, end at rest; minimise path
    energy, with a lower acceleration limit than the approach;
 4. sends hold-still + approach + close/lift/hold as one `JointTrajectory`,
    sampled every 5 ms by the wrapper; it holds its last pose afterwards.
@@ -112,7 +110,6 @@ class HybridController(Controller):
         n_control_points: int = 12,
         n_collision_samples: int = 30,
         d_safe: float = 0.04,
-        d_safe_grasp: float = 0.02,
         d_safe_env: float = 0.005,
         hover: float = 0.10,
         lead_time: float = 1.0,
@@ -139,9 +136,6 @@ class HybridController(Controller):
         self.n_control_points = n_control_points
         self.n_collision_samples = n_collision_samples
         self.d_safe, self.d_safe_env = d_safe, d_safe_env
-        # obstacle clearance near the grasp (IK poses, hover to grasp, close and lift): mix_0038's only grasp is ~2 cm
-        # from an obstacle
-        self.d_safe_grasp = d_safe_grasp
         self.hover, self.lead_time, self.v_scale = hover, lead_time, v_scale
         self.plan_budget = plan_budget
         self.energy_weight = energy_weight
@@ -177,12 +171,9 @@ class HybridController(Controller):
                 if any(cw._geoms[c] for c in cats)
             ]
 
-        env, env_held = (("cart", "floor", "target"), self.d_safe_env), (("cart", "floor"), self.d_safe_env)
-        obstacles, near = (("obstacle",), self.d_safe), (("obstacle",), self.d_safe_grasp)
-        self.min_distance = min_distance([obstacles, env])
-        self.min_distance_held = min_distance([obstacles, env_held])  # object in hand
-        self.min_distance_grasp = min_distance([near, env])  # hover to grasp
-        self.min_distance_held_grasp = min_distance([near, env_held])  # closing and lifting
+        obstacles = (("obstacle",), self.d_safe)
+        self.min_distance = min_distance([obstacles, (("cart", "floor", "target"), self.d_safe_env)])
+        self.min_distance_held = min_distance([obstacles, (("cart", "floor"), self.d_safe_env)])  # object in hand
         self.v_obj = world.target_velocity(world.t_enter)
         self.plant_ad = robot.plant.ToAutoDiffXd()
         self.ctx_ad = self.plant_ad.CreateDefaultContext()
@@ -385,8 +376,8 @@ class HybridController(Controller):
         return RigidTransform(X.rotation(), X.translation() + [0, 0, dz])
 
     def _ik(self, t, X, q_guess):
-        """iiwa q with the gripper at X, >= d_safe_grasp from the obstacles where they are at t (or, if X is None,
-        nearest to q_guess, >= d_safe + 1 cm); None if not found."""
+        """iiwa q with the gripper at X (or, if X is None, nearest to q_guess) and >= d_safe + 1 cm from the
+        obstacles where they are at t (None if not found)."""
         cw, plant = self.cw, self.cw.plant
         ctx = cw.context(("obstacle",))
         cw.set_time(ctx, t, q_guess)
@@ -403,7 +394,7 @@ class HybridController(Controller):
             G = plant.GetFrameByName("body", cw.kin.wsg)
             ik.AddPositionConstraint(G, np.zeros(3), plant.world_frame(), X.translation() - 0.003, X.translation() + 0.003)
             ik.AddOrientationConstraint(G, RotationMatrix(), plant.world_frame(), X.rotation(), 0.01)
-        ik.AddMinimumDistanceLowerBoundConstraint(self.d_safe + 0.01 if X is None else self.d_safe_grasp, 0.2)
+        ik.AddMinimumDistanceLowerBoundConstraint(self.d_safe + 0.01, 0.2)
         result = Solve(prog, x)
         return result.GetSolution(q)[cw.iiwa_q : cw.iiwa_q + NQ] if result.is_success() else None
 
@@ -446,7 +437,7 @@ class HybridController(Controller):
         for s in np.linspace(s_descend, 1.0, 5)[1:-1]:  # straight down onto the object
             self._add(prog, above_grasp, [-0.015, -0.015, 0.0], [0.015, 0.015, self.hover + 0.02], s, P, T, w, dw, t0)
         for s in np.linspace(0.0, 1.0, self.n_collision_samples + 1)[1:]:
-            for c in self.min_distance_grasp if s >= s_descend else self.min_distance:
+            for c in self.min_distance:
                 self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), s, P, T, w, dw, t0)
 
         if warm:
@@ -491,7 +482,7 @@ class HybridController(Controller):
         for tk in np.arange(t_up, D + 1e-9, self.hold_sample_spacing):  # lifted, and kept there
             self._add(prog, height, [z_lift], [np.inf], tk / D, P, Td, w, dw, t_g)
         for tk in np.arange(self.close_time, D + 1e-9, self.hold_sample_spacing):
-            for c in self.min_distance_held_grasp if tk <= t_up else self.min_distance_held:
+            for c in self.min_distance_held:
                 self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), tk / D, P, Td, w, dw, t_g)
 
         if warm:
