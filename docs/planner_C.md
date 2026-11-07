@@ -207,3 +207,17 @@ Held-out: (A) 52, (B) 63, (C) 73. No held-out scene where (C) fails and (A) or (
 * `scripts/run_eval.py --scenarios scenarios/dev_v0.yaml --controllers hybrid`: success on a set.
 * `scripts/render.py --preset pillar_and_blocker --controller hybrid --video`: an MP4.
 * `scripts/demo_scene.py --controller hybrid`: Meshcat.
+
+## Iterative upgrades
+
+What I changed along the way, and why:
+
+- **No more (A) as the starting point.** (C) depended too much on (A) solving the task, so it wasn't much of an improvement. Now the initial guess is just a straight line from the start to an IK grasp pose.
+- **More initial guesses.** A straight line can be a bad start too, so we add 3 paths through a random configuration halfway (the straight-line midpoint with every joint moved by up to 1 rad).
+- **Speed.** It was still too slow (planning took about 4 s, and the arm got hit before it finished), so:
+  - the initial guesses are solved in parallel;
+  - the halfway points are made collision-free, which gives better starts;
+  - constraint gradients are built in numpy and handed to Drake as AutoDiff: 3–4× faster solves;
+  - the optimality tolerance went from 1e-3 to 0.1, the biggest gain. That sometimes gives really bad plans, so while there's time left each plan is re-solved at a tighter tolerance, starting from that solution, and we keep the lowest-cost plan across all guesses.
+- **Dodging and holding.** Obstacles coming at the parked arm would still hit it, so a small `_dodge` optimisation moves it out of the way first. At the other end, `_plan_hold` closes, lifts and holds the target until the end of the scene.
+- **Better grasp times.** Grasp times are now tried starting from when the target passes closest to the robot, instead of from the earliest one.
