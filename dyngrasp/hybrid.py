@@ -35,8 +35,9 @@ are then) to the straight line's midpoint, then to `n_random_seeds` random
 configurations around it (each joint moved by up to `random_spread` rad); then
 straight lines to the IK poses of the next grasp times, up to `n_ik_seeds` in
 all.  The first seed that gives a feasible approach and hold is kept.  With
-`n_workers` > 1 the seeds run in parallel processes and the first to finish
-with a plan is kept.
+`n_workers` > 1 the seeds run in parallel processes, each sends its plan,
+then refines it (SNOPT at `refine_tol` from that solution) until the deadline,
+and the lowest-cost plan sent by then is kept.
 
 Planning time costs simulated time (the harness's measured latency), so the
 plan starts `plan_budget` s after the controller starts computing it: (C)
