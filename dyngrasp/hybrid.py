@@ -147,9 +147,11 @@ class HybridController(Controller):
         # feasible (pillar_and_blocker: 3.3 s at 1e-3, 0.45 s at 1e-1, nearly the same path)
         self.optimality_tol = optimality_tol
         self.dodge_sample_spacing = dodge_sample_spacing
-        # after a solve at optimality_tol, re-solve from its solution at refine_tol if that likely fits in the time
-        # left (a loose solve can stop at a feasible but poor plan: mix_0009's hold swung the arm around)
+        # a loose solve can stop at a feasible but poor plan (mix_0009's hold swung the arm around): it is re-solved
+        # from its solution at refine_tol; inline if that likely fits in the time left, or, in a seed worker, after
+        # sending the loose plan (C) keeps the best it has at the deadline
         self.refine_tol = refine_tol
+        self.refine_inline = True  # (False in a seed worker)
         self.deadline = np.inf  # wall time (time.time()) by which the plan being computed is needed
         self._workers = []
         self.solver = SnoptSolver()
@@ -277,12 +279,13 @@ class HybridController(Controller):
                 yield ("ik_via" if k == 0 else "random_via"), grasp, via
 
     def _run_seeds(self, t, t0, q0, v0, seeds):
-        """(info, JointTrajectory) of the first seed with a feasible plan: in order, or, with workers, the first
-        to finish; (info of the last, None) if none."""
+        """(info, JointTrajectory) of the first seed with a feasible plan, in order; or, with workers, of the
+        lowest-cost plan they have sent (loose ones, then refined) when all are done or, once one is feasible, at
+        the deadline; (info of the last, None) if none."""
         info, k = {}, 0
         if not self._workers:
             for k, seed in enumerate(seeds, 1):
-                info, plan = self._try_seed(t, t0, q0, v0, self.deadline, *seed)
+                info, plan = next(self._try_seed(t, t0, q0, v0, self.deadline, *seed))
                 if plan is not None:
                     return {**info, "tries": k}, plan
             return {**info, "tries": k}, None
@@ -290,26 +293,49 @@ class HybridController(Controller):
         seeds = list(seeds)
         for k, seed in enumerate(seeds):
             self._workers[k % len(self._workers)][1].send((self._task, t, t0, q0, v0, self.deadline, *seed))
-        done = 0
-        while done < len(seeds):
-            for conn in wait([c for _, c in self._workers]):
-                task, info, plan = conn.recv()
+        done, best = 0, None
+        while done < len(seeds) and (best is None or time.time() < self.deadline):
+            for conn in wait([c for _, c in self._workers], None if best is None else max(self.deadline - time.time(), 0.0)):
+                task, i, plan = conn.recv()
                 if task != self._task:  # a seed of an earlier plan, still running when that one was found
                     continue
-                done += 1
-                if plan is not None:
-                    return {**info, "tries": done}, plan
-        return {**info, "tries": done}, None
+                if i is None:  # that seed is done
+                    done += 1
+                    continue
+                info = {**i, "tries": done + 1}
+                if plan is not None and (best is None or info["cost"] < best[0]["cost"]):
+                    best = info, plan
+        return best or ({**info, "tries": done}, None)
 
     def _try_seed(self, t, t0, q0, v0, deadline, name, grasp, via):
-        """(info, JointTrajectory or None): approach and hold from one seed, needed by `deadline` (wall time)."""
+        """Yields (info, JointTrajectory or None): approach and hold from one seed, needed by `deadline` (wall time);
+        then, until the deadline, the feasible ones of: the hold re-solved from that one at refine_tol, and the
+        approach so re-solved with its hold."""
         self.deadline = deadline
         ts, qs, self.t_descend = self._path(t0, q0, *grasp, q_via=via)
         r = self._plan(t0, q0, v0, ts, qs)
         if not r["ok"]:
-            return {**r, "seed": name}, None
+            yield {**r, "seed": name}, None
+            return
+
+        def result(r, h):
+            info = {**r, "seed": name, "ok": h["ok"], "hold_ms": h["solve_ms"], "cost": r["cost"] + h["cost"],
+                    "refined": [r["refined"], h["refined"]]}
+            return info, self._joint_trajectory(t, q0) if h["ok"] else None
+
         h = self._plan_hold()
-        return {**r, "seed": name, "ok": h["ok"], "hold_ms": h["solve_ms"]}, self._joint_trajectory(t, q0) if h["ok"] else None
+        yield result(r, h)
+        if not h["ok"] or time.time() > deadline:
+            return
+        h2 = self._plan_hold(warm=True)
+        if h2["ok"]:
+            yield result(r, h2)
+        if time.time() > deadline:
+            return
+        r = self._plan(t0, q0, v0, ts, qs, warm=True)
+        h = self._plan_hold(warm=True) if r["ok"] else {"ok": False}
+        if h["ok"]:
+            yield result(r, h)
 
     def _ik_grasps(self, t0, q0, n_tries=6, descend_time=0.6):
         """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time (0.5 s apart) that has both."""
@@ -365,13 +391,14 @@ class HybridController(Controller):
         result = Solve(prog, x)
         return result.GetSolution(q)[cw.iiwa_q : cw.iiwa_q + NQ] if result.is_success() else None
 
-    def _plan(self, t0, q0, v0, guess_ts, guess_qs) -> dict:
-        """Approach: from (q0, v0) at t0 to the grasp, seeded with the joint path (guess_ts, guess_qs)."""
+    def _plan(self, t0, q0, v0, guess_ts, guess_qs, warm=False) -> dict:
+        """Approach: from (q0, v0) at t0 to the grasp, seeded with the joint path (guess_ts, guess_qs); or, if `warm`,
+        the same problem re-solved from the last approach at refine_tol."""
         tic = time.perf_counter()
         world = self.world
         T_lo = max(world.t_enter - t0, 0.3)
         T_hi = world.t_exit - 1.5 - t0
-        T_guess = float(np.clip(guess_ts[-1] - t0, T_lo, T_hi))
+        T_guess = self.traj.end_time() if warm else float(np.clip(guess_ts[-1] - t0, T_lo, T_hi))
         s_descend = float(np.clip((self.t_descend - t0) / T_guess, 0.3, 0.9))
 
         trajopt, P, T, w, dw = self._trajopt(self.n_control_points, self.accel_limit)
@@ -406,8 +433,11 @@ class HybridController(Controller):
             for c in self.min_distance:
                 self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), s, P, T, w, dw, t0)
 
-        self._guess(prog, P, T, w, (guess_ts - t0) / T_guess, guess_qs, T_guess)
-        result, info = self._solve(prog, T, tic, reserve=0.5)  # (leave time for the hold)
+        if warm:
+            self._guess_from(prog, P, T, w, self.traj, T_guess)
+        else:
+            self._guess(prog, P, T, w, (guess_ts - t0) / T_guess, guess_qs, T_guess)
+        result, info = self._solve(prog, T, tic, reserve=0.5, warm=warm)  # (leave time for the hold)
         info.update(t0=t0, T_guess=T_guess)
         if info["ok"]:
             self.traj = trajopt.ReconstructTrajectory(result)
@@ -416,8 +446,9 @@ class HybridController(Controller):
             self.t_descend = t0 + s_descend * self.traj.end_time()
         return info
 
-    def _plan_hold(self) -> dict:
-        """Close, lift and hold until the end of the scene, from the approach's end state at t_g = t0 + T."""
+    def _plan_hold(self, warm=False) -> dict:
+        """Close, lift and hold until the end of the scene, from the approach's end state at t_g = t0 + T; if `warm`,
+        solved at refine_tol from the last hold."""
         tic = time.perf_counter()
         T = self.traj.end_time()
         t_g = self.t0 + T
@@ -447,14 +478,16 @@ class HybridController(Controller):
             for c in self.min_distance_held:
                 self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), tk / D, P, Td, w, dw, t_g)
 
-        # Initial guess: move with the object, then straight up, then stay (IK poses where they exist).
-        t_c = t_g + self.close_time
-        q_c = self._ik(t_c, self._pose(t_c), q_T)
-        q_c = q_T + v_T * self.close_time if q_c is None else q_c
-        q_l = self._ik(t_g + t_up, self._pose(t_c, self.lift_height), q_c)
-        q_l = q_c if q_l is None else q_l
-        self._guess(prog, P, Td, w, np.array([0.0, self.close_time, t_up, D]) / D, np.array([q_T, q_c, q_l, q_l]), D)
-        result, info = self._solve(prog, Td, tic)
+        if warm:
+            self._guess_from(prog, P, Td, w, self.hold_traj, D)
+        else:  # move with the object, then straight up, then stay (IK poses where they exist)
+            t_c = t_g + self.close_time
+            q_c = self._ik(t_c, self._pose(t_c), q_T)
+            q_c = q_T + v_T * self.close_time if q_c is None else q_c
+            q_l = self._ik(t_g + t_up, self._pose(t_c, self.lift_height), q_c)
+            q_l = q_c if q_l is None else q_l
+            self._guess(prog, P, Td, w, np.array([0.0, self.close_time, t_up, D]) / D, np.array([q_T, q_c, q_l, q_l]), D)
+        result, info = self._solve(prog, Td, tic, warm=warm)
         info.update(t0=t_g, hold=True)
         if info["ok"]:
             self.hold_traj = trajopt.ReconstructTrajectory(result)
@@ -521,17 +554,25 @@ class HybridController(Controller):
         prog.SetInitialGuess(P, np.linalg.lstsq(np.array([w(x) for x in s]), q, rcond=None)[0].T)
         prog.SetInitialGuess(T, T_guess)
 
-    def _solve(self, prog, T, tic, reserve=0.0):
-        """SNOPT at optimality_tol; then, if it likely fits before the deadline (minus `reserve` s), again at refine_tol
-        from that solution, kept if it succeeds with a cost no higher."""
+    @classmethod
+    def _guess_from(cls, prog, P, T, w, traj, D):
+        """Initial guess: an earlier solution `traj` (a B-spline on the same basis: exact), re-timed to duration D."""
+        s = np.linspace(0.0, 1.0, 40)
+        cls._guess(prog, P, T, w, s, np.array([traj.value(x * traj.end_time()).ravel() for x in s]), D)
+
+    def _solve(self, prog, T, tic, reserve=0.0, warm=False):
+        """SNOPT at optimality_tol, or at refine_tol if `warm` (from an earlier solution). With refine_inline, then
+        again at refine_tol from that solution if that likely fits before the deadline (minus `reserve` s), kept if it
+        succeeds with a cost no higher."""
         sid = self.solver.solver_id()
         prog.SetSolverOption(sid, "Major feasibility tolerance", 1e-4)
-        prog.SetSolverOption(sid, "Major optimality tolerance", self.optimality_tol)
+        prog.SetSolverOption(sid, "Major optimality tolerance", self.refine_tol if warm else self.optimality_tol)
         t_loose = time.perf_counter()
         result = self.solver.Solve(prog)
         t_loose = time.perf_counter() - t_loose
-        refined = False
-        if result.is_success() and self.deadline - reserve - time.time() > 3.0 * t_loose:  # (a refine took ~2x)
+        refined = warm
+        if (not warm and self.refine_inline and result.is_success()
+                and self.deadline - reserve - time.time() > 3.0 * t_loose):  # (a refine took ~2x)
             prog.SetInitialGuessForAllVariables(result.GetSolution())
             prog.SetSolverOption(sid, "Major optimality tolerance", self.refine_tol)
             r2 = self.solver.Solve(prog)
@@ -611,9 +652,13 @@ class HybridController(Controller):
 
 
 def _seed_worker(conn, spec, kwargs):
-    """A process that plans one seed per task (HybridController with n_workers > 1)."""
+    """A process that plans one seed per task (HybridController with n_workers > 1): it sends (task, info, plan)
+    for each plan as it has it (loose, then refined), then (task, None, None)."""
     c = HybridController(**{**kwargs, "n_workers": 1})
+    c.refine_inline = False
     c.reset(WorldModel(spec), RobotModel(), None)
     conn.send("ready")
     for task, *args in iter(conn.recv, None):
-        conn.send((task, *c._try_seed(*args)))
+        for info, plan in c._try_seed(*args):
+            conn.send((task, info, plan))
+        conn.send((task, None, None))
