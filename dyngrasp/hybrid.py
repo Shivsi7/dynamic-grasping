@@ -128,6 +128,7 @@ class HybridController(Controller):
         n_workers: int = 4,
         optimality_tol: float = 0.1,
         dodge_sample_spacing: float = 0.1,
+        refine_tol: float = 1e-2,
     ):
         self._kwargs = {k: v for k, v in locals().items() if k not in ("self", "__class__")}
         self.n_control_points = n_control_points
@@ -146,6 +147,10 @@ class HybridController(Controller):
         # feasible (pillar_and_blocker: 3.3 s at 1e-3, 0.45 s at 1e-1, nearly the same path)
         self.optimality_tol = optimality_tol
         self.dodge_sample_spacing = dodge_sample_spacing
+        # after a solve at optimality_tol, re-solve from its solution at refine_tol if that likely fits in the time
+        # left (a loose solve can stop at a feasible but poor plan: mix_0009's hold swung the arm around)
+        self.refine_tol = refine_tol
+        self.deadline = np.inf  # wall time (time.time()) by which the plan being computed is needed
         self._workers = []
         self.solver = SnoptSolver()
 
@@ -208,7 +213,9 @@ class HybridController(Controller):
             t_go = max(t, t_plan) + self.budget if self.phase == "wait" else np.inf  # when a grasp plan could move it
             t_hit = self._parked_hit(state.q_cmd, t)
             if t_hit is not None and t + 0.1 < t_hit <= t_go:  # staying put gets hit first: dodge
-                info, dodge = self._dodge(t, t + min(self.plan_budget, 0.5 * (t_hit - t)), state.q_cmd)
+                budget = min(self.plan_budget, 0.5 * (t_hit - t))
+                self.deadline = time.time() + budget - 0.05
+                info, dodge = self._dodge(t, t + budget, state.q_cmd)
                 if dodge is not None:
                     return Command(trajectory=dodge, info={"phase": "dodge", "t_hit": t_hit, **info})
                 self._hit = (self._hit[0], None)  # no dodge found: carry on as if it were safe
@@ -218,6 +225,7 @@ class HybridController(Controller):
             return stay
         tic = time.perf_counter()
         t0 = t + self.budget
+        self.deadline = time.time() + self.budget - 0.05
         q0, v0 = (state.q_cmd, np.zeros(NQ)) if moving is None else (moving.value(t0), moving.velocity(t0))
         info, plan = self._first_plan(t, t0, q0, v0, moving) if t0 < world.t_exit - 2.0 else ({"ok": False}, None)
         info["budget"], self.budget = self.budget, max(self.budget, 1.5 * (time.perf_counter() - tic))
@@ -274,14 +282,14 @@ class HybridController(Controller):
         info, k = {}, 0
         if not self._workers:
             for k, seed in enumerate(seeds, 1):
-                info, plan = self._try_seed(t, t0, q0, v0, *seed)
+                info, plan = self._try_seed(t, t0, q0, v0, self.deadline, *seed)
                 if plan is not None:
                     return {**info, "tries": k}, plan
             return {**info, "tries": k}, None
         self._task += 1
         seeds = list(seeds)
         for k, seed in enumerate(seeds):
-            self._workers[k % len(self._workers)][1].send((self._task, t, t0, q0, v0, *seed))
+            self._workers[k % len(self._workers)][1].send((self._task, t, t0, q0, v0, self.deadline, *seed))
         done = 0
         while done < len(seeds):
             for conn in wait([c for _, c in self._workers]):
@@ -293,8 +301,9 @@ class HybridController(Controller):
                     return {**info, "tries": done}, plan
         return {**info, "tries": done}, None
 
-    def _try_seed(self, t, t0, q0, v0, name, grasp, via):
-        """(info, JointTrajectory or None): approach and hold from one seed."""
+    def _try_seed(self, t, t0, q0, v0, deadline, name, grasp, via):
+        """(info, JointTrajectory or None): approach and hold from one seed, needed by `deadline` (wall time)."""
+        self.deadline = deadline
         ts, qs, self.t_descend = self._path(t0, q0, *grasp, q_via=via)
         r = self._plan(t0, q0, v0, ts, qs)
         if not r["ok"]:
@@ -398,7 +407,7 @@ class HybridController(Controller):
                 self._add(prog, self._clearance(c), c.lower_bound(), c.upper_bound(), s, P, T, w, dw, t0)
 
         self._guess(prog, P, T, w, (guess_ts - t0) / T_guess, guess_qs, T_guess)
-        result, info = self._solve(prog, T, tic)
+        result, info = self._solve(prog, T, tic, reserve=0.5)  # (leave time for the hold)
         info.update(t0=t0, T_guess=T_guess)
         if info["ok"]:
             self.traj = trajopt.ReconstructTrajectory(result)
@@ -512,13 +521,25 @@ class HybridController(Controller):
         prog.SetInitialGuess(P, np.linalg.lstsq(np.array([w(x) for x in s]), q, rcond=None)[0].T)
         prog.SetInitialGuess(T, T_guess)
 
-    def _solve(self, prog, T, tic):
-        for name, value in [("Major optimality tolerance", self.optimality_tol), ("Major feasibility tolerance", 1e-4)]:
-            prog.SetSolverOption(self.solver.solver_id(), name, value)
+    def _solve(self, prog, T, tic, reserve=0.0):
+        """SNOPT at optimality_tol; then, if it likely fits before the deadline (minus `reserve` s), again at refine_tol
+        from that solution, kept if it succeeds with a cost no higher."""
+        sid = self.solver.solver_id()
+        prog.SetSolverOption(sid, "Major feasibility tolerance", 1e-4)
+        prog.SetSolverOption(sid, "Major optimality tolerance", self.optimality_tol)
+        t_loose = time.perf_counter()
         result = self.solver.Solve(prog)
+        t_loose = time.perf_counter() - t_loose
+        refined = False
+        if result.is_success() and self.deadline - reserve - time.time() > 3.0 * t_loose:  # (a refine took ~2x)
+            prog.SetInitialGuessForAllVariables(result.GetSolution())
+            prog.SetSolverOption(sid, "Major optimality tolerance", self.refine_tol)
+            r2 = self.solver.Solve(prog)
+            if r2.is_success() and r2.get_optimal_cost() <= result.get_optimal_cost():
+                result, refined = r2, True
         info = {"ok": result.is_success(), "solve_ms": 1e3 * (time.perf_counter() - tic),
                 "T": float(result.GetSolution(T)), "cost": result.get_optimal_cost(),
-                "status": result.get_solver_details().info}
+                "status": result.get_solver_details().info, "refined": refined}
         self.solve_log.append(info)
         return result, info
 
