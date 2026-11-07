@@ -32,8 +32,9 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
    object is reachable). While parked, check whether holding still gets too close to
    anything before a grasp plan could move the arm (`_parked_hit`); if so, dodge (4.6).
 2. `_first_plan` for the start time t0 = now + budget, from where the arm is then (parked,
-   or on the dodge): for each initial guess in turn, optimise the approach (`_plan`), then
-   the close, lift and hold (`_plan_hold`); keep the first that gives both.
+   or on the dodge): for each initial guess, optimise the approach (`_plan`), then the
+   close, lift and hold (`_plan_hold`). With workers (4.2), keep the lowest-cost plan that
+   gives both, refined while time remains (4.1); in turn, the first.
 3. Send hold (until t0) + approach + close, lift and hold as one `JointTrajectory`, sampled
    by the wrapper every 5 ms. It holds its last pose afterwards.
 4. If the plan arrived late (the wrapper rejected it), plan again with 1.5x the time the
@@ -56,12 +57,19 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
   (4 rad/s^2) on the plan. Solver: SNOPT, major optimality tolerance 1e-1: most of a tighter solve
   polishes a plan that is already feasible (`pillar_and_blocker`: 3.3 s at 1e-3, 0.45 s at
   1e-1, nearly the same path).
-* Refinement (`_solve`): if it likely fits in the time left (3x the first solve), SNOPT runs
-  again at 1e-2 from the 1e-1 solution, which is kept if it succeeds with no higher cost.
-  A loose solve can stop at a feasible but poor plan: in `mix_0009` the hold at 1e-1 swung
-  the arm around (cost 19.2, 38.8 rad of joint travel) and, between two clearance samples,
-  through an obstacle; refined, cost 0.2 in 0.57 s more (from scratch at 1e-2: 0.54 in 2 s).
-  The approach leaves 0.5 s for the hold. The same applies to the hold and the dodge.
+* Refinement: SNOPT again at 1e-2 from the 1e-1 solution. A loose solve can stop at a
+  feasible but poor plan: in `mix_0009` the hold at 1e-1 swung the arm around (cost 19.2,
+  38.8 rad of joint travel) and, between two clearance samples, through an obstacle;
+  refined, cost 0.2 in 0.57 s more (from scratch at 1e-2: 0.54 in 2 s).
+  * In a seed worker (`_try_seed`): it sends the loose plan, then, until the deadline
+    (the plan's budget minus 0.05 s), the hold refined, then the approach refined with
+    its hold re-solved at 1e-2, each from the last solution (`_guess_from`), if feasible.
+    (C) waits until the deadline once it has a plan, or until every seed is done, and
+    keeps the lowest total cost (approach + hold).
+  * In the main process (seeds in turn, and the dodge, `_solve`): only if it likely fits in
+    the time left (3x the first solve; the approach leaves 0.5 s for the hold), kept if it
+    succeeds with no higher cost. Under load this often skips it: `mix_0009` collided in 2
+    of 3 runs with this rule, and succeeded in 3 of 3 with the worker refinement.
 
 ### 4.2 Initial guesses (`_first_plan`, `_ik_grasps`, `_path`)
 
@@ -76,7 +84,8 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
      straight line leads the optimiser into a bad local minimum;
   3. straight lines to the IK poses of the next grasp times, up to 2.
 * The seeds run in `n_workers` (4) parallel processes, started in `reset` so they cost no
-  simulated time, and the first to finish with a plan is kept (`n_workers=1`: in turn).
+  simulated time; the lowest-cost plan they send by the deadline is kept (4.1)
+  (`n_workers=1`: in turn, the first with a plan).
   Inside a daemon process (`multiprocessing.Pool`) they run in turn. Four SNOPT processes at
   once make each solve 30-60 % slower, so this pays off when the first seed fails.
 
@@ -227,9 +236,10 @@ $$
 * Initial guess: $T_{guess}$ = the guess's grasp time $- t_0$ (clipped to the bounds on $T$), and the control
   points fitted by least squares to the guess path at 40 points.
 * Solver: SNOPT, major optimality tolerance `optimality_tol` (0.1), major feasibility tolerance 1e-4. A plan is
-  accepted if SNOPT reports success. Then, if now + 3x that solve's time is before the deadline (the plan's budget,
-  minus 0.5 s left for the hold), SNOPT again at `refine_tol` (0.01) from that solution; kept if it succeeds with
-  a cost no higher.
+  accepted if SNOPT reports success. Then SNOPT again at `refine_tol` (0.01) from that solution: in a seed worker
+  after sending the loose plan, until the deadline (hold first, then approach and hold); in the main process only
+  if now + 3x that solve's time is before the deadline (the plan's budget, minus 0.5 s left for the hold), kept if
+  it succeeds with a cost no higher.
 
 ### 8.2 Close, lift and hold (`_plan_hold`)
 
