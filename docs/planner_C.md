@@ -56,6 +56,12 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
   (4 rad/s^2) on the plan. Solver: SNOPT, major optimality tolerance 1e-1: most of a tighter solve
   polishes a plan that is already feasible (`pillar_and_blocker`: 3.3 s at 1e-3, 0.45 s at
   1e-1, nearly the same path).
+* Refinement (`_solve`): if it likely fits in the time left (3x the first solve), SNOPT runs
+  again at 1e-2 from the 1e-1 solution, which is kept if it succeeds with no higher cost.
+  A loose solve can stop at a feasible but poor plan: in `mix_0009` the hold at 1e-1 swung
+  the arm around (cost 19.2, 38.8 rad of joint travel) and, between two clearance samples,
+  through an obstacle; refined, cost 0.2 in 0.57 s more (from scratch at 1e-2: 0.54 in 2 s).
+  The approach leaves 0.5 s for the hold. The same applies to the hold and the dodge.
 
 ### 4.2 Initial guesses (`_first_plan`, `_ik_grasps`, `_path`)
 
@@ -221,7 +227,9 @@ $$
 * Initial guess: $T_{guess}$ = the guess's grasp time $- t_0$ (clipped to the bounds on $T$), and the control
   points fitted by least squares to the guess path at 40 points.
 * Solver: SNOPT, major optimality tolerance `optimality_tol` (0.1), major feasibility tolerance 1e-4. A plan is
-  accepted if SNOPT reports success.
+  accepted if SNOPT reports success. Then, if now + 3x that solve's time is before the deadline (the plan's budget,
+  minus 0.5 s left for the hold), SNOPT again at `refine_tol` (0.01) from that solution; kept if it succeeds with
+  a cost no higher.
 
 ### 8.2 Close, lift and hold (`_plan_hold`)
 
