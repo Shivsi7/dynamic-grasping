@@ -70,7 +70,7 @@ Tests: `tests/test_controllers.py` (in Drake, together with (C)).
 
 ## 6. Current results
 
-Commit `a999669`. All runs: compute time costs simulated time (`latency="measured"`), scored
+Commit `76c07b2`. All runs: compute time costs simulated time (`latency="measured"`), scored
 to the end of each scene, 8 episodes in parallel on a 10-core machine, one run per scene
 ((A)'s cycle takes about 3 ms of its 10 ms period, so the parallel load hardly matters).
 Scenario sets in `scenarios/`: `dev_v0.yaml` (20), `preset_grids.yaml` (48 post, 48 plank,
@@ -78,17 +78,18 @@ Scenario sets in `scenarios/`: `dev_v0.yaml` (20), `preset_grids.yaml` (48 post,
 
 | set | scenes | success | collision | dropped | timeout |
 |---|---|---|---|---|---|
-| dev | 20 | 12 | 2 | 0 | 6 |
+| dev | 20 | 11 | 3 | 1 | 5 |
 | post grid | 48 | 34 | 0 | 0 | 14 |
-| plank grid | 48 | 32 | 0 | 1 | 15 |
+| plank grid | 48 | 33 | 0 | 0 | 15 |
 | pillar grid | 18 | 2 | 0 | 0 | 16 |
-| held-out mixed | 80 | 52 | 7 | 4 | 17 |
+| held-out mixed | 80 | 52 | 4 | 4 | 20 |
 
 "dropped": lifted, then lost, or not lifted (5 cm) any more when the scene ends. Before the
-fixed lift and the height weighting the held-out set gave 28 successes and 27 dropped.
-Median peak commanded joint acceleration 100-190 rad/s^2; median peak torque 1.3-2.4x the
+fixed lift and the height weighting the held-out set gave 28 successes and 27 dropped; before
+the QP ran while waiting, 9 collisions in all (now 7).
+Median peak commanded joint acceleration 100-190 rad/s^2; median peak torque 1.3-3.2x the
 joint limits. Compute per cycle about 3 ms on average; the slowest cycle of an episode
-25-45 ms (median).
+15-25 ms (median).
 
 ## 7. Limitations and open questions
 

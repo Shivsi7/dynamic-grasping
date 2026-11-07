@@ -129,32 +129,35 @@ Tests: `tests/test_controllers.py` (in Drake, together with (A)).
 
 ## 6. Current results
 
-Commit `a999669`. All runs: compute time costs simulated time (`measured`), scored to the
+Commit `76c07b2`. All runs: compute time costs simulated time (`measured`), scored to the
 end of each scene, one run per scene; sets as in `planner_A.md`. First 8 episodes in parallel
 (seeds then run in turn, see 4.2); every failure was then run again alone, with the default
-4 seed processes, and that result counts (14 of 67 failures became successes).
+4 seed processes, and that result counts (13 of 67 failures became successes).
 
-| set | scenes | success | collision | dropped | timeout | no plan found | plans rejected (late) |
-|---|---|---|---|---|---|---|---|
-| dev | 20 | 17 | 0 | 0 | 3 | 3 | 0 |
-| post grid | 48 | 38 | 0 | 0 | 10 | 10 | 7 |
-| plank grid | 48 | 38 | 0 | 0 | 10 | 10 | 8 |
-| pillar grid | 18 | 6 | 12 | 0 | 0 | 8 | 4 |
-| held-out mixed | 80 | 62 | 12 | 1 | 5 | 12 | 6 |
+| set | scenes | success | collision | dropped | timeout | plans rejected (late) |
+|---|---|---|---|---|---|---|
+| dev | 20 | 16 | 1 | 0 | 3 | 1 |
+| post grid | 48 | 37 | 0 | 0 | 11 | 9 |
+| plank grid | 48 | 38 | 0 | 0 | 10 | 4 |
+| pillar grid | 18 | 6 | 10 | 0 | 2 | 6 |
+| held-out mixed | 80 | 63 | 2 | 1 | 14 | 7 |
 
-* "no plan found": no plan from any initial guess (in an earlier check, most such scenes had
-  no collision-free IK grasp, 8.3); the arm stays parked, and a moving obstacle can hit it there (8 of the 12 pillar
-  collisions). 43 of the 53 failures are of this kind.
+* Most failures are scenes where no grasp plan is found (in an earlier check, most of them
+  had no collision-free IK grasp, 8.3). The arm then waits, dodging if needed (4.6): a
+  timeout. Before dodging there were 24 collisions (12 in the held-out set), now 13.
+* 10 of the 13 collisions are in the pillar grid, mostly with a first plan that took 2-5.7 s
+  (late); the others are `dev_001`, `mix_0009` and `mix_0034`.
 * "plans rejected (late)": the first plan took longer than its 2 s budget and was redone
-  later; 20 of these 25 episodes still succeed.
-* Median first-plan compute 0.7-1.3 s per set (worst 7.2 s, in the held-out set). Median
-  grasp 0.8-1.8 s after the object becomes reachable (pillar grid: 4.7 s).
-* The plans stay within their bounds: peak commanded acceleration 4 rad/s^2, peak torque at
-  most 0.52x the limits.
+  later; 18 of these 27 episodes still succeed.
+* Median first-plan compute 0.65-1.2 s per set. Median grasp 0.8-1.8 s after the object
+  becomes reachable (pillar grid: 3.7 s).
+* Peak commanded acceleration 4 rad/s^2, except one episode at 10.5
+  (`plank_blocker_v0.05_o0.20_t5.0`, not looked into yet); peak torque at most 0.52x the
+  limits.
 
 On the four report scenes (one episode at a time) (C) grasps and holds in `tall_blocker`,
-`mix_0077` and `mix_0061`. In `pillar_and_blocker` its first plan took 1.8-1.9 s in two runs
-(success) and 2.8 s in a third: late, the pillar hit the parked arm.
+`mix_0077` and `mix_0061`. In `pillar_and_blocker` its first plan took 1.6-1.9 s in three runs
+(success) and 2.8 s in another: late, the pillar hit the parked arm.
 
 ## 7. Limitations and open questions
 
