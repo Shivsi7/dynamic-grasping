@@ -73,8 +73,8 @@ links 5 and 7 of the box model overlap past |q6| ~ 1.75 rad, so that pair is fil
 ## Results
 
 Measured latency, scored to the end of each scene; 8 episodes in parallel, then every failure
-rerun alone (that result counts). Held-out at `dbf03c2`, the rest at `76c07b2`; neither includes
-the closest-approach grasp times (`965444e`).
+rerun alone (that result counts). Held-out at `965444e`, the other sets at `76c07b2` (they do not
+include the closest-approach grasp times yet).
 
 | set | scenes | success | collision | dropped | timeout |
 |---|---|---|---|---|---|
@@ -82,16 +82,17 @@ the closest-approach grasp times (`965444e`).
 | post grid | 48 | 37 | 0 | 0 | 11 |
 | plank grid | 48 | 38 | 0 | 0 | 10 |
 | pillar grid | 18 | 6 | 10 | 0 | 2 |
-| held-out mixed | 80 | 66 | 1 | 0 | 13 |
+| held-out mixed | 80 | 73 | 1 | 0 | 6 |
 
-Held-out: (A) 52, (B) 63. (C) fails where another succeeds only in `mix_0044` and `mix_0049`.
+Held-out: (A) 52, (B) 63, (C) 73. No held-out scene where (C) fails and (A) or (B) succeeds.
 
 ## Limitations
 
 1. **No grasp found:** most timeouts have no collision-free IK grasp or hover pose (an obstacle
    at the grasp, or the hover out of reach).
 2. **Compute:** while (C) computes, the parked arm cannot dodge; a failing seed can take several
-   seconds (most pillar-grid collisions: a first plan of 2-5.7 s).
+   seconds (most pillar-grid collisions: a first plan of 2-5.7 s; held-out `mix_0079`: 3.9 s
+   while parked).
 3. **One plan:** no replanning, fine with perfect prediction.
 
 ## Tools
