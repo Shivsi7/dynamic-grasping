@@ -34,38 +34,145 @@ out of the way first; the grasp plan then starts from the dodge.
 
 ## The problems
 
-$q(s) = \sum_j b_j(s) P_j$, $s \in [0,1]$, $t = t_0 + sT$, $\dot q = q'/T$. In all three, on the
-control points (so for all $s$): joint limits minus 0.05, $|\dot q| \le 0.6\,v_{max}$,
-$|\ddot q| \le a$. Clearance: $d_O \ge 4$ cm to obstacles, 5 mm to cart, floor and target, with the
-world posed where the prediction puts it at $t$ (its motion enters the gradient w.r.t. $T$).
+Defaults are `HybridController` arguments (in backticks). World frame throughout.
 
-**Approach** (12 control points, $a = 4$):
+**Notation**
+
+* $q(s) = \sum_{j=1}^{N} b_j(s)\,P_j$, $s \in [0,1]$: clamped cubic B-spline with uniform knots and
+  control points $P_j \in \mathbb{R}^7$, executed at $t = t_0 + sT$; $\dot q = q'/T$, $\ddot q = q''/T^2$.
+* $E(P) = \sum_{j=1}^{N-1} \lVert P_{j+1} - P_j \rVert^2$ (Drake's `AddPathEnergyCost`).
+* $\mathcal L_a$: $q_{lo} + 0.05 \le q \le q_{hi} - 0.05$, $|\dot q| \le 0.6\,v_{max}$ (`v_scale`),
+  $|\ddot q| \le a$, imposed on the control points of $q$, $\dot q$, $\ddot q$, so for all $s$.
+  $v_{max}$: the iiwa datasheet speeds. Vector inequalities hold per component.
+* $p_G, R_G$: pose of the WSG body frame at $q$; $\omega_G, v_G$: its angular and linear velocity.
+* $p^*(t), R^*$: the object's grasp pose at $t$ (`WorldModel.grasp_pose`, top-down), with
+  $\partial p^*/\partial t = v_{obj}$, the cart's velocity at $t_{enter}$. $e_R = \tfrac12 (R - R^\top)^\vee$ with
+  $R = R^{*\top} R_G$. $h$ = `hover` (0.10 m); $\hat z$: up.
+* $d_{\mathcal C}(q, t)$: the smallest signed distance from the robot at $q$ (iiwa links 1-7, WSG body
+  and open fingers) to the categories $\mathcal C \subseteq \{O, C, F, Tg\}$ (obstacles; conveyor and
+  carrier; floor; target), posed where the prediction puts them at $t$. WSG-target pairs are
+  filtered, so $d_{Tg}$ counts links 1-7 only.
+* $d_{\mathcal C} \ge lb$ is Drake's `MinimumDistanceLowerBoundConstraint`:
+  $\mathrm{SmoothOverMax}_i\,\varphi\big((d_i - d_{inf})/(d_{inf} - lb)\big)/\varphi(-1) \le 1$ over the pairs $i$,
+  $\varphi$ the quadratically smoothed hinge, $d_{inf} = lb + 0.01$. The world's configuration enters as
+  $x_w(\bar t) + \dot x_w(\bar t)(t - \bar t)$, so the gradient w.r.t. $T$ includes its motion.
+* A constraint at $s$ is on $(q(s), \dot q(s), t_0 + sT)$; their gradients w.r.t. $(P, T)$ are formed in
+  numpy and passed to Drake as AutoDiff.
+
+**Solver** (every problem): SNOPT, major feasibility tolerance 1e-4, major optimality tolerance
+`optimality_tol` (0.1); a solution is accepted if SNOPT reports success. Refining re-solves the same
+problem at `refine_tol` (0.01) from the loose solution.
+
+* Seed worker: sends the loose approach and hold; then, if before the deadline, the refined hold;
+  then, if still before it, the refined approach with a hold refined from the last one (each sent
+  if feasible). (C) keeps the received plan with the lowest $J_{approach} + J_{hold}$: at the deadline
+  once it has one, else when every seed is done.
+* Main process (seeds in turn, and the dodge): right after a successful loose solve, if now + 3x
+  its solve time is before the deadline minus 0.5 s (approach) or 0 (others); kept if it succeeds
+  with no higher cost.
+* Deadline: wall time at the start of planning + budget − 0.05 s.
+
+### Approach (`_plan`)
+
+$t_0$ = now + budget, planned from $t_{plan} = t_{enter} -$ `lead_time` (1 s) $-$ budget, and only if
+$t_0 < t_{exit} - 1.2$ (`exit_margin`). Budget: `plan_budget` (2 s), raised to 1.5x a plan's compute
+time when that is larger. $q_0, v_0$: the arm's state at $t_0$, parked ($v_0 = 0$) or on the dodge.
+$N = 12$ (`n_control_points`).
 
 $$
 \begin{aligned}
-\min_{P,T}\quad & T + 0.1 \textstyle\sum_j \lVert r'_j \rVert^2 \\
-\text{s.t.}\quad & q(0) = q_0,\ \dot q(0) = v_0, \quad \max(t_{enter} - t_0, 0.3) \le T \le t_{exit} - 1.2 - t_0 \\
-& \text{grasp } (s=1):\ \text{pose} \pm 5\,\text{mm} / 0.02\,\text{rad},\ \text{gripper velocity} = v_{obj} \pm 0.02 \\
-& \text{hover } (s = s_d):\ 10\,\text{cm above the grasp pose} \pm 1\,\text{cm} / 0.04\,\text{rad} \\
-& \text{descent } (3\ \text{points in } (s_d, 1)):\ \pm 1.5\,\text{cm horizontally},\ 0\text{-}12\,\text{cm above} \\
-& \text{clearance at 30 samples}
+\min_{P,\,T}\quad & T + 0.1\,E(P) \\
+\text{s.t.}\quad & \max(t_{enter} - t_0,\ 0.3) \le T \le t_{exit} - 1.2 - t_0, \quad q(0) = q_0, \quad \dot q(0) = v_0, \quad \mathcal L_4 \\
+& \textbf{grasp } (s = 1):\ |p_G - p^*(t)| \le 0.005,\ |e_R| \le 0.02,\ |\omega_G| \le 0.02,\ |v_G - v_{obj}| \le 0.02 \\
+& \textbf{hover } (s = s_d):\ |p_G - p^*(t) - h\,\hat z| \le 0.01,\ |e_R| \le 0.04 \\
+& \textbf{descent } (s = s_d + \tfrac{i}{4}(1 - s_d),\ i = 1, 2, 3):\ p_G - p^*(t) \in [-0.015, 0.015]^2 \times [0,\ h + 0.02] \\
+& \textbf{clearance } (s = \tfrac{k}{30},\ k = 1, \dots, 30):\ d_O(q, t) \ge 0.04,\ d_{C \cup F \cup Tg}(q, t) \ge 0.005
 \end{aligned}
 $$
 
-$s_d$ is fixed by the seed (0.6 s before its grasp). The grasp target moves with the object, so
-moving the grasp later changes where it is.
+* 0.1 = `energy_weight`; 4 = `accel_limit` (rad/s²); 0.04 = `d_safe`; 0.005 = `d_safe_env`;
+  30 = `n_collision_samples`. $v_0 = 0$ is imposed as $q'(0) = 0$.
+* $s_d = \mathrm{clip}\big((t_d - t_0)/T_{guess},\ 0.3,\ 0.9\big)$, fixed; $t_d$: the seed's hover time.
+* Initial guess: $T_{guess} = t_g - t_0$ (clipped to the bounds on $T$), $t_g$ the seed's grasp time;
+  $P$ the least-squares fit of $q(s_k)$ to the seed path at $t_0 + s_k T_{guess}$, $s_k = k/39$,
+  $k = 0, \dots, 39$. Refining: the loose $(P, T)$, same $s_d$.
 
-**Hold** (fixed duration to the scene end, knots every 0.5 s, $a = 2$): $\min \sum_j \lVert r'_j \rVert^2$,
-starting in the approach's end state and ending at rest; at the moving grasp pose at 0.2 and 0.4 s
-(closing); 10 cm above the grasp height from 1.0 s; clearance every 0.4 s (not to the target).
+### Close, lift and hold (`_plan_hold`)
 
-**Dodge** (from rest at the parked pose to rest at the scene end, $a = 4$): $\min \sum_j \lVert r'_j \rVert^2$,
-clearance every 0.1 s. Its budget is half the time to the hit (at most 2 s).
+From the grasp, $t_g = t_0 + T^*$, in the approach's end state $(q_T, \dot q_T)$, for the fixed
+$D = \max(t_{end} - t_g,\ 1.5)$ ($t_{end}$: end of the scene; 1.5 = `close_time` + `lift_time` + 0.5);
+$N = \lceil D/0.5 \rceil + 3$ (`hold_knot_spacing`); $t = t_g + sD$, $\tau = t - t_g$. The gripper is
+commanded closed from $t_g$.
 
-**Solver:** SNOPT, optimality tolerance 0.1, then 0.01 to refine; feasibility 1e-4. Constraint
-gradients are built with numpy and handed to Drake as AutoDiff (3-4x faster). A loose solve can
-be feasible but poor (`mix_0009`: the hold swung the arm around and through an obstacle between
-samples; refined, it does not).
+$$
+\begin{aligned}
+\min_{P}\quad & E(P) \\
+\text{s.t.}\quad & T = D, \quad q(0) = q_T, \quad q'(0) = D\,\dot q_T, \quad q'(1) = 0, \quad \mathcal L_2 \\
+& \textbf{closing } (\tau = 0.2,\ 0.4):\ |p_G - p^*(t)| \le 0.005,\ |e_R| \le 0.02 \\
+& \textbf{lifted } (\tau = 1.0,\ 1.4,\ \dots \le D):\ z_G \ge z^*(t_g) + 0.10 \\
+& \textbf{clearance } (\tau = 0.4,\ 0.8,\ \dots \le D):\ d_O(q, t) \ge 0.04,\ d_{C \cup F}(q, t) \ge 0.005
+\end{aligned}
+$$
+
+* 2 = `hold_accel_limit`; closing at `close_time` (0.4 s) and half of it; lifted by `lift_height`
+  (0.10 m) from `close_time` + `lift_time` (1.0 s); samples every `hold_sample_spacing` (0.4 s).
+* Initial guess: piecewise linear through $q_T$ ($\tau = 0$), $q_c$ (0.4), $q_l$ (1.0), $q_l$ ($D$),
+  fitted as above, $T = D$; IK as below:
+  * $q_c = \mathrm{IK}\big(t_g + 0.4,\ (p^*(t_g + 0.4), R^*),\ q_T\big)$, else $q_T + 0.4\,\dot q_T$;
+  * $q_l = \mathrm{IK}\big(t_g + 1.0,\ (p^*(t_g + 0.4) + 0.10\,\hat z,\ R^*),\ q_c\big)$, else $q_c$.
+* Refining: from the last hold, re-timed to $D$.
+
+### IK for the seeds (`_ik`, `_ik_grasps`, `_first_seeds`, `_path`)
+
+Drake's `InverseKinematics` with the world fixed where the prediction puts it at $t$ (WSG open):
+$q_{lo} \le q \le q_{hi}$ and $d_O(q, t) \ge 0.05$ (`d_safe` + 0.01; $d_{inf} = lb + 0.2$), solved from
+$q_{guess}$.
+
+* $\mathrm{IK}(t, X, q_{guess})$: find $q$ with $|p_G - p_X| \le 0.003$ and $\angle(R_G, R_X) \le 0.01$ rad (no cost).
+* $\mathrm{IK}(t, q_{target})$: $\min_q \lVert q - q_{target} \rVert^2$, from $q_{guess} = q_{target}$.
+
+**Grasp and hover:** $t_c = \mathrm{clip}(t_{closest}, lo, hi)$ with $lo = \max(t_{enter}, t_0 + 1)$,
+$hi = t_{exit} - 1.2$ ($t_{closest}$: the cart passes $y = 0$, nearest the robot base). Candidates
+$t_g = t_c + 0.5k \in [lo, hi]$, $k \in \mathbb{Z}$, by increasing $|k|$, earlier first. For each, 6 tries,
+$q_{guess} = q_0$ then 5 uniform random in $[q_{lo}, q_{hi}]$:
+
+$$
+q_g = \mathrm{IK}\big(t_g,\ (p^*(t_g), R^*),\ q_{guess}\big), \qquad
+q_h = \mathrm{IK}\big(t_d,\ (p^*(t_d) + h\,\hat z,\ R^*),\ q_g\big), \qquad t_d = t_g - 0.6,
+$$
+
+keeping the pair with the least $\max_j |q_{h,j} - q_{0,j}|/v_{max,j}$. The first $t_g$ with a pair
+gives the first seeds; the next 2 (`n_ik_seeds` − 1) the later ones.
+
+**Halfway configurations**, at $t_m = (t_0 + t_d)/2$ with $q_m = (q_0 + q_h)/2$: $\mathrm{IK}(t_m, q_m)$
+(dropped if it returns $q_m$ within 1e-3 rad), then
+$\mathrm{IK}\big(t_m,\ \mathrm{clip}(q_m + u_i,\ q_{lo} + 0.05,\ q_{hi} - 0.05)\big)$, $u_i \sim U[-1, 1]^7$
+(`random_spread` 1 rad), $i = 1, 2, 3$ (`n_random_seeds`).
+
+**Seed paths** (`_path`): piecewise linear in joint space through $(t_0, q_0)$, $(t_m, q_{via})$ (if
+any), $(t_d, q_h)$, $(t_g, q_g)$, sampled at 40 times on $[t_0, t_g]$. Order: no via, then each
+halfway configuration found; if none gives a plan, no via to each later grasp time.
+
+### Dodge (`_parked_hit`, `_dodge`)
+
+While parked at $q_p$: $t_{hit}$ = the first $t \in \{\text{now}, \text{now} + 0.05, \dots\}$, $t < t_{end}$,
+at which $q_p$ breaks $d_O(q_p, t) \ge 0.04$ or $d_{C \cup F \cup Tg}(q_p, t) \ge 0.005$ (computed once per
+$q_p$). Dodge if now $+ 0.1 < t_{hit} \le t_{go}$, with $t_{go} = \max(\text{now}, t_{plan}) +$ budget while
+the grasp plan is pending, $\infty$ once none was found. Start $t_s$ = now $+ \min(2,\ (t_{hit} - \text{now})/2)$
+(`plan_budget`; also its compute budget), holding $q_p$ until then; $D = t_{end} - t_s$,
+$N = \lceil D/0.5 \rceil + 3$, $t = t_s + sD$, $\tau = t - t_s$.
+
+$$
+\begin{aligned}
+\min_{P}\quad & E(P) \\
+\text{s.t.}\quad & T = D, \quad q(0) = q_p, \quad q'(0) = q'(1) = 0, \quad \mathcal L_4 \\
+& \textbf{clearance } (\tau = 0.1,\ 0.2,\ \dots \le D):\ d_O(q, t) \ge 0.04,\ d_{C \cup F \cup Tg}(q, t) \ge 0.005
+\end{aligned}
+$$
+
+* Samples every `dodge_sample_spacing` (0.1 s). Initial guess $q \equiv q_p$, $T = D$. No solution:
+  (C) stays parked and no longer dodges from $q_p$.
+* A grasp plan then starts from the dodge's $(q, \dot q)$ at $t_0$, with the dodge kept before $t_0$.
 
 **Simulation details:** commands every 5 ms (the iiwa driver differentiates them every 5 ms);
 links 5 and 7 of the box model overlap past |q6| ~ 1.75 rad, so that pair is filtered.
