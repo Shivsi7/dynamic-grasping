@@ -72,6 +72,37 @@ problem at `refine_tol` (0.01) from the loose solution.
   with no higher cost.
 * Deadline: wall time at the start of planning + budget − 0.05 s.
 
+### IK for the seeds (`_ik`, `_ik_grasps`, `_first_seeds`, `_path`)
+
+Drake's `InverseKinematics` with the world fixed where the prediction puts it at $t$ (WSG open):
+$q_{lo} \le q \le q_{hi}$ and $d_O(q, t) \ge 0.05$ (`d_safe` + 0.01; $d_{inf} = lb + 0.2$), solved from
+$q_{guess}$.
+
+* $\mathrm{IK}(t, X, q_{guess})$: find $q$ with $|p_G - p_X| \le 0.003$ and $\angle(R_G, R_X) \le 0.01$ rad (no cost).
+* $\mathrm{IK}(t, q_{target})$: $\min_q \lVert q - q_{target} \rVert^2$, from $q_{guess} = q_{target}$.
+
+**Grasp and hover:** $t_c = \mathrm{clip}(t_{closest}, lo, hi)$ with $lo = \max(t_{enter}, t_0 + 1)$,
+$hi = t_{exit} - 1.2$ ($t_{closest}$: the cart passes $y = 0$, nearest the robot base). Candidates
+$t_g = t_c + 0.5k \in [lo, hi]$, $k \in \mathbb{Z}$, by increasing $|k|$, earlier first. For each, 6 tries,
+$q_{guess} = q_0$ then 5 uniform random in $[q_{lo}, q_{hi}]$:
+
+$$
+q_g = \mathrm{IK}\big(t_g,\ (p^*(t_g), R^*),\ q_{guess}\big), \qquad
+q_h = \mathrm{IK}\big(t_d,\ (p^*(t_d) + h\,\hat z,\ R^*),\ q_g\big), \qquad t_d = t_g - 0.6,
+$$
+
+keeping the pair with the least $\max_j |q_{h,j} - q_{0,j}|/v_{max,j}$. The first $t_g$ with a pair
+gives the first seeds; the next 2 (`n_ik_seeds` − 1) the later ones.
+
+**Halfway configurations**, at $t_m = (t_0 + t_d)/2$ with $q_m = (q_0 + q_h)/2$: $\mathrm{IK}(t_m, q_m)$
+(dropped if it returns $q_m$ within 1e-3 rad), then
+$\mathrm{IK}\big(t_m,\ \mathrm{clip}(q_m + u_i,\ q_{lo} + 0.05,\ q_{hi} - 0.05)\big)$, $u_i \sim U[-1, 1]^7$
+(`random_spread` 1 rad), $i = 1, 2, 3$ (`n_random_seeds`).
+
+**Seed paths** (`_path`): piecewise linear in joint space through $(t_0, q_0)$, $(t_m, q_{via})$ (if
+any), $(t_d, q_h)$, $(t_g, q_g)$, sampled at 40 times on $[t_0, t_g]$. Order: no via, then each
+halfway configuration found; if none gives a plan, no via to each later grasp time.
+
 ### Approach (`_plan`)
 
 $t_0$ = now + budget, planned from $t_{plan} = t_{enter} -$ `lead_time` (1 s) $-$ budget, and only if
@@ -117,41 +148,10 @@ $$
 * 2 = `hold_accel_limit`; closing at `close_time` (0.4 s) and half of it; lifted by `lift_height`
   (0.10 m) from `close_time` + `lift_time` (1.0 s); samples every `hold_sample_spacing` (0.4 s).
 * Initial guess: piecewise linear through $q_T$ ($\tau = 0$), $q_c$ (0.4), $q_l$ (1.0), $q_l$ ($D$),
-  fitted as above, $T = D$; IK as below:
+  fitted as above, $T = D$; IK as above:
   * $q_c = \mathrm{IK}\big(t_g + 0.4,\ (p^*(t_g + 0.4), R^*),\ q_T\big)$, else $q_T + 0.4\,\dot q_T$;
   * $q_l = \mathrm{IK}\big(t_g + 1.0,\ (p^*(t_g + 0.4) + 0.10\,\hat z,\ R^*),\ q_c\big)$, else $q_c$.
 * Refining: from the last hold, re-timed to $D$.
-
-### IK for the seeds (`_ik`, `_ik_grasps`, `_first_seeds`, `_path`)
-
-Drake's `InverseKinematics` with the world fixed where the prediction puts it at $t$ (WSG open):
-$q_{lo} \le q \le q_{hi}$ and $d_O(q, t) \ge 0.05$ (`d_safe` + 0.01; $d_{inf} = lb + 0.2$), solved from
-$q_{guess}$.
-
-* $\mathrm{IK}(t, X, q_{guess})$: find $q$ with $|p_G - p_X| \le 0.003$ and $\angle(R_G, R_X) \le 0.01$ rad (no cost).
-* $\mathrm{IK}(t, q_{target})$: $\min_q \lVert q - q_{target} \rVert^2$, from $q_{guess} = q_{target}$.
-
-**Grasp and hover:** $t_c = \mathrm{clip}(t_{closest}, lo, hi)$ with $lo = \max(t_{enter}, t_0 + 1)$,
-$hi = t_{exit} - 1.2$ ($t_{closest}$: the cart passes $y = 0$, nearest the robot base). Candidates
-$t_g = t_c + 0.5k \in [lo, hi]$, $k \in \mathbb{Z}$, by increasing $|k|$, earlier first. For each, 6 tries,
-$q_{guess} = q_0$ then 5 uniform random in $[q_{lo}, q_{hi}]$:
-
-$$
-q_g = \mathrm{IK}\big(t_g,\ (p^*(t_g), R^*),\ q_{guess}\big), \qquad
-q_h = \mathrm{IK}\big(t_d,\ (p^*(t_d) + h\,\hat z,\ R^*),\ q_g\big), \qquad t_d = t_g - 0.6,
-$$
-
-keeping the pair with the least $\max_j |q_{h,j} - q_{0,j}|/v_{max,j}$. The first $t_g$ with a pair
-gives the first seeds; the next 2 (`n_ik_seeds` − 1) the later ones.
-
-**Halfway configurations**, at $t_m = (t_0 + t_d)/2$ with $q_m = (q_0 + q_h)/2$: $\mathrm{IK}(t_m, q_m)$
-(dropped if it returns $q_m$ within 1e-3 rad), then
-$\mathrm{IK}\big(t_m,\ \mathrm{clip}(q_m + u_i,\ q_{lo} + 0.05,\ q_{hi} - 0.05)\big)$, $u_i \sim U[-1, 1]^7$
-(`random_spread` 1 rad), $i = 1, 2, 3$ (`n_random_seeds`).
-
-**Seed paths** (`_path`): piecewise linear in joint space through $(t_0, q_0)$, $(t_m, q_{via})$ (if
-any), $(t_d, q_h)$, $(t_g, q_g)$, sampled at 40 times on $[t_0, t_g]$. Order: no via, then each
-halfway configuration found; if none gives a plan, no via to each later grasp time.
 
 ### Dodge (`_parked_hit`, `_dodge`)
 
