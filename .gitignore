@@ -16,3 +16,4 @@ results/
 assets/
 *.html
 *.mp4
+!docs/report/videos/*.mp4
