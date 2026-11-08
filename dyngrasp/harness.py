@@ -193,12 +193,15 @@ def run_episode(
     if meshcat is not None and record:
         meshcat.StartRecording(set_visualizations_while_recording=False)
     t0 = time.perf_counter()
-    sim.Initialize()
-    t_end = advance(h, spec.duration)
-    if h.monitor.done_reason == "success" and settle_after_success > 0 and t_end < spec.duration:
-        h.monitor.done = False
-        t_end = advance(h, min(spec.duration, t_end + settle_after_success))
-    wall = time.perf_counter() - t0
+    try:
+        sim.Initialize()
+        t_end = advance(h, spec.duration)
+        if h.monitor.done_reason == "success" and settle_after_success > 0 and t_end < spec.duration:
+            h.monitor.done = False
+            t_end = advance(h, min(spec.duration, t_end + settle_after_success))
+        wall = time.perf_counter() - t0
+    finally:
+        controller.close()
     if meshcat is not None and record:
         meshcat.StopRecording()
         meshcat.PublishRecording()

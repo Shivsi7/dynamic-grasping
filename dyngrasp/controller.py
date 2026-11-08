@@ -102,6 +102,9 @@ class Controller(ABC):
     @abstractmethod
     def update(self, state: RobotState, world: WorldModel) -> Command: ...
 
+    def close(self) -> None:
+        """Called once after the episode ends (frees what reset set up, e.g. worker processes)."""
+
 
 class RobotModel:
     """Kinematics of iiwa + WSG (the controllers' own plant, with collision geometry)."""

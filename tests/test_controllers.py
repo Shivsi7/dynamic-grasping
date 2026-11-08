@@ -1,7 +1,10 @@
+import multiprocessing as mp
+
 import numpy as np
 
 from dyngrasp import scenario as S
 from dyngrasp.collision import CollisionWorld
+from dyngrasp.controller import RobotModel
 from dyngrasp.harness import run_episode
 from dyngrasp.hybrid import HybridController
 from dyngrasp.reactive import ReactiveQPController
@@ -38,3 +41,21 @@ def test_hybrid_plan_ends_at_the_moving_grasp_pose():
     assert plan["ok"]
     t_end = plan["t0"] + plan["T"]
     assert WorldModel(spec).t_enter <= t_end and r.t_grasp is not None and abs(r.t_grasp - t_end) < 0.3
+
+
+def test_hybrid_seed_workers_stop_when_the_episode_ends():
+    spec = S.no_obstacles(0.3)
+    spec.duration = 1.0
+    c, seen = HybridController(n_workers=2), []
+    reset = c.reset
+    c.reset = lambda *a: (reset(*a), seen.extend(p for p, _ in c._workers))
+    run_episode(spec, c)
+    assert len(seen) == 2 and not any(p.is_alive() for p in seen) and not mp.active_children()
+    # a script that never closes its controller: the next one's reset stops the workers it left
+    a, b = HybridController(n_workers=2), HybridController(n_workers=2)
+    a.reset(WorldModel(spec), RobotModel(), None)
+    left = [p for p, _ in a._workers]
+    b.reset(WorldModel(spec), RobotModel(), None)
+    assert not any(p.is_alive() for p in left) and len(mp.active_children()) == 2
+    b.close()
+    assert not mp.active_children()

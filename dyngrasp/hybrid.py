@@ -65,6 +65,7 @@ from __future__ import annotations
 import itertools
 import multiprocessing as mp
 import time
+import weakref
 from multiprocessing.connection import wait
 
 import numpy as np
@@ -93,6 +94,9 @@ from dyngrasp.controller import (
 )
 from dyngrasp.trajectory import JointTrajectory
 from dyngrasp.world import WorldModel
+
+
+_with_workers = weakref.WeakSet()  # HybridControllers whose seed workers are running
 
 
 def _value(x) -> float:
@@ -192,8 +196,11 @@ class HybridController(Controller):
         self._hit = None  # (parked q, first time holding it is unsafe)
         self.attempt, self.tried = 0, set()  # plans that found nothing so far, and their seeds' grasp times
         self.solve_log: list[dict] = []
-        self._close_workers()
+        self.close()
         if self.n_workers > 1 and not mp.current_process().daemon:  # (a daemon process cannot have children)
+            for c in list(_with_workers):  # one episode's workers at a time: stop those of any episode not closed
+                c.close()
+            _with_workers.add(self)
             ctx = mp.get_context("spawn")
             for _ in range(self.n_workers):
                 conn, child = ctx.Pipe()
@@ -204,13 +211,17 @@ class HybridController(Controller):
                 conn.recv()
             self._task = 0
 
-    def _close_workers(self):
-        for p, _ in self._workers:
+    def close(self):
+        """Stop the seed workers (the harness calls this when the episode ends)."""
+        for p, conn in self._workers:
             p.terminate()
+            p.join()
+            conn.close()
         self._workers = []
+        _with_workers.discard(self)
 
     def __del__(self):
-        self._close_workers()
+        self.close()
 
     def update(self, state: RobotState, world: WorldModel) -> Command:
         t = state.t
