@@ -4,7 +4,8 @@ Shortly before the object comes within reach (t_enter - lead_time) the controlle
 
 1. finds a collision-free hover pose and the grasp below it by inverse
    kinematics against the predicted obstacles, at the grasp time nearest the
-   target's closest approach to the robot (0.5 s steps outward) that has both;
+   target's closest approach to the robot (0.5 s steps outward; if none has
+   both, 0.1 s steps around the two that came nearest) that has both;
 2. optimises the approach with Drake's `KinematicTrajectoryOptimization`: a
    cubic B-spline q(s), s in [0, 1], with free duration T and time
    t = t0 + s T, that
@@ -342,24 +343,40 @@ class HybridController(Controller):
 
     def _ik_grasps(self, t0, q0, n_tries=6, descend_time=0.6):
         """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time that has both: 0.5 s
-        apart, outward from the target's closest approach to the robot (earlier first), where the arm reaches it best."""
+        apart, outward from the target's closest approach to the robot (earlier first), where the arm reaches it best.
+        If none has both, the same at 0.1 and 0.2 s around the two grasp times whose IK came nearest (lowest `_ik_miss`
+        of the failed IK, over their attempts), nearest first."""
         world, rng = self.world, np.random.default_rng(0)
         lo, hi = max(world.t_enter, t0 + 1.0), world.t_exit - self.exit_margin
         t_c = np.clip(world.t_closest, lo, hi)
         times = np.concatenate([np.arange(t_c, lo - 1e-9, -0.5), np.arange(t_c + 0.5, hi + 1e-9, 0.5)])
-        for t_g in sorted(times, key=lambda x: (abs(x - t_c), x)):
-            t_d = t_g - descend_time
-            best = None
+        miss = {}
+
+        def grasp(t_g):
+            t_d, best = t_g - descend_time, None
+            miss[t_g] = np.inf
             for k in range(n_tries):  # first from q0, then from random configurations; keep the nearest
                 q_g = self._ik(t_g, world.grasp_pose(t_g), q0 if k == 0 else rng.uniform(self.robot.q_lower, self.robot.q_upper))
                 q_h = None if q_g is None else self._ik(t_d, self._pose(t_d, self.hover), q_g)
                 if q_h is None:
+                    miss[t_g] = min(miss[t_g], self._ik_miss)
                     continue
                 travel = np.max(np.abs(q_h - q0) / self.robot.v_limits)  # whether it is reachable in time: the optimiser's call
                 if best is None or travel < best[0]:
                     best = (travel, q_h, q_g)
-            if best is not None:
-                yield t_d, t_g, best[1], best[2]
+            return None if best is None else (t_d, t_g, best[1], best[2])
+
+        found = False
+        for t_g in sorted(times, key=lambda x: (abs(x - t_c), x)):
+            if (g := grasp(t_g)) is not None:
+                found = True
+                yield g
+        if found:
+            return
+        for t in sorted(miss, key=miss.get)[:2]:  # (0.5 s apart: no time is tried twice)
+            for t_g in (t - 0.1, t + 0.1, t - 0.2, t + 0.2):
+                if lo - 1e-9 <= t_g <= hi + 1e-9 and (g := grasp(t_g)) is not None:
+                    yield g
 
     @staticmethod
     def _path(t0, q0, t_d, t_g, q_h, q_g, q_via=None):
@@ -377,7 +394,8 @@ class HybridController(Controller):
 
     def _ik(self, t, X, q_guess):
         """iiwa q with the gripper at X (or, if X is None, nearest to q_guess) and >= d_safe + 1 cm from the
-        obstacles where they are at t (None if not found)."""
+        obstacles where they are at t (None if not found; then `_ik_miss`: how far the solver's last iterate is from
+        that, gripper position error + 0.1 m/rad x orientation error + clearance shortfall [m])."""
         cw, plant = self.cw, self.cw.plant
         ctx = cw.context(("obstacle",))
         cw.set_time(ctx, t, q_guess)
@@ -396,7 +414,17 @@ class HybridController(Controller):
             ik.AddOrientationConstraint(G, RotationMatrix(), plant.world_frame(), X.rotation(), 0.01)
         ik.AddMinimumDistanceLowerBoundConstraint(self.d_safe + 0.01, 0.2)
         result = Solve(prog, x)
-        return result.GetSolution(q)[cw.iiwa_q : cw.iiwa_q + NQ] if result.is_success() else None
+        sol = result.GetSolution(q)
+        if result.is_success():
+            return sol[cw.iiwa_q : cw.iiwa_q + NQ]
+        plant.SetPositions(pc, sol)
+        qo = cw.scene_graph.get_query_output_port().Eval(cw.scene_graph.GetMyContextFromRoot(ctx))
+        d = min((p.distance for p in qo.ComputeSignedDistancePairwiseClosestPoints(self.d_safe + 0.01)), default=np.inf)
+        self._ik_miss = max(0.0, self.d_safe + 0.01 - d)
+        if X is not None:
+            E = X.inverse() @ G.CalcPoseInWorld(pc)
+            self._ik_miss += np.linalg.norm(E.translation()) + 0.1 * E.rotation().ToAngleAxis().angle()
+        return None
 
     def _plan(self, t0, q0, v0, guess_ts, guess_qs, warm=False) -> dict:
         """Approach: from (q0, v0) at t0 to the grasp, seeded with the joint path (guess_ts, guess_qs); or, if `warm`,
