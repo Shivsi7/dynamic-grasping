@@ -20,8 +20,8 @@
 \newcommand{\repo}{https://github.com/Shivsi7/dynamic-grasping/blob/\branch}
 % Where the example videos live.
 \newcommand{\videos}{\repo/docs/report/videos}
-% Example video: GitHub link and a link relative to the PDF (works in a clone).
-\newcommand{\vid}[1]{Video: \href{\videos/#1.mp4}{GitHub}, \href{run:videos/#1.mp4}{local}.}
+% Example video: GitHub link.
+\newcommand{\vid}[1]{\href{\videos/#1.mp4}{Video}.}
 
 % Strip of four frames for one example (frames/<scene>_0..3.jpg): the scene at t = 0, then (A), (B), (C).
 \newcommand{\fr}[1]{\includegraphics[width=0.215\textwidth]{frames/#1}}
@@ -102,6 +102,7 @@ Compute per plan: all computation behind each plan sent (for (A), each QP step),
 \section{Examples}
 
 Four held-out scenes; frames from each video: the scene at $t=0$, then (A), (B), (C).
+The videos are also in \texttt{docs/report/videos/} of the repo.
 
 \textbf{All three succeed.} \texttt{mix\_0074}: all three grasp the cracker box among four moving obstacles,
 1.0 to 1.7\,s after it comes into reach, (C) first. \vid{mix_0074}
