@@ -48,7 +48,10 @@ plans that much ahead and holds still until then.  A plan that takes longer
 than its budget arrives after it should have started, the wrapper rejects it,
 and (C) plans again with a budget of 1.5x that time.  With perfect prediction
 the plan stays valid, so there is no replanning.  If no seed gives a plan, the
-arm stays where it is.
+arm stays where it is and (C) plans again on the next update, as long as a
+grasp is still possible (t0 < t_exit - exit_margin), differently: fresh random
+vias, grasp times not tried yet first, and the vias to the earliest grasp time
+(those up to t0 + 5 s first).  Only a plan that was found raises the budget.
 
 While parked, (C) checks whether holding still breaks the clearance before a
 grasp plan could move the arm (or ever, once no plan was found).  If so it
@@ -187,6 +190,7 @@ class HybridController(Controller):
         self.hold_traj = None  # close, lift, hold: on [0, D], started at self.t0 + T
         self.sent = None  # the JointTrajectory sent to the wrapper
         self._hit = None  # (parked q, first time holding it is unsafe)
+        self.attempt, self.tried = 0, set()  # plans that found nothing so far, and their seeds' grasp times
         self.solve_log: list[dict] = []
         self._close_workers()
         if self.n_workers > 1 and not mp.current_process().daemon:  # (a daemon process cannot have children)
@@ -233,14 +237,20 @@ class HybridController(Controller):
             return stay
         tic = time.perf_counter()
         t0 = t + self.budget
+        if self.phase == "retry" and t0 >= world.t_exit - self.exit_margin:  # too late to grasp
+            self.phase = stay.info["phase"] = "no_plan"
+            return stay
         self.deadline = time.time() + self.budget - 0.05
         q0, v0 = (state.q_cmd, np.zeros(NQ)) if moving is None else (moving.value(t0), moving.velocity(t0))
+        self._used, self._fine = set(), False  # the seeds' grasp times, whether the fine search ran (_ik_grasps)
         info, plan = self._first_plan(t, t0, q0, v0, moving) if t0 < world.t_exit - self.exit_margin else ({"ok": False}, None)
-        info["budget"], self.budget = self.budget, max(self.budget, 1.5 * (time.perf_counter() - tic))
-        if plan is None:
-            self.phase = "no_plan"
-            stay.info = {"phase": "no_plan", **info}
+        info.update(budget=self.budget, attempt=self.attempt, fine=self._fine)
+        if plan is None:  # stay parked (or dodging) and plan again on the next update
+            self.phase, self.attempt = "retry", self.attempt + 1
+            self.tried |= self._used
+            stay.info = {"phase": "retry", **info}
             return stay
+        self.budget = max(self.budget, 1.5 * (time.perf_counter() - tic))  # (a failed plan sent nothing to be late)
         self.phase, self.sent, self.t0, self.T = "track", plan, t0, info["T"]
         return Command(trajectory=self.sent, info={"phase": "track", **info})
 
@@ -281,9 +291,11 @@ class HybridController(Controller):
         if early is not None and not np.isclose(early[1], grasp[1]):
             yield "ik_early", early, None
             n_random -= 1
+            if self.attempt:  # a retry: the vias to the earliest grasp too (short initial guesses)
+                grasp = early
         t_d, _, q_h, _ = grasp
         t_mid, mid = 0.5 * (t0 + t_d), 0.5 * (q0 + q_h)
-        rng, lo, hi = np.random.default_rng(0), self.robot.q_lower + 0.05, self.robot.q_upper - 0.05
+        rng, lo, hi = np.random.default_rng(self.attempt), self.robot.q_lower + 0.05, self.robot.q_upper - 0.05
         for k in range(1 + n_random):
             target = mid if k == 0 else np.clip(mid + rng.uniform(-1, 1, NQ) * self.random_spread, lo, hi)
             via = self._ik(t_mid, None, target)
@@ -352,13 +364,15 @@ class HybridController(Controller):
     def _ik_grasps(self, t0, q0, earliest=False, n_tries=6, descend_time=0.6):
         """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time that has both: 0.5 s
         apart, outward from the target's closest approach to the robot (earlier first), where the arm reaches it best;
-        or, if `earliest`, from the earliest upward. If none has both, the same at 0.1 and 0.2 s around the two grasp
-        times whose IK came nearest (lowest `_ik_miss` of the failed IK, over their attempts), nearest first."""
-        world, rng = self.world, np.random.default_rng(0)
+        or, if `earliest`, from the earliest upward (those up to t0 + 5 s first); in either order, those tried in an
+        earlier plan that found nothing after the others. If none has both, the same at 0.1 and 0.2 s around the two
+        grasp times whose IK came nearest (lowest `_ik_miss` of the failed IK, over their attempts), nearest first."""
+        world, rng = self.world, np.random.default_rng(self.attempt)
         lo, hi = max(world.t_enter, t0 + 1.0), world.t_exit - self.exit_margin
         t_c = np.clip(world.t_closest, lo, hi)
         times = np.concatenate([np.arange(t_c, lo - 1e-9, -0.5), np.arange(t_c + 0.5, hi + 1e-9, 0.5)])
-        times = sorted(times) if earliest else sorted(times, key=lambda x: (abs(x - t_c), x))
+        tried = lambda x: round(x, 6) in self.tried
+        times = sorted(times, key=lambda x: (x > t0 + 5, tried(x), x) if earliest else (tried(x), abs(x - t_c), x))
         miss = {}
 
         def grasp(t_g):
@@ -373,7 +387,10 @@ class HybridController(Controller):
                 travel = np.max(np.abs(q_h - q0) / self.robot.v_limits)  # whether it is reachable in time: the optimiser's call
                 if best is None or travel < best[0]:
                     best = (travel, q_h, q_g)
-            return None if best is None else (t_d, t_g, best[1], best[2])
+            if best is None:
+                return None
+            self._used.add(round(t_g, 6))
+            return t_d, t_g, best[1], best[2]
 
         found = False
         for t_g in times:
@@ -382,6 +399,7 @@ class HybridController(Controller):
                 yield g
         if found:
             return
+        self._fine = True
         for t in sorted(miss, key=miss.get)[:2]:  # (0.5 s apart: no time is tried twice)
             for t_g in (t - 0.1, t + 0.1, t - 0.2, t + 0.2):
                 if lo - 1e-9 <= t_g <= hi + 1e-9 and (g := grasp(t_g)) is not None:
