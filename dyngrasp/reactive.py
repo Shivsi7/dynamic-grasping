@@ -19,9 +19,10 @@ Phases: wait -> approach (hover above the grasp) -> descend -> close -> lift.
 While waiting it holds its start pose through the same QP, so it dodges obstacles then too.
 The lift is a fixed motion, like (B)'s grasp tail: up `lift_height` in
 `lift_time` (minimum jerk) while slowing down from the object's velocity to
-rest, then hold that pose.  From the lift on, the gripper's height counts
-`lift_z_weight` times more in the tracking cost, so an obstacle pushing the
-held arm moves it sideways rather than down.
+rest, then hold that pose.  From the lift on, the gripper's height error is
+scaled by `lift_z_weight` (so it counts `lift_z_weight`^2 = 100 times more in
+the squared tracking cost), so an obstacle pushing the held arm moves it
+sideways rather than down.
 """
 
 from __future__ import annotations
