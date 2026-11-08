@@ -80,13 +80,13 @@ ends. \href{\repo/docs/planner_C.md}{Details}.
   \toprule
   & (A) reactive & (B) RRT & (C) traj.\ opt. \\
   \midrule
-  Success, $n$ (\%)                                           & 132 (62\%) & 173 (81\%) & 169 (79\%) \\
-  Failures: collision / timeout / dropped                     & 6 / 71 / 5 & 0 / 41 / 0 & 8 / 36 / 1 \\
-  Time to grasp after the object comes into reach (median, s) & 2.21       & 2.66       & 1.38 \\
-  Min.\ obstacle clearance (median, cm)                       & 5.3        & 5.5        & 4.0 \\
-  Compute per decision (median, ms)                           & 2.2        & 10         & 841 \\
-  Peak torque (median, fraction of limit)                     & 2.20       & 0.34       & 0.43 \\
-  Peak joint speed (median, fraction of limit)                & 0.60       & 0.44       & 0.57 \\
+  Success, $n$ (\%)                                           & 132 (62\%) & 173 (81\%) & 195 (91\%) \\
+  Failures: collision / timeout / dropped                     & 6 / 71 / 5 & 0 / 41 / 0 & 9 / 10 / 0 \\
+  Time to grasp after the object comes into reach (median, s) & 2.21       & 2.66       & 1.60 \\
+  Min.\ obstacle clearance (median, cm)                       & 5.3        & 5.5        & 4.1 \\
+  Compute per decision (median, ms)                           & 2.2        & 10         & 1124 \\
+  Peak torque (median, fraction of limit)                     & 2.20       & 0.34       & 0.44 \\
+  Peak joint speed (median, fraction of limit)                & 0.60       & 0.44       & 0.59 \\
   \bottomrule
 \end{tabular}
 
