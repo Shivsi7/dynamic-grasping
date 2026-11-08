@@ -66,6 +66,7 @@ from pydrake.all import (
     AutoDiffXd,
     BsplineTrajectory,
     InverseKinematics,
+    JacobianWrtVariable,
     KinematicTrajectoryOptimization,
     MinimumDistanceLowerBoundConstraint,
     RigidTransform,
@@ -427,8 +428,7 @@ class HybridController(Controller):
             return self._pose_error(q, qd, t, self.hover)
 
         def above_grasp(q, qd, t):
-            X, _ = self._ee(q, qd)
-            return X.translation() - self._grasp_target(t)[0]
+            return self._ee_position(q) - self._grasp_target(t)[0]
 
         tol_p, tol_r, tol_v = 0.005, 0.02, 0.02
         tol = np.array([tol_p] * 3 + [tol_r] * 3 + [tol_r] * 3 + [tol_v] * 3)
@@ -477,7 +477,7 @@ class HybridController(Controller):
         z_lift = self.world.grasp_pose(t_g).translation()[2] + self.lift_height
 
         def height(q, qd, t):
-            return self._ee(q, qd)[0].translation()[2:]
+            return self._ee_position(q)[2:]
 
         for tk in np.arange(t_up, D + 1e-9, self.hold_sample_spacing):  # lifted, and kept there
             self._add(prog, height, [z_lift], [np.inf], tk / D, P, Td, w, dw, t_g)
@@ -574,6 +574,7 @@ class HybridController(Controller):
         sid = self.solver.solver_id()
         prog.SetSolverOption(sid, "Major feasibility tolerance", 1e-4)
         prog.SetSolverOption(sid, "Major optimality tolerance", self.refine_tol if warm else self.optimality_tol)
+        prog.SetSolverOption(sid, "Verify level", -1)  # no finite-difference check of the (exact) gradients
         t_loose = time.perf_counter()
         result = self.solver.Solve(prog)
         t_loose = time.perf_counter() - t_loose
@@ -656,6 +657,16 @@ class HybridController(Controller):
         plant.SetPositions(ctx, iiwa, q)
         plant.SetVelocities(ctx, iiwa, qd)
         return plant.CalcRelativeTransform(ctx, plant.world_frame(), G), G.CalcSpatialVelocityInWorld(ctx)
+
+    def _ee_position(self, q):
+        """Gripper position in W (float or AutoDiff, following q), by double precision kinematics: for AutoDiff q,
+        its gradient is the gripper's Jacobian times q's (much faster than AutoDiff kinematics)."""
+        rb = self.robot
+        if q.dtype != object:
+            return rb.fk(q).translation()
+        p = rb.fk(ExtractValue(q).ravel()).translation()
+        J = rb.plant.CalcJacobianTranslationalVelocity(rb.context, JacobianWrtVariable.kQDot, rb.G, np.zeros(3), rb.W, rb.W)
+        return InitializeAutoDiff(p, J[:, :NQ] @ ExtractGradient(q)).ravel()  # (the iiwa's are the first positions)
 
 
 def _seed_worker(conn, spec, kwargs):

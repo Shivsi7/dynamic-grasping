@@ -68,7 +68,16 @@ class CollisionWorld:
         self._ctx_cache: dict[tuple, object] = {}
         self._state_cache: dict[float, tuple[np.ndarray, np.ndarray]] = {}
         self._ctx = self.context(("obstacle", "cart", "floor", "target"))
-        self._scratch = self.diagram.CreateDefaultContext()
+        # full_state: the scripted joints' indices in the plant's positions, and the rest (iiwa at zero, WSG open)
+        n = self.plant.num_positions()
+        index = lambda m: self.plant.GetPositionsFromArray(m, np.arange(n, dtype=float)).astype(int)
+        self._paths = [(index(self.kin.cart), spec.cart.path)]
+        self._paths += [(index(self.kin.obstacles[o.name]), o.get_path()) for o in spec.obstacles]
+        s = self.kin.target_body.floating_positions_start()
+        self._target_q = np.arange(s, s + 7)  # quaternion (w, x, y, z), position
+        ctx = self.diagram.CreateDefaultContext()
+        self.set_time(ctx, 0.0, np.zeros(NQ))
+        self._q0 = self.plant.GetPositions(self.plant_context(ctx))
 
     # ---- contexts -----------------------------------------------------------
     def context(self, categories: tuple[str, ...]):
@@ -101,16 +110,18 @@ class CollisionWorld:
         )
 
     def full_state(self, t: float) -> tuple[np.ndarray, np.ndarray]:
-        """(q_full(t), dq_full/dt) of the kinematic plant with the iiwa at zero (cached per t)."""
+        """(q_full(t), dq_full/dt) of the kinematic plant with the iiwa at zero (cached per t): what set_time puts
+        in a context, written directly (about twice as fast as through a context)."""
         key = round(float(t), 9)
         if key not in self._state_cache:
             if len(self._state_cache) > 4096:
                 self._state_cache.clear()
-            ctx = self._scratch
-            self.set_time(ctx, t, np.zeros(NQ))
-            pc = self.plant_context(ctx)
-            q = self.plant.GetPositions(pc)
-            qdot = self.plant.MapVelocityToQDot(pc, self.plant.GetVelocities(pc))
+            q, qdot = self._q0.copy(), np.zeros(len(self._q0))
+            for i, path in self._paths:  # cart (x, y), obstacles (x, y, z): prismatic joints
+                q[i], qdot[i] = path.position(t)[: len(i)], path.velocity(t)[: len(i)]
+            X = self.world.target_body_pose(t)  # the target: a free body, translating with the cart
+            q[self._target_q] = np.concatenate([X.rotation().ToQuaternion().wxyz(), X.translation()])
+            qdot[self._target_q[4:]] = self.world.target_velocity(t)
             self._state_cache[key] = (q, qdot)
         return self._state_cache[key]
 
