@@ -1,0 +1,127 @@
+\documentclass[11pt]{article}
+\usepackage[letterpaper,margin=2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage[compact]{titlesec}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage[colorlinks,urlcolor=blue!60!black,linkcolor=black]{hyperref}
+
+\titlespacing*{\section}{0pt}{1.6ex}{0.6ex}
+\setlist{nosep,leftmargin=*}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6ex}
+
+% Branch the links point to.
+\newcommand{\branch}{main}
+\newcommand{\repo}{https://github.com/Shivsi7/dynamic-grasping/blob/\branch}
+% Where the example videos live.
+\newcommand{\videos}{\repo/docs/report/videos}
+
+% Strip of four frames for one example (frames/<scene>_0..3.jpg): the scene at t = 0, then (A), (B), (C).
+\newcommand{\fr}[1]{\includegraphics[width=0.215\textwidth]{frames/#1}}
+\newcommand{\strip}[1]{\par\noindent\fr{#1_0}\hfill\fr{#1_1}\hfill\fr{#1_2}\hfill\fr{#1_3}\par\medskip}
+
+\begin{document}
+
+\begin{center}
+  {\Large\bfseries Dynamic grasping: progress report}\\[0.6ex]
+  [Authors] \quad$\cdot$\quad 6.4212, Fall 2026 \quad$\cdot$\quad \today
+\end{center}
+
+\section{What we did}
+
+\textbf{Environment.} In Drake, a KUKA iiwa with a WSG gripper picks a YCB object off a cart moving at
+0.05--0.3\,m/s, while 0--4 spheres and boxes cross the workspace, on wheeled rigs or lobbed. Scenes come
+from a seeded generator (always solvable by getting out of the way) and from preset grids that block the
+direct grasp (a post, a plank, a pillar).
+
+\textbf{Evaluation.} Compute time costs simulated time (measured latency). Each episode runs to the end
+of the scene: \emph{success} (grasped, lifted, still held at the end), \emph{collision}, \emph{dropped}
+or \emph{timeout}. 214 scenes: dev 20, preset grids 114 (48 + 48 + 18), held-out 80 (a separate random
+seed; some of its failures were inspected during development).
+
+\textbf{(A) Reactive QP.} Every 10\,ms, a QP over joint velocities tracks a velocity-matched grasp pose,
+with velocity dampers against the obstacles' predicted swept volume over the next 0.2\,s. Fast but local.
+\href{\repo/docs/planner_A.md}{Details}.
+
+\textbf{(B) Space-time RRT-Connect.} Plans in $(q,t)$ to a pre-grasp at an intercept time, then a
+fixed grasp-and-lift motion. Replans every 0.5\,s, within acceleration and torque limits, with escape
+moves when the plan turns unsafe. \href{\repo/docs/planner_B.md}{Details}.
+
+\textbf{(C) Space-time trajectory optimization.} Plans once, before the object is in reach. IK picks a
+collision-free grasp; Drake's kinematic trajectory optimization (B-spline, free duration) plans the
+approach, clear of the obstacles' predicted motion. A second solve closes, lifts and holds until the scene
+ends. \href{\repo/docs/planner_C.md}{Details}.
+
+\section{Differences from the plan}
+
+\begin{itemize}
+  \item \textbf{Environment:} besides the planned tall post, added plank and pillar grids that block the
+    direct grasp.
+  \item \textbf{Evaluation:} compute time costs simulated time, and a success must hold the object to
+    the end of the scene; neither was planned. Fixed scene sets, with a held-out set.
+  \item \textbf{(A):} as planned; the swept volume is sampled at $t$, $t+0.1$, $t+0.2$\,s instead of
+    using capsules.
+  \item \textbf{(B):} written from scratch on Drake's distance queries, without an existing planner or
+    VAMP. Added acceleration and torque limits, several grasp candidates, escape moves, and collision
+    checks of the held object.
+  \item \textbf{(C):} an optional extension, now a full method. Seeded by IK, not by (A). Plans once
+    instead of re-solving at a few Hz, and also plans the hold.
+\end{itemize}
+
+\section{Results}
+
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+  \toprule
+  & (A) reactive & (B) RRT & (C) traj.\ opt. \\
+  \midrule
+  Success, $n$ (\%)                                           & 132 (62\%) & 173 (81\%) & 169 (79\%) \\
+  Failures: collision / timeout / dropped                     & 6 / 71 / 5 & 0 / 41 / 0 & 8 / 36 / 1 \\
+  Time to grasp after the object comes into reach (median, s) & 2.21       & 2.66       & 1.38 \\
+  Min.\ obstacle clearance (median, cm)                       & 5.3        & 5.5        & 4.0 \\
+  Compute per decision (median, ms)                           & 2.2        & 10         & 841 \\
+  Peak torque (median, fraction of limit)                     & 2.20       & 0.34       & 0.43 \\
+  Peak joint speed (median, fraction of limit)                & 0.60       & 0.44       & 0.57 \\
+  \bottomrule
+\end{tabular}
+
+\smallskip
+{\small All 214 scenes, measured latency, scored to the end of each scene; held-out 80 from a separate seed.}
+\end{center}
+
+\clearpage
+\section{Examples}
+
+Four held-out scenes; frames from each video: the scene at $t=0$, then (A), (B), (C).
+
+\textbf{All three succeed.} \texttt{mix\_0074}: all three grasp the cracker box among four moving obstacles,
+1.0 to 1.7\,s after it comes into reach, (C) first. \href{\videos/mix_0074.mp4}{Video}.
+\strip{mix_0074}
+
+\textbf{All three fail.} \texttt{mix\_0079}: three boxes and a sphere crowd the arm; (A) cannot get past
+them, (B) escapes and times out, and (C)'s plans arrive too late, so a box hits the parked arm. \href{\videos/mix_0079.mp4}{Video}.
+\strip{mix_0079}
+
+\textbf{Only (A) fails.} \texttt{mix\_0036}: all three grasp the mustard bottle, but it slips out of
+(A)'s gripper right after the lift. \href{\videos/mix_0036.mp4}{Video}.
+\strip{mix_0036}
+
+\textbf{Only (C) succeeds.} \texttt{mix\_0043}: two boxes and a sphere pass the arm; (B) never leaves its
+escape pose, (A) grasps late and flings the bottle away swerving around the sphere, and (C) holds it. \href{\videos/mix_0043.mp4}{Video}.
+\strip{mix_0043}
+
+\section{Next steps}
+
+\begin{enumerate}
+  \item More variability in the scenes, e.g.\ objects flying around.
+  \item Keep optimizing the methods, mainly (A) and (B); a lot of time already went into (C).
+  \item Reinforcement learning as a fourth method.
+  \item Perception, for a more realistic setting: the hardest, and the lowest priority.
+\end{enumerate}
+
+\end{document}
