@@ -4,8 +4,8 @@ Controller `hybrid`, in `dyngrasp/hybrid.py` (start with `update`). Tests: `test
 
 ## Idea
 
-(C) plans the episode once with Drake's `KinematicTrajectoryOptimization` (cubic B-splines, SNOPT),
-as two problems sent as one joint trajectory. It does not use (A) or (B).
+(C) plans the episode with Drake's `KinematicTrajectoryOptimization` (cubic B-splines, SNOPT), as
+two problems sent as one joint trajectory, replanning only until it has one. It does not use (A) or (B).
 
 1. **Approach:** from the arm's state at t0 to the object's grasp pose at t0 + T (T free), through
    a hover pose 10 cm above it, clear of the obstacles where they will be at each time.
@@ -21,16 +21,19 @@ out of the way first; the grasp plan then starts from the dodge.
 2. Plan for t0 = now + 2 s. Compute time costs simulated time, so the plan holds still until t0.
    * **Grasp time:** 0.5 s steps outward from the object's closest approach to the robot (earlier
      first), at least 1.2 s (`exit_margin`) before it leaves reach; the first with a
-     collision-free IK grasp and hover pose (6 IK starts each).
-   * **Seeds:** straight joint-space lines to those poses; the same via a collision-free halfway
-     configuration (nearest to the midpoint, then to 3 random ones); straight lines to the
-     next 2 grasp times.
-   * **Workers:** 4 processes (started in `reset`) solve the seeds in parallel. Each sends its
-     plan at tolerance 0.1, then refines it at 0.01 from that solution until the deadline;
-     (C) keeps the lowest-cost plan. Inside a daemon process the seeds run in turn, and a
-     refine runs only if it likely fits (3x the first solve).
+     collision-free IK grasp and hover pose (6 IK starts each). If none: 0.1 and 0.2 s steps
+     around the two nearest misses (reach error + clearance shortfall).
+   * **Seeds:** straight joint-space lines to those poses, and to those of the earliest grasp time
+     that works (a short guess); the same via a collision-free halfway configuration (nearest to
+     the midpoint, then to 2 random ones, 3 without the earliest); straight lines to the next 2
+     grasp times.
+   * **Workers:** 4 processes (started in `reset`, stopped by `close` when the episode ends) solve
+     the seeds in parallel. Each sends its plan at tolerance 0.1, then refines it at 0.01 from that
+     solution until the deadline; (C) keeps the lowest-cost plan. Inside a daemon process the
+     seeds run in turn, and a refine runs only if it likely fits (3x the first solve).
 3. A late plan is rejected; (C) replans with 1.5x the time it took. No plan: it stays parked
-   (dodging if needed).
+   (dodging if needed) and plans again on the next update while t0 < $t_{exit}$ − 1.2 s: fresh
+   random vias and IK starts, untried grasp times first, the vias to the earliest grasp time.
 
 ## The problems
 
@@ -80,11 +83,13 @@ $q_{guess}$.
 
 * $\mathrm{IK}(t, X, q_{guess})$: find $q$ with $|p_G - p_X| \le 0.003$ and $\angle(R_G, R_X) \le 0.01$ rad (no cost).
 * $\mathrm{IK}(t, q_{target})$: $\min_q \lVert q - q_{target} \rVert^2$, from $q_{guess} = q_{target}$.
+* Miss of a failed IK, at the solver's last iterate: $|p_G - p_X| + 0.1\,\angle(R_G, R_X) + \max(0,\ 0.05 - d_O)$
+  (the first two terms only with $X$).
 
 **Grasp and hover:** $t_c = \mathrm{clip}(t_{closest}, lo, hi)$ with $lo = \max(t_{enter}, t_0 + 1)$,
 $hi = t_{exit} - 1.2$ ($t_{closest}$: the cart passes $y = 0$, nearest the robot base). Candidates
-$t_g = t_c + 0.5k \in [lo, hi]$, $k \in \mathbb{Z}$, by increasing $|k|$, earlier first. For each, 6 tries,
-$q_{guess} = q_0$ then 5 uniform random in $[q_{lo}, q_{hi}]$:
+$t_g = t_c + 0.5k \in [lo, hi]$, $k \in \mathbb{Z}$, sorted by (tried, $|k|$, $t_g$); tried: by an earlier plan that
+found nothing. For each, 6 tries, $q_{guess} = q_0$ then 5 uniform random in $[q_{lo}, q_{hi}]$ (new on each retry):
 
 $$
 q_g = \mathrm{IK}\big(t_g,\ (p^*(t_g), R^*),\ q_{guess}\big), \qquad
@@ -94,20 +99,25 @@ $$
 keeping the pair with the least $\max_j |q_{h,j} - q_{0,j}|/v_{max,j}$. The first $t_g$ with a pair
 gives the first seeds; the next 2 (`n_ik_seeds` − 1) the later ones.
 
-**Halfway configurations**, at $t_m = (t_0 + t_d)/2$ with $q_m = (q_0 + q_h)/2$: $\mathrm{IK}(t_m, q_m)$
-(dropped if it returns $q_m$ within 1e-3 rad), then
+* **Earliest** (`ik_early`): the first pair with candidates sorted by ($t_g > t_0 + 5$, tried, $t_g$).
+* **Fine search**, if no candidate has a pair: $t \pm 0.1$, $t \pm 0.2$ (in $[lo, hi]$) around the two
+  candidates $t$ with the lowest miss (least over their tries), lowest first.
+
+**Halfway configurations**, at $t_m = (t_0 + t_d)/2$ with $q_m = (q_0 + q_h)/2$, $(t_d, q_h)$ of the first
+grasp (on a retry, of the earliest): $\mathrm{IK}(t_m, q_m)$ (dropped if it returns $q_m$ within 1e-3 rad), then
 $\mathrm{IK}\big(t_m,\ \mathrm{clip}(q_m + u_i,\ q_{lo} + 0.05,\ q_{hi} - 0.05)\big)$, $u_i \sim U[-1, 1]^7$
-(`random_spread` 1 rad), $i = 1, 2, 3$ (`n_random_seeds`).
+(`random_spread` 1 rad, new on each retry), $i = 1, \dots, n$: $n = 3$ (`n_random_seeds`), 2 with an earliest seed.
 
 **Seed paths** (`_path`): piecewise linear in joint space through $(t_0, q_0)$, $(t_m, q_{via})$ (if
-any), $(t_d, q_h)$, $(t_g, q_g)$, sampled at 40 times on $[t_0, t_g]$. Order: no via, then each
-halfway configuration found; if none gives a plan, no via to each later grasp time.
+any), $(t_d, q_h)$, $(t_g, q_g)$, sampled at 40 times on $[t_0, t_g]$. Order: no via; no via to the
+earliest grasp (if at another time); each halfway configuration found; if none gives a plan, no via
+to each later grasp time.
 
 ### Approach (`_plan`)
 
 $t_0$ = now + budget, planned from $t_{plan} = t_{enter} -$ `lead_time` (1 s) $-$ budget, and only if
-$t_0 < t_{exit} - 1.2$ (`exit_margin`). Budget: `plan_budget` (2 s), raised to 1.5x a plan's compute
-time when that is larger. $q_0, v_0$: the arm's state at $t_0$, parked ($v_0 = 0$) or on the dodge.
+$t_0 < t_{exit} - 1.2$ (`exit_margin`); while none is found, again at every update. Budget: `plan_budget`
+(2 s), raised to 1.5x a found plan's compute time when that is larger. $q_0, v_0$: the arm's state at $t_0$, parked ($v_0 = 0$) or on the dodge.
 $N = 12$ (`n_control_points`).
 
 $$
@@ -179,28 +189,31 @@ links 5 and 7 of the box model overlap past |q6| ~ 1.75 rad, so that pair is fil
 
 ## Results
 
-Measured latency, scored to the end of each scene; 8 episodes in parallel, then every failure
-rerun alone (that result counts). Held-out at `965444e`, the other sets at `76c07b2` (they do not
-include the closest-approach grasp times yet).
+Measured latency, scored to the end of each scene; 8 episodes in parallel, then every non-success
+rerun alone (that result counts). (C) at `5424aac` (reruns at `6246476`, same planning); (A), (B)
+at `1c10b7a`. No (C) episode dropped the object.
 
-| set | scenes | success | collision | dropped | timeout |
+| set | scenes | success | collision | timeout | (A) / (B) success |
 |---|---|---|---|---|---|
-| dev | 20 | 16 | 1 | 0 | 3 |
-| post grid | 48 | 37 | 0 | 0 | 11 |
-| plank grid | 48 | 38 | 0 | 0 | 10 |
-| pillar grid | 18 | 6 | 10 | 0 | 2 |
-| held-out mixed | 80 | 73 | 1 | 0 | 6 |
+| dev | 20 | 17 | 1 | 2 | 11 / 15 |
+| post grid | 48 | 48 | 0 | 0 | 34 / 45 |
+| plank grid | 48 | 48 | 0 | 0 | 33 / 44 |
+| pillar grid | 18 | 10 | 7 | 1 | 2 / 6 |
+| held-out mixed | 80 | 72 | 1 | 7 | 52 / 63 |
+| all | 214 | 195 | 9 | 10 | 132 / 173 |
 
-Held-out: (A) 52, (B) 63, (C) 73. No held-out scene where (C) fails and (A) or (B) succeeds.
+(C) fails where (A) or (B) succeeds in 2 scenes only (pillar grid, grasped by (A)).
 
 ## Limitations
 
-1. **No grasp found:** most timeouts have no collision-free IK grasp or hover pose (an obstacle
-   at the grasp, or the hover out of reach).
-2. **Compute:** while (C) computes, the parked arm cannot dodge; a failing seed can take several
-   seconds (most pillar-grid collisions: a first plan of 2-5.7 s; held-out `mix_0079`: 3.9 s
-   while parked).
-3. **One plan:** no replanning, fine with perfect prediction.
+1. **No plan** (the 10 timeouts: `dev_004`, `dev_007`, one pillar scene, `mix_0007`, `0014`, `0038`,
+   `0059`, `0063`, `0067`, `0068`): none found before the object leaves reach. `mix_0007`: grasps
+   only at the edge of reach, the hover out of reach; `mix_0038`: a grasp needs ~2 cm clearance
+   (IK asks 5 cm); `mix_0068`: its one plan took 4.2 s and arrived late.
+2. **Blind while computing** (the 9 collisions): the arm cannot react during a solve, which has no
+   time limit. 7 pillar-grid scenes, whose dodges take 1.4-20 s; `mix_0079` and `dev_001`, hit while
+   parked as a first plan of 4.9 s / 2.6 s arrives too late.
+3. **No replanning once a plan is sent:** fine with perfect prediction.
 
 ## Tools
 
