@@ -52,9 +52,10 @@ with velocity dampers against the obstacles' predicted swept volume over the nex
 fixed grasp-and-lift motion. Replans every 0.5\,s, within acceleration and torque limits, with escape
 moves when the plan turns unsafe. \href{\repo/docs/planner_B.md}{Details}.
 
-\textbf{(C) Space-time trajectory optimization.} Plans once, before the object is in reach. IK picks a
-collision-free grasp; Drake's kinematic trajectory optimization (B-spline, free duration) plans the
-approach, clear of the obstacles' predicted motion. A second solve closes, lifts and holds until the scene
+\textbf{(C) Space-time trajectory optimization.} Plans before the object is in reach and, while no plan
+is found, again at every update until the object can no longer be grasped. IK picks collision-free grasps
+(also the earliest, a short initial guess; a finer grasp-time search if none is found); Drake's kinematic
+trajectory optimization (B-spline, free duration) plans the approach, clear of the obstacles' predicted motion. A second solve closes, lifts and holds until the scene
 ends. \href{\repo/docs/planner_C.md}{Details}.
 
 \section{Differences from the plan}
@@ -69,8 +70,8 @@ ends. \href{\repo/docs/planner_C.md}{Details}.
   \item \textbf{(B):} written from scratch on Drake's distance queries, without an existing planner or
     VAMP. Added acceleration and torque limits, several grasp candidates, escape moves, and collision
     checks of the held object.
-  \item \textbf{(C):} an optional extension, now a full method. Seeded by IK, not by (A). Plans once
-    instead of re-solving at a few Hz, and also plans the hold.
+  \item \textbf{(C):} an optional extension, now a full method. Seeded by IK, not by (A). Replans only
+    while it has no plan, instead of re-solving at a few Hz, and also plans the hold.
 \end{itemize}
 
 \section{Results}
@@ -84,14 +85,15 @@ ends. \href{\repo/docs/planner_C.md}{Details}.
   Failures: collision / timeout / dropped                     & 6 / 71 / 5 & 0 / 41 / 0 & 9 / 10 / 0 \\
   Time to grasp after the object comes into reach (median, s) & 2.21       & 2.66       & 1.60 \\
   Min.\ obstacle clearance (median, cm)                       & 5.3        & 5.5        & 4.1 \\
-  Compute per decision (median, ms)                           & 2.2        & 10         & 1124 \\
+  Compute per plan (median, ms)                               & 2.2        & 862        & 1492 \\
   Peak torque (median, fraction of limit)                     & 2.20       & 0.34       & 0.44 \\
   Peak joint speed (median, fraction of limit)                & 0.60       & 0.44       & 0.59 \\
   \bottomrule
 \end{tabular}
 
 \smallskip
-{\small All 214 scenes, measured latency, scored to the end of each scene; held-out 80 from a separate seed.}
+{\small All 214 scenes, measured latency, scored to the end of each scene; held-out 80 from a separate seed.
+Compute per plan: all computation behind each plan sent (for (A), each QP step), failed attempts included.}
 \end{center}
 
 \clearpage
