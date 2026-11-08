@@ -30,10 +30,12 @@ Shortly before the object comes within reach (t_enter - lead_time) the controlle
 
 The initial guess for the approach is straight joint-space lines to the IK
 hover and grasp poses (they may cut through obstacles: they only have to end
-at a valid grasp).  If it does not give a plan, the same via a collision-free
+at a valid grasp), then to those of the earliest grasp time that has both (a
+short initial guess).  If they do not give a plan, the same via a collision-free
 configuration halfway to the hover pose: the nearest (IK, obstacles where they
 are then) to the straight line's midpoint, then to `n_random_seeds` random
-configurations around it (each joint moved by up to `random_spread` rad); then
+configurations around it (each joint moved by up to `random_spread` rad; one
+fewer with the earliest grasp's seed); then
 straight lines to the IK poses of the next grasp times, up to `n_ik_seeds` in
 all.  The first seed that gives a feasible approach and hold is kept.  With
 `n_workers` > 1 the seeds run in parallel processes, each sends its plan,
@@ -270,13 +272,19 @@ class HybridController(Controller):
         return {**info, "ok": plan is not None, "plan_ms": 1e3 * (time.perf_counter() - tic)}, plan
 
     def _first_seeds(self, t0, q0, grasp):
-        """Straight lines to the first IK grasp; then the same via the nearest collision-free configuration,
-        halfway to the hover pose, to the straight line's midpoint, and to random configurations around it."""
-        t_d, _, q_h, _ = grasp
+        """Straight lines to the first IK grasp and to the earliest one (if at another time: short initial guesses
+        solve where long ones may not); then the same via the nearest collision-free configuration, halfway to the
+        hover pose, to the straight line's midpoint, and to random configurations around it (one fewer if the
+        earliest was a seed)."""
         yield "ik", grasp, None
+        early, n_random = next(self._ik_grasps(t0, q0, earliest=True), None), self.n_random_seeds
+        if early is not None and not np.isclose(early[1], grasp[1]):
+            yield "ik_early", early, None
+            n_random -= 1
+        t_d, _, q_h, _ = grasp
         t_mid, mid = 0.5 * (t0 + t_d), 0.5 * (q0 + q_h)
         rng, lo, hi = np.random.default_rng(0), self.robot.q_lower + 0.05, self.robot.q_upper - 0.05
-        for k in range(1 + self.n_random_seeds):
+        for k in range(1 + n_random):
             target = mid if k == 0 else np.clip(mid + rng.uniform(-1, 1, NQ) * self.random_spread, lo, hi)
             via = self._ik(t_mid, None, target)
             if via is not None and not (k == 0 and np.allclose(via, mid, atol=1e-3)):  # (midpoint already free)
@@ -341,15 +349,16 @@ class HybridController(Controller):
         if h["ok"]:
             yield result(r, h)
 
-    def _ik_grasps(self, t0, q0, n_tries=6, descend_time=0.6):
+    def _ik_grasps(self, t0, q0, earliest=False, n_tries=6, descend_time=0.6):
         """Yields (t_d, t_g, q_h, q_g): IK hover pose at t_d and grasp at t_g, for each grasp time that has both: 0.5 s
-        apart, outward from the target's closest approach to the robot (earlier first), where the arm reaches it best.
-        If none has both, the same at 0.1 and 0.2 s around the two grasp times whose IK came nearest (lowest `_ik_miss`
-        of the failed IK, over their attempts), nearest first."""
+        apart, outward from the target's closest approach to the robot (earlier first), where the arm reaches it best;
+        or, if `earliest`, from the earliest upward. If none has both, the same at 0.1 and 0.2 s around the two grasp
+        times whose IK came nearest (lowest `_ik_miss` of the failed IK, over their attempts), nearest first."""
         world, rng = self.world, np.random.default_rng(0)
         lo, hi = max(world.t_enter, t0 + 1.0), world.t_exit - self.exit_margin
         t_c = np.clip(world.t_closest, lo, hi)
         times = np.concatenate([np.arange(t_c, lo - 1e-9, -0.5), np.arange(t_c + 0.5, hi + 1e-9, 0.5)])
+        times = sorted(times) if earliest else sorted(times, key=lambda x: (abs(x - t_c), x))
         miss = {}
 
         def grasp(t_g):
@@ -367,7 +376,7 @@ class HybridController(Controller):
             return None if best is None else (t_d, t_g, best[1], best[2])
 
         found = False
-        for t_g in sorted(times, key=lambda x: (abs(x - t_c), x)):
+        for t_g in times:
             if (g := grasp(t_g)) is not None:
                 found = True
                 yield g
