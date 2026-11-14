@@ -1,6 +1,6 @@
 #!/bin/bash
-# (D) SAC training on mit_preemptable: 1 GPU of any type, 66 CPUs, 1 day. Preemption = SIGTERM to every process,
-# SIGKILL 30 s later: train_rl.py checkpoints on the SIGTERM (its env workers ignore it), Slurm requeues the job and
+# (D) SAC training on mit_preemptable: 1 GPU of any type, 66 CPUs, 1 day. Preemption = SIGTERM to the job script,
+# SIGKILL 30 s later: train_rl.py checkpoints on the forwarded SIGTERM (its env workers ignore it), Slurm requeues the job and
 # it resumes from that checkpoint (or from the last periodic one, if the save did not finish).
 #   sbatch [-c CPUS] ~/dyngrasp_rl/train_preempt.sbatch RUN [SEED=0] [N_ENVS=CPUS-2] [more train_rl.py --set KEY=VALUE ...]
 # Writes ~/dyngrasp_rl/runs/RUN/ (slurm_<jobid>.out inside). Submitting the same RUN again resumes from its last checkpoint.
@@ -35,7 +35,9 @@ apptainer exec --nv $HOME/dyngrasp_rl/dyngrasp_rl.sif python scripts/train_rl.py
 PID=$!
 TERMINATED=
 trap 'echo "== $(date) time limit near: SIGUSR1 -> trainer"; kill -USR1 $PID' USR1
-trap 'echo "== $(date) SIGTERM (preemption or scancel): waiting for the trainer'"'"'s checkpoint"; TERMINATED=1' TERM
+# Preemption / scancel / requeue: Slurm sends SIGTERM to this shell only (the trainer kept training until the SIGKILL
+# 30 s later): forward it, and wait for the trainer's checkpoint.
+trap 'echo "== $(date) SIGTERM (preemption, requeue or scancel) -> trainer"; TERMINATED=1; kill -TERM $PID' TERM
 wait $PID; RC=$?
 while kill -0 $PID 2>/dev/null; do wait $PID; RC=$?; done  # the traps interrupt wait: wait for the checkpoint too
 echo "== $(date) trainer exited with $RC"

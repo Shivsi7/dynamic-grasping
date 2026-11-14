@@ -31,7 +31,9 @@ apptainer exec --nv $HOME/dyngrasp_rl/dyngrasp_rl.sif python scripts/train_rl.py
 PID=$!
 TERMINATED=
 trap 'echo "== $(date) time limit near: SIGUSR1 -> trainer"; kill -USR1 $PID' USR1
-trap 'echo "== $(date) SIGTERM (preemption or scancel): waiting for the trainer'"'"'s checkpoint"; TERMINATED=1' TERM
+# Preemption / scancel / requeue: Slurm sends SIGTERM to this shell only (the trainer kept training until the SIGKILL
+# 30 s later): forward it, and wait for the trainer's checkpoint.
+trap 'echo "== $(date) SIGTERM (preemption, requeue or scancel) -> trainer"; TERMINATED=1; kill -TERM $PID' TERM
 wait $PID; RC=$?
 while kill -0 $PID 2>/dev/null; do wait $PID; RC=$?; done  # the traps interrupt wait: wait for the checkpoint too
 echo "== $(date) trainer exited with $RC"
