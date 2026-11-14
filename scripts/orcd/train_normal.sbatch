@@ -2,7 +2,7 @@
 # (D) SAC training on mit_normal_gpu: 1x L40S, 16 CPUs (per-user cap 32 CPUs / 2 GPUs, so two of these fit), 6 h.
 #   sbatch [-c CPUS] ~/dyngrasp_rl/train_normal.sbatch RUN [SEED=0] [N_ENVS=CPUS] [more train_rl.py --set KEY=VALUE ...]
 # Writes ~/dyngrasp_rl/runs/RUN/ (slurm_<jobid>.out inside). Submitting the same RUN again resumes from its last checkpoint.
-# 10 min before the time limit the trainer gets SIGUSR1 (to checkpoint).
+# 10 min before the time limit the trainer gets SIGUSR1: it checkpoints and exits (resubmit the RUN to continue).
 #SBATCH -J dg_train
 #SBATCH -p mit_normal_gpu
 #SBATCH --gres=gpu:l40s:1

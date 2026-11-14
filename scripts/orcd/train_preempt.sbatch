@@ -1,9 +1,10 @@
 #!/bin/bash
 # (D) SAC training on mit_preemptable: 1 GPU of any type, 66 CPUs, 1 day. Preemption = SIGTERM to every process,
-# SIGKILL 30 s later, then Slurm requeues the job and train_rl.py resumes from the run's last periodic checkpoint.
+# SIGKILL 30 s later: train_rl.py checkpoints on the SIGTERM (its env workers ignore it), Slurm requeues the job and
+# it resumes from that checkpoint (or from the last periodic one, if the save did not finish).
 #   sbatch [-c CPUS] ~/dyngrasp_rl/train_preempt.sbatch RUN [SEED=0] [N_ENVS=CPUS-2] [more train_rl.py --set KEY=VALUE ...]
 # Writes ~/dyngrasp_rl/runs/RUN/ (slurm_<jobid>.out inside). Submitting the same RUN again resumes from its last checkpoint.
-# 10 min before the time limit the trainer gets SIGUSR1 (to checkpoint).
+# 10 min before the time limit the trainer gets SIGUSR1: it checkpoints and exits (resubmit the RUN to continue).
 #SBATCH -J dg_train
 #SBATCH -p mit_preemptable
 #SBATCH --gres=gpu:1
