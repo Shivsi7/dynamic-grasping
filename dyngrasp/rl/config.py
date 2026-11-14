@@ -1,4 +1,5 @@
-"""(D) configuration: every number of the environment, the reward, the curriculum and SAC, in one dict.
+"""(D) configuration: every number of the environment, the reward, the curriculum, SAC and behaviour
+cloning, in one dict.
 
 `load_config(path, overrides)` = DEFAULTS, updated by a YAML file, then by "section.key=value"
 overrides whose values are parsed as YAML (`sac.batch_size=1024`, `train.n_envs=64`).
@@ -67,6 +68,12 @@ DEFAULTS = {
         "checkpoint_minutes": 10.0,
         "log_seconds": 60.0,
         "keep_checkpoints": 2,
+    },
+    "demos": {  # behaviour-cloning demonstrations from (C) (demos.py, scripts/make_bc_demos.py)
+        "level_weights": [0.1, 0.1, 0.15, 0.2, 0.2, 0.25],  # share of training scenes per curriculum level L0-L5
+        # A (C) episode is abandoned after this much wall time (it retries a failed plan every 5 ms at zero latency).
+        # Pilot (144 scenes, ORCD): successes took <= 46 s, the 5 episodes stopped at 300 s were all still unsolved.
+        "max_wall_s": 120.0,
     },
 }
 
