@@ -1,0 +1,14 @@
+# Read-only image: Python 3.12 + Drake + jax[cuda12] + sbx, venv at /opt/venv. The repo is not baked in (PYTHONPATH).
+Bootstrap: docker
+From: python:3.12.16-bookworm
+
+%files
+    requirements.lock /opt/requirements.lock
+
+%post
+    python -m venv /opt/venv
+    /opt/venv/bin/pip install --no-cache-dir -q --upgrade pip
+    /opt/venv/bin/pip install --no-cache-dir -q -r /opt/requirements.lock --extra-index-url https://download.pytorch.org/whl/cpu
+
+%environment
+    export PATH=/opt/venv/bin:$PATH
