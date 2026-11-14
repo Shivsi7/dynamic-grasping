@@ -9,3 +9,4 @@
 - Submit on preemptable (any GPU, 66 CPUs, 1 day, requeued on preemption): `sbatch [-c 32] ~/dyngrasp_rl/train_preempt.sbatch RUN ...`
 - Outputs go to `~/dyngrasp_rl/runs/RUN/`. Resubmitting the same RUN resumes it. SIGUSR1 arrives 10 min before the time limit.
 - Docker copy of the same environment (public, no repo code): `apptainer pull dyngrasp_rl.sif docker://victoriano012/dyngrasp-rl:<tag>`. To rebuild it on the Mac: `docker buildx build --platform linux/amd64 -t victoriano012/dyngrasp-rl:<date> .`
+- Behaviour cloning (D) (any command, CPU or GPU): `scripts/orcd/run.sbatch`, examples in its header: demonstrations (`make_bc_demos.py generate`, then `merge`), training (`train_bc.py`, on a GPU), evaluation (`eval_rl.py`, then `compare_rl.py`).
