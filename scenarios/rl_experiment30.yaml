@@ -1,0 +1,1914 @@
+# (D) experiment set: scripts/make_rl_experiment_set.py --seed 0; held-out scenes
+# stratified by (A)/(B)/(C) successes in heldout_mixed_s5000_abc.csv
+- name: mix_0068
+  seed: 5068
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: cracker_box
+    yaw: 0.08947860621119637
+  cart:
+    x: 0.6547565549158018
+    y_start: 0.9063571940259575
+    y_end: -1.0
+    speed: 0.1354523980086525
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: sphere
+    dims:
+    - 0.07008598160999735
+    path:
+      type: linear
+      p_start:
+      - 0.3163096671807052
+      - 1.0311970251172975
+      - 0.6862831306695911
+      p_end:
+      - 0.21178100164485858
+      - -1.2758068643506049
+      - 0.6862831306695911
+      t_start: -1.6835895095160147
+      t_end: 16.808008769409742
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: obstacle_1
+    shape: sphere
+    dims:
+    - 0.0638766207318489
+    path:
+      type: parabolic
+      p0:
+      - 0.36161946992595406
+      - 0.3155314454906058
+      - 0.3610878019583189
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.4183675730939604
+      - 0.0
+      - 0.0
+      t0: 10.782638951325932
+      t_start: 8.32679831518094
+      t_end: 13.238479587470925
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: cart
+  - name: obstacle_2
+    shape: sphere
+    dims:
+    - 0.062091604295699994
+    path:
+      type: parabolic
+      p0:
+      - 0.36161946992595406
+      - -0.28097558141449214
+      - 0.36079339977550395
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.3835433872544662
+      - 0.0
+      - 0.0
+      t0: 5.5981405593134
+      t_start: 3.0332316893123856
+      t_end: 8.163049429314414
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 11.882667377628275
+  time_step: 0.001
+  notes: ''
+- name: mix_0043
+  seed: 5043
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: mustard
+    yaw: 0.21490043534870754
+  cart:
+    x: 0.644665973001093
+    y_start: -1.0257641073166364
+    y_end: 1.0
+    speed: 0.1752547024388788
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: box
+    dims:
+    - 0.12612643942073168
+    - 0.1147038724078674
+    - 0.15440118504865114
+    path:
+      type: linear
+      p_start:
+      - 0.23743425423585413
+      - 1.0556849804304316
+      - 0.36205350190068586
+      p_end:
+      - 0.3176342360467181
+      - -0.5536548281713103
+      - 0.36205350190068586
+      t_start: -0.356052495586082
+      t_end: 6.38521223070687
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: float
+  - name: obstacle_1
+    shape: sphere
+    dims:
+    - 0.09068152106105964
+    path:
+      type: linear
+      p_start:
+      - 0.2462244013074088
+      - 1.12146021071315
+      - 0.6001315368286244
+      p_end:
+      - 0.27382386037751577
+      - -0.6296687360629244
+      - 0.6001315368286244
+      t_start: 5.024439590122298
+      t_end: 9.127088169054492
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  - name: obstacle_2
+    shape: box
+    dims:
+    - 0.19052186227854412
+    - 0.11629276654931532
+    - 0.13977097832236735
+    path:
+      type: linear
+      p_start:
+      - 0.22433588335122268
+      - 0.5631128799930538
+      - 0.5635762706338258
+      p_end:
+      - 0.39161895604205665
+      - -1.0419582997003847
+      - 0.5635762706338258
+      t_start: -0.7239734317575484
+      t_end: 7.740081440322381
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: float
+  duration: 10.205980987008074
+  time_step: 0.001
+  notes: ''
+- name: mix_0036
+  seed: 5036
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: mustard
+    yaw: 0.14376040453827296
+  cart:
+    x: 0.6089127030836708
+    y_start: -1.1384333399049877
+    y_end: 1.0
+    speed: 0.21281111330166258
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: box
+    dims:
+    - 0.19144089441434972
+    - 0.11537173420610311
+    - 0.1514490359457371
+    path:
+      type: parabolic
+      p0:
+      - 0.31577561809382315
+      - -0.3749565403497523
+      - 0.41106630652002246
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.7071765250221549
+      - 0.0
+      - 0.0
+      t0: 6.706126559637678
+      t_start: 4.851835968103453
+      t_end: 8.560417151171903
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.19900271882177
+  time_step: 0.001
+  notes: ''
+- name: mix_0052
+  seed: 5052
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: gelatin_box
+    yaw: 0.06440864520206566
+  cart:
+    x: 0.634716305266403
+    y_start: 1.3636629151381876
+    y_end: -1.0
+    speed: 0.2878876383793959
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: box
+    dims:
+    - 0.1036575813553999
+    - 0.16113323414645478
+    - 0.16878841273574538
+    path:
+      type: parabolic
+      p0:
+      - 0.30054784680776553
+      - -0.1108852300280291
+      - 0.3702365424890249
+      v0:
+      - 0.0010206881034736245
+      - 0.15502559285136933
+      - 0.0
+      accel:
+      - 0.001878737287992045
+      - -1.2369601458284912e-05
+      - 0.0
+      t0: 4.770454815442227
+      t_start: -2.5251662056718898
+      t_end: 12.066075836556344
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: obstacle_1
+    shape: sphere
+    dims:
+    - 0.0671321174428209
+    path:
+      type: parabolic
+      p0:
+      - 0.3415792202765553
+      - 0.372842386910545
+      - 0.6180941520296653
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.5054423855970125
+      - 0.0
+      - 0.0
+      t0: 4.717062343859581
+      t_start: 2.5005692301688374
+      t_end: 6.933555457550325
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: cart
+  duration: 7.973577419403257
+  time_step: 0.001
+  notes: ''
+- name: mix_0000
+  seed: 5000
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: cracker_box
+    yaw: -0.28788600790154756
+  cart:
+    x: 0.6482299300460189
+    y_start: 0.691509739143055
+    y_end: -1.0
+    speed: 0.06383657971435168
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles: []
+  duration: 20.164999667505384
+  time_step: 0.001
+  notes: ''
+- name: mix_0001
+  seed: 5001
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: potted_meat_can
+    yaw: 0.04990142116194822
+  cart:
+    x: 0.6039378077263875
+    y_start: -0.8236362003351925
+    y_end: 1.0
+    speed: 0.10787873344506414
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: box
+    dims:
+    - 0.15928319980592792
+    - 0.17700215945213554
+    - 0.13030998141111114
+    path:
+      type: linear
+      p_start:
+      - 0.2965897447847051
+      - 1.0958771465301584
+      - 0.5065694315933584
+      p_end:
+      - 0.3019717916631658
+      - -0.6358336895915678
+      - 0.5065694315933584
+      t_start: 4.9438084298989455
+      t_end: 16.53308750320265
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 13.769667598658241
+  time_step: 0.001
+  notes: ''
+- name: mix_0003
+  seed: 5003
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: -0.12629162172688885
+  cart:
+    x: 0.6302290072953529
+    y_start: 0.9451941332887117
+    y_end: -1.0
+    speed: 0.14839804442957055
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: sphere
+    dims:
+    - 0.08203101541076317
+    path:
+      type: linear
+      p_start:
+      - 0.39717287123240475
+      - -0.997885633349248
+      - 0.5260680564547805
+      p_end:
+      - 0.21992192240030772
+      - 1.2163816161552683
+      - 0.5260680564547805
+      t_start: 4.4617924844651
+      t_end: 10.218273160703184
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: float
+  - name: obstacle_1
+    shape: sphere
+    dims:
+    - 0.07270231500297387
+    path:
+      type: linear
+      p_start:
+      - 0.2783829602187961
+      - -1.2219402698120496
+      - 0.45861981463566903
+      p_end:
+      - 0.25686466020144777
+      - 0.8461383337718509
+      - 0.45861981463566903
+      t_start: 6.8019935474026045
+      t_end: 12.26608398632442
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  - name: obstacle_2
+    shape: sphere
+    dims:
+    - 0.05041670847092747
+    path:
+      type: linear
+      p_start:
+      - 0.2798730616659023
+      - -1.119630708886217
+      - 0.6518725330396198
+      p_end:
+      - 0.3803430112651399
+      - 1.129124568054112
+      - 0.6518725330396198
+      t_start: 4.9039329862208785
+      t_end: 13.054994736317349
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: float
+  duration: 11.23863327406985
+  time_step: 0.001
+  notes: ''
+- name: mix_0010
+  seed: 5010
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: -0.26375593517666535
+  cart:
+    x: 0.6445153990204492
+    y_start: -0.9375307043286937
+    y_end: 1.0
+    speed: 0.14584356810956456
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles: []
+  duration: 11.356661647558932
+  time_step: 0.001
+  notes: ''
+- name: mix_0045
+  seed: 5045
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.05818844459822028
+  cart:
+    x: 0.6455310606939929
+    y_start: 0.8545787390784081
+    y_end: -1.0
+    speed: 0.118192913026136
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles: []
+  duration: 12.960744171512804
+  time_step: 0.001
+  notes: ''
+- name: mix_0060
+  seed: 5060
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: cracker_box
+    yaw: 0.23474092589493722
+  cart:
+    x: 0.6500798345998361
+    y_start: 0.9247271839429658
+    y_end: -1.0
+    speed: 0.1415757279809886
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles: []
+  duration: 11.563357640896498
+  time_step: 0.001
+  notes: ''
+- name: dev_005
+  seed: 5
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: -0.12851917194711504
+  cart:
+    x: 0.6309195336625285
+    y_start: -1.2537521928090352
+    y_end: 1.0
+    speed: 0.25125073093634503
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: sphere
+    dims:
+    - 0.07465115093658714
+    path:
+      type: parabolic
+      p0:
+      - 0.3377824486726808
+      - 0.4735232581336829
+      - 0.3724750530592668
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.4986139602364918
+      - 0.0
+      - 0.0
+      t0: 3.9854124229923635
+      t_start: 1.7572084663096224
+      t_end: 6.213616379675105
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 8.48008792361823
+  time_step: 0.001
+  notes: ''
+- name: dev_009
+  seed: 9
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.16652044975210728
+  cart:
+    x: 0.6361888890030937
+    y_start: 1.3026869029775634
+    y_end: -1.0
+    speed: 0.26756230099252115
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: sphere
+    dims:
+    - 0.07174838039785128
+    path:
+      type: linear
+      p_start:
+      - 0.26984880584821885
+      - 0.7534129666434759
+      - 0.48811056263246233
+      p_end:
+      - 0.31756823546541596
+      - -0.8533752374662917
+      - 0.48811056263246233
+      t_start: 4.2009062237278645
+      t_end: 9.023221633214638
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: obstacle_1
+    shape: box
+    dims:
+    - 0.17192359285205266
+    - 0.12542692237137484
+    - 0.11083176193761464
+    path:
+      type: parabolic
+      p0:
+      - 0.343051804013246
+      - 0.4776729932375594
+      - 0.4298397506257641
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.5958087043952851
+      - 0.0
+      - 0.0
+      t0: 7.1997433068753836
+      t_start: 5.157035775746394
+      t_end: 9.242450838004373
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: cart
+  - name: obstacle_2
+    shape: sphere
+    dims:
+    - 0.09177538013757328
+    path:
+      type: linear
+      p_start:
+      - 0.3468053891753913
+      - 0.8496034693429988
+      - 0.4674884907286447
+      p_end:
+      - 0.3221038901303416
+      - -1.4039475891519708
+      - 0.4674884907286447
+      t_start: -3.273215715808544
+      t_end: 9.741787330983557
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  - name: obstacle_3
+    shape: sphere
+    dims:
+    - 0.07700700725361315
+    path:
+      type: parabolic
+      p0:
+      - 0.343051804013246
+      - -0.3587206436667918
+      - 0.5338269641120551
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.5981875787718968
+      - 0.0
+      - 0.0
+      t0: 5.809207301729633
+      t_start: 3.770565539911195
+      t_end: 7.847849063548072
+    color:
+    - 0.7
+    - 0.2
+    - 0.15
+    - 1.0
+    mount: cart
+  duration: 8.237447302144227
+  time_step: 0.001
+  notes: ''
+- name: dev_010
+  seed: 10
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: -0.21043072615078784
+  cart:
+    x: 0.6497066931164719
+    y_start: 1.3670012822217315
+    y_end: -1.0
+    speed: 0.28900042740724385
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: box
+    dims:
+    - 0.11359196040205066
+    - 0.16890364797811314
+    - 0.1841747724312279
+    path:
+      type: parabolic
+      p0:
+      - 0.3565696081266242
+      - 0.406667320547793
+      - 0.6136556526479668
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.23315503489338155
+      - 0.0
+      - 0.0
+      t0: 7.4700587270592695
+      t_start: 4.18694539709803
+      t_end: 10.75317205702051
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: obstacle_1
+    shape: box
+    dims:
+    - 0.10647159078429548
+    - 0.1633708433885892
+    - 0.12790015193351492
+    path:
+      type: parabolic
+      p0:
+      - 0.3565696081266242
+      - -0.43610342109193145
+      - 0.6270672100227723
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.09711261713996171
+      - 0.0
+      - 0.0
+      t0: 6.48789362637617
+      t_start: 1.4007916405367453
+      t_end: 11.574995612215595
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: cart
+  duration: 7.960202495101689
+  time_step: 0.001
+  notes: ''
+- name: dev_017
+  seed: 17
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: -0.07915203500143722
+  cart:
+    x: 0.6334646728419415
+    y_start: 1.2838060945984262
+    y_end: -1.0
+    speed: 0.2612686981994754
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: sphere
+    dims:
+    - 0.06929120187945993
+    path:
+      type: parabolic
+      p0:
+      - 0.3403275878520938
+      - 0.3358890010343807
+      - 0.5614510490973755
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.26219054705943057
+      - 0.0
+      - 0.0
+      t0: 6.374515038417751
+      t_start: 3.2985975256981512
+      t_end: 9.450432551137352
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 8.327477255758026
+  time_step: 0.001
+  notes: ''
+- name: dev_018
+  seed: 18
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: -0.2503650492011302
+  cart:
+    x: 0.6168493996821602
+    y_start: -0.9494793269131796
+    y_end: 1.0
+    speed: 0.14982644230439318
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: obstacle_0
+    shape: box
+    dims:
+    - 0.16376241879130657
+    - 0.11262708915318674
+    - 0.16261661110164427
+    path:
+      type: parabolic
+      p0:
+      - 0.32371231469231254
+      - 0.36265533599902805
+      - 0.5427444914097173
+      v0:
+      - 0.0
+      - 0.0
+      - 0.0
+      accel:
+      - -0.6955229486844298
+      - 0.0
+      - 0.0
+      t0: 3.645836003841551
+      t_start: 1.76998244707901
+      t_end: 5.521689560604092
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 11.174389277483886
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.05_o0.20_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6142857142857143
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9857142857142858
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -1.0103174603174603
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.5896825396825398
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.10_o0.20_p0.05_off0.08
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6349206349206349
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9650793650793652
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.9152380952380953
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.6847619047619048
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.20_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 0.0
+      t_end: 8.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8801587301587301
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.71984126984127
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.40_p0.05_off0.05
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8801587301587301
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.71984126984127
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
+- name: pillar_and_blocker_v0.15_o0.40_p0.05_off0.12
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.95
+    y_end: 1.0
+    speed: 0.15
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.26
+      - 0.6555555555555556
+      - 0.30000000000000004
+      p_end:
+      - 0.26
+      - -0.9444444444444445
+      - 0.30000000000000004
+      t_start: 2.0
+      t_end: 6.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  - name: pillar
+    shape: box
+    dims:
+    - 0.1
+    - 0.1
+    - 1.6
+    path:
+      type: linear
+      p_start:
+      - 0.41
+      - -0.8101587301587302
+      - 0.81
+      p_end:
+      - 0.41
+      - 0.7898412698412699
+      - 0.81
+      t_start: -11.0
+      t_end: 21.0
+    color:
+    - 0.65
+    - 0.15
+    - 0.1
+    - 1.0
+    mount: float
+  duration: 11.166666666666666
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5738095238095239
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.026190476190476
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.05_o0.20_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.5738095238095239
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -1.026190476190476
+      - 0.30000000000000004
+      t_start: -0.5
+      t_end: 7.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.10_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: -3.0
+      t_end: 13.0
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.10_o0.50_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.8
+    y_end: 1.0
+    speed: 0.1
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6571428571428571
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.942857142857143
+      - 0.30000000000000004
+      t_start: 3.4
+      t_end: 6.6
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 14.5
+  time_step: 0.001
+  notes: ''
+- name: plank_blocker_v0.20_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.2
+    - 0.04
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.3
+      - 0.6095238095238096
+      - 0.30000000000000004
+      p_end:
+      - 0.3
+      - -0.9904761904761905
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.45
+    - 0.05
+    - 0.12
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.5888888888888889
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -1.011111111111111
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.05_o0.20_t5.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -0.65
+    y_end: 1.0
+    speed: 0.05
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 1.0
+      t_end: 9.0
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 24.499999999999993
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.10_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: -4.5
+      t_end: 11.5
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.30_t3.5
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6222222222222222
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9777777777777779
+      - 0.30000000000000004
+      t_start: 0.833333333333333
+      t_end: 6.166666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
+- name: tall_blocker_v0.20_o0.30_t4.0
+  seed: null
+  q0:
+  - 0.0
+  - 0.1
+  - 0.0
+  - -1.2
+  - 0.0
+  - 1.6
+  - 0.0
+  target:
+    object: soup_can
+    yaw: 0.0
+  cart:
+    x: 0.63
+    y_start: -1.1
+    y_end: 1.0
+    speed: 0.2
+    t_start: 0.0
+    top_z: 0.2
+    size:
+    - 0.3
+    - 0.5
+    - 0.03
+    conveyor_length: 3.0
+  obstacles:
+  - name: blocker
+    shape: box
+    dims:
+    - 0.12
+    - 0.12
+    - 0.4
+    path:
+      type: linear
+      p_start:
+      - 0.28
+      - 0.6666666666666667
+      - 0.30000000000000004
+      p_end:
+      - 0.28
+      - -0.9333333333333333
+      - 0.30000000000000004
+      t_start: 1.333333333333333
+      t_end: 6.666666666666667
+    color:
+    - 0.55
+    - 0.08
+    - 0.08
+    - 1.0
+    mount: cart
+  duration: 9.5
+  time_step: 0.001
+  notes: ''
