@@ -75,6 +75,18 @@ DEFAULTS = {
         # Pilot (144 scenes, ORCD): successes took <= 46 s, the 5 episodes stopped at 300 s were all still unsolved.
         "max_wall_s": 120.0,
     },
+    "bc": {  # behaviour cloning (bc.py): the SAC actor (sac.net_arch), MSE on tanh(mean), NLL for log_std
+        "learning_rate": 3.0e-4,  # Adam
+        "batch_size": 512,
+        "max_epochs": 300,
+        "patience": 15,  # stop after this many epochs without a validation-loss improvement
+        "val_fraction": 0.1,  # episodes held out for the validation loss
+        "nll_weight": 1.0,  # log_std head: Gaussian NLL of atanh(action), its own head (trunk gradient stopped)
+        "action_eps": 1.0e-3,  # actions clipped to +-(1 - eps) for atanh
+        "seed": 0,
+        "closed_loop_every": 10,  # epochs between closed-loop runs on the validation scenes (and at the end)
+        "closed_loop_workers": 15,  # processes for them
+    },
 }
 
 
