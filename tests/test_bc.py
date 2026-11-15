@@ -203,6 +203,14 @@ def test_c_through_d_actions_from_the_start_grasps_like_c():
     assert noisy["outcome"] == "success" and np.abs(noisy["executed"] - noisy["actions"])[:, :7].max() > 0.05
 
 
+def test_a_takeover_task_whose_policy_run_is_aborted_is_recorded(tmp_path):
+    rng = np.random.default_rng(0)
+    np.savez(tmp_path / "actor.npz", W0=rng.standard_normal((OBS_DIM, 4)), b0=np.zeros(4), Wm=np.zeros((4, 8)), bm=np.zeros(8))
+    cfg = load_config(overrides=["demos.max_wall_s=0"])
+    rows = load_script("make_bc_demos").takeover_task(cfg, 0, 3, str(tmp_path), str(tmp_path), 2, 0.0)
+    assert len(rows) == 1 and rows[0]["outcome"] == "aborted" and rows[0]["task"] == 3 and rows[0]["episode"] == 6
+
+
 def test_takeover_brakes_a_moving_robot_and_c_grasps():
     """A policy swinging joint 1 at 0.4 v_max until 1.5 s: (C) brakes it, plans from where it stops, and grasps."""
     spec = S.no_obstacles(0.1)

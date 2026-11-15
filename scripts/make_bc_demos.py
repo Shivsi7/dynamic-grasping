@@ -118,8 +118,10 @@ def takeover_task(cfg: dict, seed: int, e: int, out: str, policy: str | None, sw
         try:
             b = run_takeover(spec, level, cfg, actor, np.inf)
         except Exception as exc:  # noqa: BLE001
-            return [{**base, "episode": e * switches, "level": level, "outcome": "error", "error": repr(exc),
-                     "fingerprint": None, "wall_s": 0.0}]
+            b = {"outcome": "error", "error": repr(exc), "wall_s": 0.0}
+        if "c_result" not in b:  # an exception, or aborted (over max_wall_s): recorded, the scene skipped
+            return [{**base, "episode": e * switches, "level": level, "outcome": b["outcome"], "error": b.get("error"),
+                     "fingerprint": None, "wall_s": b["wall_s"]}]
         r = b["c_result"]
         t_fail = r["t_first_collision"] if b["outcome"] == "collision" else (r["t_grasp"] or r["t_end"])
         times = [round(float(rng.uniform(0.0, max(0.1, t_fail - 0.2))), 1) for _ in range(switches)]
