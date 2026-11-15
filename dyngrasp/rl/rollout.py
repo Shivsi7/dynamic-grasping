@@ -3,7 +3,7 @@ numpy (NumpyPolicy), so the many worker processes stay small.
 
 serve(conn): connected to the learner, which sends ("init", (config, seed, run directory, excluded scene seeds)), a
 worker runs whole GraspEnv episodes at the final level with the latest policy the learner exported
-(run_dir/policy/latest.json, read at each episode's start): u ~ N(mu(s), sigma), action tanh(u); it sends each episode
+(run_dir/policy/latest.json, read at each episode's start): u ~ N(mean(s), sigma), action to_action(u); it sends each episode
 ("episode", obs, u, log mu(u), rewards, outcome, policy version).  With probability latest.json's label_fraction it then
 runs a DAgger takeover (takeover_labels) and sends ("labels", ...).
 """
@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 
 ACTION_DIM = 8
+GRIP = 7  # the gripper's action dimension: its Gaussian is in action units (ppo.dist_mean)
 LOG_2PI = float(np.log(2.0 * np.pi))
 CHECK_SEED, CHECK_N = 777, 500  # scripts/bc_bigeval.py's L5 scenes: never trained on
 
@@ -44,10 +45,17 @@ class NumpyPolicy:
         return x @ self.mean[0] + self.mean[1]
 
     def sample(self, obs, rng: np.random.Generator) -> tuple[np.ndarray, float]:
-        """(u, log mu(u))."""
+        """(u, log mu(u)): u ~ N(mean, sigma), mean = mu(s) for the joints, tanh(mu(s)) for the gripper (ppo.dist_mean)."""
+        mean = self.mu(obs)
+        mean[GRIP:] = np.tanh(mean[GRIP:])
         eps = rng.standard_normal(ACTION_DIM)
-        u = self.mu(obs) + np.exp(self.log_std) * eps
+        u = mean + np.exp(self.log_std) * eps
         return u, float(np.sum(-0.5 * eps**2 - self.log_std - 0.5 * LOG_2PI))
+
+
+def to_action(u: np.ndarray) -> np.ndarray:
+    """The action of a sample u: tanh(u) for the joints, clip(u, -1, 1) for the gripper."""
+    return np.concatenate([np.tanh(u[:GRIP]), np.clip(u[GRIP:], -1.0, 1.0)])
 
 
 def _t_fail(env, outcome: str) -> float:
@@ -83,12 +91,12 @@ def takeover_labels(spec, executed: np.ndarray, t_fail: float, cfg: dict, rng: n
 
 
 def run_episode(env, obs, pol: NumpyPolicy, rng: np.random.Generator) -> tuple[dict, np.ndarray]:
-    """One GraspEnv episode from obs (just reset) with u ~ N(mu(s), sigma), action tanh(u): the episode (obs, u, logp,
+    """One GraspEnv episode from obs (just reset) with u ~ NumpyPolicy, action to_action(u): the episode (obs, u, logp,
     rewards, outcome, ...; t_fail: see _t_fail) and its executed actions."""
     ob, us, lp, rw, ex = [], [], [], [], []
     while True:
         u, logp = pol.sample(obs, rng)
-        a = np.tanh(u)
+        a = to_action(u)
         ob.append(obs)
         us.append(u)
         lp.append(logp)

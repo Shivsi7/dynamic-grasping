@@ -8,14 +8,14 @@ log_std (initialised at ppo.init_log_std, learned):
     L = w(t) L_PPO + lam(t) L_imit - sum_i c_i log sigma_i
 
   L_PPO   PPO's clipped surrogate on the latest `window` batches of complete episodes: ratio pi(u|s) / mu(u|s), mu the
-          behaviour probability the worker stored when it acted (pre-tanh u: the tanh Jacobian cancels), GAE advantages
-          (gamma, gae_lambda) normalised per update batch.
+          behaviour probability the worker stored when it acted (u: pre-tanh for the joints, the tanh Jacobian cancels;
+          action units for the gripper, see dist_mean), GAE advantages (gamma, gae_lambda) normalised per update batch.
   L_imit  on rows of (C)'s demonstrations (ppo.demos, BC's dataset) and of the aggregated DAgger labels:
             sum_i (tanh mu_i(s~) - a*_i)^2 / (2 sbar^2)  +  sum_i (r_i^2 / (2 sigma_i^2) + log sigma_i)
           s~ = s + obs_noise x N(0, 1) (BC's trick); sbar^2 = the joints' mean sigma^2, gradient stopped: the first term
           is the expert action's Gaussian log-likelihood at the policy's noise scale (commensurate with PPO's
           log-likelihood ratio), its dimensions weighted equally as in BC's MSE; r_i = atanh(a*_i) - mu_i (both clipped to
-          atanh(1 - action_eps), mu's gradient stopped; r_i^2 at most (nll_clip sigma_i)^2, so that the gripper's few
+          atanh(1 - action_eps); the gripper's a*_i - tanh(mu_i)), mu's gradient stopped; r_i^2 at most (nll_clip sigma_i)^2, so that the gripper's few
           steps where the expert has closed and the policy not yet do not set its noise): the noise's own likelihood.
           While w = 0, sigma_i settles where E[min(r_i^2 / sigma_i^2, nll_clip^2)] = 1 - c_i / lam: the entropy bonus
           keeps it above the imitation residual.
@@ -32,7 +32,8 @@ acts is the trained one (PPO's ratios need it); the exported and validated one i
 
 Workers (rollout.serve, scripts/env_workers.py --ppo): whole episodes of GraspEnv at the final level (L5, no curriculum),
 never one of the L5 check scenes (scripts/bc_bigeval.py's), with the latest policy the learner exported
-(run_dir/policy/latest.json, read at each episode's start): u ~ N(mu(s), sigma), action tanh(u); each episode goes to
+(run_dir/policy/latest.json, read at each episode's start): u ~ N(dist_mean(mu(s)), sigma), action tanh(u) for the
+joints and clip(u, -1, 1) for the gripper (dist_mean: its Gaussian is in action units); each episode goes to
 the learner (obs, u, log mu(u), rewards, outcome).  With probability label_fraction a worker then reruns the scene with
 the episode's executed actions up to a switch time drawn uniformly before its failure (collision time; else its grasp
 or end) and (C) from there (demos.run_takeover: (C) plans from the robot's moving state, the simulation paused), and
@@ -73,6 +74,7 @@ from dyngrasp.rl.observation import OBS_DIM
 from dyngrasp.rl.rollout import check_seeds
 
 ACTION_DIM = 8
+GRIP = 7  # the gripper's action dimension
 LOG_2PI = float(np.log(2.0 * np.pi))
 STOP_SIGNALS = (signal.SIGUSR1, signal.SIGTERM)
 OUTCOMES = ("success", "collision", "timeout", "dropped")
@@ -107,9 +109,17 @@ def mean_fn(net: dict, x):
     return x @ W + b
 
 
-def gauss_logp(u, mu, log_std):
-    """log N(u; mu, exp(log_std)) summed over the action dimensions (pre-tanh)."""
-    return jnp.sum(-0.5 * ((u - mu) * jnp.exp(-log_std)) ** 2 - log_std - 0.5 * LOG_2PI, -1)
+def dist_mean(mu):
+    """The policy Gaussian's mean from the network's output mu: pre-tanh for the joints (action tanh(u)), tanh(mu) for
+    the gripper (its Gaussian is in action units, the action clipped to [-1, 1]: BC's gripper mu sits at |mu| ~ 4-9,
+    deep in tanh's saturation, where it drifted ~10-20 sigma per batch without changing the action, swamping PPO's
+    ratios; rollout.NumpyPolicy is the same)."""
+    return jnp.concatenate([mu[..., :GRIP], jnp.tanh(mu[..., GRIP:])], -1)
+
+
+def gauss_logp(u, mean, log_std):
+    """log N(u; mean, exp(log_std)) summed over the action dimensions (mean: dist_mean)."""
+    return jnp.sum(-0.5 * ((u - mean) * jnp.exp(-log_std)) ** 2 - log_std - 0.5 * LOG_2PI, -1)
 
 
 class Value(nn.Module):
@@ -188,7 +198,7 @@ class Learner:
         return np.concatenate([np.asarray(self._v(self.s["v"], obs[i: i + chunk])) for i in range(0, len(obs), chunk)])
 
     def logp(self, obs, u, net=None) -> np.ndarray:
-        mu = self._mu(self.s["net"] if net is None else net, obs)
+        mu = dist_mean(self._mu(self.s["net"] if net is None else net, obs))
         return np.asarray(gauss_logp(jnp.asarray(u), mu, jnp.clip(self.s["log_std"], self.lo, self.hi)))
 
     def export(self, ema: bool = True) -> dict:
@@ -208,7 +218,7 @@ class Learner:
         def loss(net, log_std):
             log_std = jnp.clip(log_std, self.lo, self.hi)
             mu = mean_fn(net, mb["obs"])
-            logp = gauss_logp(mb["u"], mu, log_std)
+            logp = gauss_logp(mb["u"], dist_mean(mu), log_std)
             ratio = jnp.exp(jnp.clip(logp - mb["logp"], -20.0, 20.0))
             a = mb["adv"]
             l_ppo = -jnp.mean(jnp.minimum(ratio * a, jnp.clip(ratio, 1.0 - p["clip"], 1.0 + p["clip"]) * a))
@@ -217,8 +227,10 @@ class Learner:
             var = jnp.exp(2.0 * log_std)
             sbar2 = jax.lax.stop_gradient(jnp.mean(var[:7]))
             l_mean = jnp.mean(jnp.sum((jnp.tanh(mu_i) - im["act"]) ** 2, -1)) / (2.0 * sbar2)
-            r = (jnp.arctanh(jnp.clip(im["act"], -1.0 + p["action_eps"], 1.0 - p["action_eps"]))
-                 - jnp.clip(jax.lax.stop_gradient(mu_i), -self.u_max, self.u_max))
+            mu_sg = jax.lax.stop_gradient(mu_i)  # the residual in each dimension's Gaussian's units (dist_mean)
+            r = jnp.concatenate([jnp.arctanh(jnp.clip(im["act"][:, :GRIP], -1.0 + p["action_eps"], 1.0 - p["action_eps"]))
+                                 - jnp.clip(mu_sg[:, :GRIP], -self.u_max, self.u_max),
+                                 im["act"][:, GRIP:] - jnp.tanh(mu_sg[:, GRIP:])], -1)
             l_std = jnp.mean(jnp.sum(jnp.minimum(r**2, p["nll_clip"] ** 2 * var) / (2.0 * var) + log_std, -1))
             l_ent = -jnp.sum(c * log_std)
             total = w * l_ppo + lam * (l_mean + l_std) + l_ent
