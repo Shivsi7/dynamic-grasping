@@ -126,6 +126,9 @@ DEFAULTS = {
         "bc_weight": 0.0,  # x MSE(policy mean action, demonstration action) on the demonstration rows ...
         "bc_q_filter": False,  # ... only where the critics value the demonstrated action above the policy's
         "bc_policy_weight": 0.0,  # x MSE(policy mean action, initial BC policy's) on every row
+        "cql_alpha": 0.0,  # > 0: CQL(H) term in the critic loss (agent.py) ...
+        "cql_n": 4,  # ... with this many uniform, policy (s) and policy (s') actions per row
+        "calql": False,  # ... and Cal-QL's lower bound (the Monte-Carlo return) on the policy actions' values
         "q_norm": False,  # SAC actor term / mean |Q| (TD3+BC; agent.py)
         "awac_beta": 0.0,  # > 0: AWAC actor (advantage-weighted regression, temperature) instead of SAC's
         "init_log_std": None,  # set: the actor's log_std head starts as this constant (the BC head can be wild)

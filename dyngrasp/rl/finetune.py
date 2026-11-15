@@ -40,50 +40,69 @@ import yaml
 
 from dyngrasp.rl import bc
 from dyngrasp.rl.agent import ACTION_DIM, Agent
+from dyngrasp.rl.config import load_config
 from dyngrasp.rl.curriculum import OUTCOMES, Curriculum
 from dyngrasp.rl.observation import OBS_DIM
 from dyngrasp.rl.scenes import N_LEVELS, validation_scenes
 from dyngrasp.rl.vecenv import AsyncEnvs
 
 STOP_SIGNALS = (signal.SIGUSR1, signal.SIGTERM)
-FIELDS = {"obs": OBS_DIM, "act": ACTION_DIM, "rew": 0, "next_obs": OBS_DIM, "done": 0, "disc": 0}
+FIELDS = {"obs": OBS_DIM, "act": ACTION_DIM, "rew": 0, "next_obs": OBS_DIM, "done": 0, "disc": 0, "mc": 0}
 
 
 # ---- transitions ------------------------------------------------------------------------------------------------
 
 
 class NStep:
-    """One environment's last n steps -> n-step rows (obs, act, sum gamma^k r_k, next_obs, done, gamma^m)."""
+    """One environment's steps -> n-step rows (obs, act, sum gamma^k r_k, next_obs, done, gamma^m, mc), each as soon
+    as its n steps are in; whole_episode: all of them when the episode ends, with mc = the discounted return from obs to
+    the episode's end (Cal-QL's reference value; otherwise 0)."""
 
-    def __init__(self, n: int, gamma: float):
-        self.n, self.gamma = n, gamma
-        self.q: deque = deque()
+    def __init__(self, n: int, gamma: float, whole_episode: bool = False):
+        self.n, self.gamma, self.whole = n, gamma, whole_episode
+        self.q: list = []
 
     def add(self, obs, act, rew, next_obs, done) -> list[tuple]:
         self.q.append((obs, act, rew, next_obs, done))
-        out = []
         if done:
-            while self.q:
-                out.append(self._row())
-                self.q.popleft()
-        elif len(self.q) == self.n:
-            out.append(self._row())
-            self.q.popleft()
+            g, mc = 0.0, []
+            for x in reversed(self.q):
+                g = x[2] + self.gamma * g
+                mc.append(g if self.whole else 0.0)
+            out = [self._row(t, m) for t, m in zip(range(len(self.q)), reversed(mc))]
+            self.q = []
+            return out
+        if self.whole or len(self.q) < self.n:
+            return []
+        out = [self._row(0, 0.0)]
+        self.q.pop(0)
         return out
 
-    def _row(self) -> tuple:
-        ret = sum(self.gamma**k * x[2] for k, x in enumerate(self.q))
-        return (self.q[0][0], self.q[0][1], ret, self.q[-1][3], float(self.q[-1][4]), self.gamma ** len(self.q))
+    def _row(self, t: int, mc: float) -> tuple:
+        w = self.q[t: t + self.n]
+        ret = sum(self.gamma**k * x[2] for k, x in enumerate(w))
+        return (w[0][0], w[0][1], ret, w[-1][3], float(w[-1][4]), self.gamma ** len(w), mc)
+
+
+def mc_returns(rew, ep_start, ep_len, gamma: float) -> np.ndarray:
+    """Discounted returns to the episode's end of every step."""
+    mc = np.zeros(len(rew), np.float32)
+    for s, length in zip(ep_start, ep_len):
+        g = 0.0
+        for t in range(s + length - 1, s - 1, -1):
+            g = float(rew[t]) + gamma * g
+            mc[t] = g
+    return mc
 
 
 def nstep_arrays(d: dict, n: int, gamma: float) -> dict:
     """1-step episodes (arrays obs, act, rew, next_obs, done, ep_start, ep_len) -> n-step rows."""
     if n == 1:
-        return {**{k: np.asarray(d[k], np.float32) for k in FIELDS if k != "disc"},
-                "disc": np.full(len(d["rew"]), gamma, np.float32)}
+        return {**{k: np.asarray(d[k], np.float32) for k in FIELDS if k not in ("disc", "mc")},
+                "disc": np.full(len(d["rew"]), gamma, np.float32), "mc": mc_returns(d["rew"], d["ep_start"], d["ep_len"], gamma)}
     rows = []
     for s, length in zip(d["ep_start"], d["ep_len"]):
-        ns = NStep(n, gamma)
+        ns = NStep(n, gamma, whole_episode=True)
         for t in range(s, s + length):
             rows += ns.add(d["obs"][t], d["act"][t], float(d["rew"][t]), d["next_obs"][t], bool(d["done"][t]))
     return {k: np.array([r[j] for r in rows], np.float32) for j, k in enumerate(FIELDS)}
@@ -122,7 +141,8 @@ class Buffer:
         z = np.load(path)
         self.size, self.ptr = int(z["size"]), int(z["ptr"])
         for k in FIELDS:
-            self.a[k][: self.size] = z[k]
+            if k in z:  # (buffers saved before "mc" existed: zeros)
+                self.a[k][: self.size] = z[k]
 
 
 def load_demos(paths, n: int, gamma: float) -> dict:
@@ -130,7 +150,7 @@ def load_demos(paths, n: int, gamma: float) -> dict:
     parts = []
     for path in [paths] if isinstance(paths, str) else paths:
         z = np.load(path)
-        parts.append(nstep_arrays({k: z[k] for k in (*FIELDS, "ep_start", "ep_len") if k != "disc"}, n, gamma))
+        parts.append(nstep_arrays({k: z[k] for k in (*FIELDS, "ep_start", "ep_len") if k not in ("disc", "mc")}, n, gamma))
     return {k: np.concatenate([p[k] for p in parts]) for k in FIELDS}
 
 
@@ -203,7 +223,7 @@ def finetune(run_dir, cfg: dict) -> str:
         run_dir.mkdir(parents=True, exist_ok=True)
         ckpt = run_dir / "ckpt"
         if (ckpt / "state.json").exists():
-            cfg = yaml.safe_load((run_dir / "config.yaml").read_text())
+            cfg = load_config(run_dir / "config.yaml")  # (defaults for options added since the run started)
             st = json.loads((ckpt / "state.json").read_text())
         else:
             (run_dir / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
@@ -245,7 +265,7 @@ def finetune(run_dir, cfg: dict) -> str:
         n = envs.n
         validator = Validator(cfg, f["val_workers"])
         obs = np.zeros((n, OBS_DIM), np.float32)
-        nsteps = [NStep(f["n_step"], cfg["gamma"]) for _ in range(n)]
+        nsteps = [NStep(f["n_step"], cfg["gamma"], f["calql"]) for _ in range(n)]
         last_act = np.zeros((n, ACTION_DIM), np.float32)
         key = jax.random.PRNGKey(int(rng.integers(2**31)))
 
@@ -288,7 +308,7 @@ def finetune(run_dir, cfg: dict) -> str:
             ready = []
             for i, kind, payload in results:
                 if kind != "step":  # an environment (re)started, or its connection dropped: no partial rows
-                    nsteps[i] = NStep(f["n_step"], cfg["gamma"])
+                    nsteps[i] = NStep(f["n_step"], cfg["gamma"], f["calql"])
                     if kind == "start":
                         obs[i] = payload
                         ready.append(i)

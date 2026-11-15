@@ -17,6 +17,9 @@ LayerNorm on (obs, action).  One update (RLPD-style when the batch mixes online 
            awac_beta > 0: instead of the SAC term, AWAC's weighted regression on the batch actions,
            MSE(tanh(mean(s)), a) x exp(A/awac_beta) (clipped at 100, normalised to mean 1), A = Q(s, a) - Q(s, tanh(mean(s)))
            (the log_std head then gets no gradient: the exploration noise stays as it starts)
+           cql_alpha > 0: + cql_alpha x (log-sum-exp of Q over cql_n uniform and 2 cql_n policy actions at s and s',
+           importance-weighted, minus Q(s, a)) per critic (CQL(H)); calql: the policy actions' Q bounded below by the
+           row's Monte-Carlo return (Cal-QL, Nakamoto et al. 2023)
   alpha    automatic (target entropy, settable: set_target_entropy) or fixed
   targets  Polyak averaging (tau)
 Residual mode (residual_scale > 0): the BC actor stays frozen and the trained network (a copy of it with a zero mean
@@ -189,7 +192,7 @@ class Agent:
 
     def _update(self, s, b, train_actor: bool):
         f = self.f
-        key, k_next, k_sub, k_pi = jax.random.split(s["key"], 4)
+        key, k_next, k_sub, k_pi, k_cql = jax.random.split(s["key"], 5)
         alpha = jnp.exp(s["log_alpha"])
         obs, act = b["obs"], b["act"]
 
@@ -201,16 +204,38 @@ class Agent:
         v_next = q_next[sub].min(0) - (alpha * logp_n if f["backup_entropy"] else 0.0)
         y = jax.lax.stop_gradient(b["rew"] + b["disc"] * (1.0 - b["done"]) * v_next)
 
+        cql = f["cql_alpha"] > 0
+        if cql:  # N uniform actions, N policy actions at s and N at s' (CQL(H)'s importance-sampled log-sum-exp)
+            N, nb = int(f["cql_n"]), obs.shape[0]
+            k_r, k_c, k_n = jax.random.split(k_cql, 3)
+            mean_c, log_std_c = self.pi(s["actor"], s["bc"], obs)
+            rep = lambda x: jnp.broadcast_to(x, (N, *x.shape))  # noqa: E731
+            a_c, lp_c = sample_action(rep(mean_c), rep(log_std_c), k_c)
+            a_nn, lp_nn = sample_action(rep(mean_n), rep(log_std_n), k_n)
+            ood_a = jax.lax.stop_gradient(jnp.concatenate([jax.random.uniform(k_r, (N, nb, ACTION_DIM), minval=-1.0, maxval=1.0),
+                                                           a_nn, a_c]))
+            ood_lp = jax.lax.stop_gradient(jnp.concatenate([jnp.full((N, nb), ACTION_DIM * jnp.log(0.5)), lp_nn, lp_c]))
+            ood_obs = jnp.broadcast_to(obs, (3 * N, *obs.shape))
+            # Cal-QL: the policy actions' values are bounded below by the data's Monte-Carlo return
+            lower = jnp.concatenate([jnp.full((N, nb), -jnp.inf), jnp.broadcast_to(b["mc"], (2 * N, nb))]) if f["calql"] else None
+
         def critic_loss(cp):
             q = self.critic.apply(cp, obs, act)
-            return jnp.sum(jnp.mean((q - y) ** 2, axis=1)), q
+            loss, gap = jnp.sum(jnp.mean((q - y) ** 2, axis=1)), jnp.zeros(())
+            if cql:
+                qo = self.critic.apply(cp, ood_obs, ood_a)  # (critics, 3N, batch)
+                if lower is not None:
+                    qo = jnp.maximum(qo, lower)
+                gap = jnp.mean(jax.nn.logsumexp(qo - ood_lp, axis=1) - q, axis=1).sum()
+                loss = loss + float(f["cql_alpha"]) * gap
+            return loss, (q, gap)
 
-        (lc, q), g = jax.value_and_grad(critic_loss, has_aux=True)(s["critic"])
+        (lc, (q, gap)), g = jax.value_and_grad(critic_loss, has_aux=True)(s["critic"])
         upd, opt_c = self.opt_critic.update(g, s["opt_critic"], s["critic"])
         critic = optax.apply_updates(s["critic"], upd)
         target = optax.incremental_update(critic, s["target"], float(f["tau"]))
         s = {**s, "critic": critic, "target": target, "opt_critic": opt_c, "key": key, "n_updates": s["n_updates"] + 1}
-        metrics = {"critic_loss": lc, "q_mean": q.mean(), "q_max": q.max(), "target_mean": y.mean()}
+        metrics = {"critic_loss": lc, "q_mean": q.mean(), "q_max": q.max(), "target_mean": y.mean(), "cql_gap": gap}
 
         # actor and temperature
         mean_bc = jax.lax.stop_gradient(jnp.tanh(actor_forward(s["bc"], obs)[0]))
@@ -251,7 +276,7 @@ class Agent:
         upd = jax.tree_util.tree_map(lambda u: jnp.where(do, u, 0.0), upd)
         opt_a = jax.tree_util.tree_map(lambda new, old: jnp.where(do, new, old), opt_a, s["opt_actor"])
         s = {**s, "actor": optax.apply_updates(s["actor"], upd), "opt_actor": opt_a}
-        if self.auto_alpha:
+        if self.auto_alpha and f["awac_beta"] <= 0:  # (AWAC: no entropy term)
             ent_gap = jax.lax.stop_gradient(aux["logp"] + s["target_entropy"])
             ga = jax.grad(lambda la_: -la_ * ent_gap)(s["log_alpha"])
             upd, opt_al = self.opt_alpha.update(ga, s["opt_alpha"], s["log_alpha"])
