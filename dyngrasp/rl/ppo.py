@@ -21,7 +21,8 @@ log_std (initialised at ppo.init_log_std, learned):
           atanh(1 - action_eps); the gripper's a*_i - tanh(mu_i)), mu's gradient stopped; r_i^2 at most (nll_clip sigma_i)^2, so that the gripper's few
           steps where the expert has closed and the policy not yet do not set its noise): the noise's own likelihood.
           While w = 0, sigma_i settles where E[min(r_i^2 / sigma_i^2, nll_clip^2)] = 1 - c_i / lam: the entropy bonus
-          keeps it above the imitation residual.
+          keeps it above the imitation residual.  Over the ramp c_i goes to ent_coef_final: with lam below c the
+          entropy bonus alone grew sigma ~0.4% per batch (0.020 -> 0.041 by halfway) as the stochastic success fell.
   entropy c_i per dimension (ent_coef: smaller for the gripper).
 V(s): its own network and optimiser, regressed on the GAE returns (TD(lambda) targets) of the latest value_window
 batches.
@@ -446,8 +447,9 @@ def pretrain_value(learner: Learner, path, gamma: float, epochs: int, rng: np.ra
 def schedule(p: dict, batch: int, ramp_start: int | None) -> dict:
     """w, lam, label fraction and ramp progress x at this batch."""
     x = 0.0 if ramp_start is None else float(np.clip((batch - ramp_start) / max(p["ramp_batches"], 1), 0.0, 1.0))
+    c = [(1.0 - x) * c0 + x * c1 for c0, c1 in zip(p["ent_coef"], p["ent_coef_final"])]
     return {"x": x, "w": x * p["ppo_weight"], "lam": (1.0 - x) * p["imit_weight"],
-            "label_fraction": (1.0 - x) * p["label_fraction"], "c": list(p["ent_coef"])}
+            "label_fraction": (1.0 - x) * p["label_fraction"], "c": c}
 
 
 def assemble(episodes: list[dict]) -> dict:
