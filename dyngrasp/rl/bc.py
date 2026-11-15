@@ -9,7 +9,7 @@ with the log_std head on the trunk's features with their gradient stopped (it do
 Adam on minibatches (optionally: Gaussian noise on the observations, bc.obs_noise; the policy an
 exponential moving average of the weights, bc.ema).  After every epoch the MSE on held-out episodes
 (val_fraction, split by episode); training stops after `patience` epochs without a lower one and keeps
-the lowest (best/).  Every closed_loop_every
+the lowest (best/), or, bc.keep = "last", runs max_epochs and keeps the last.  Every closed_loop_every
 epochs and on best/, the deterministic policy tanh(mean) runs on the validation scenes in the harness
 (config env latency, graded as in evaluation).
 
@@ -200,7 +200,7 @@ def train(run_dir, cfg: dict, data_path) -> str:
         v_mse, v_nll = (float(x) for x in evaluate(ema, obs, act, va))
         row = {"epoch": epoch, "train_loss": float(np.mean(jnp.stack(ls))), "train_mse": float(np.mean(jnp.stack(ms))),
                "val_mse": v_mse, "val_nll": v_nll, "epoch_s": time.time() - t}
-        if v_mse < best:
+        if v_mse < best or c["keep"] == "last":
             best, best_epoch = v_mse, epoch
             save_policy(ema, cfg, run_dir / "best")
         if c["closed_loop_every"] and epoch % c["closed_loop_every"] == 0:

@@ -80,6 +80,7 @@ DEFAULTS = {
         "batch_size": 512,
         "max_epochs": 300,
         "patience": 15,  # stop after this many epochs without a validation-loss improvement
+        "keep": "best_val_mse",  # the policy kept (best/): lowest validation MSE, or "last" (max_epochs, no early stop)
         "val_fraction": 0.1,  # episodes held out for the validation loss
         "nll_weight": 1.0,  # log_std head: Gaussian NLL of atanh(action), its own head (trunk gradient stopped)
         "action_eps": 1.0e-3,  # actions clipped to +-(1 - eps) for atanh

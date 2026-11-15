@@ -139,7 +139,7 @@ def test_merged_dataset_shapes_and_split(tmp_path):
 # ---- training and weights -------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("extra", [[], ["bc.ema=0.99", "bc.obs_noise=0.01"]])
+@pytest.mark.parametrize("extra", [[], ["bc.ema=0.99", "bc.obs_noise=0.01", "bc.keep=last"]])
 def test_bc_training_lowers_the_loss_and_its_policy_runs(tmp_path, extra):
     rng = np.random.default_rng(0)
     n_ep, T = 40, 50
@@ -153,7 +153,8 @@ def test_bc_training_lowers_the_loss_and_its_policy_runs(tmp_path, extra):
     log = pd.read_csv(tmp_path / "run" / "log.csv")
     assert log.val_mse.min() < 0.3 * log.val_mse.iloc[0] and log.train_mse.iloc[-1] < 0.3 * log.train_mse.iloc[0]
     run = json.loads((tmp_path / "run" / "run.json").read_text())
-    assert run["best_val_mse"] == pytest.approx(log.val_mse.min()) and run["best_closed_loop"]["n"] == 1
+    kept = log.val_mse.iloc[-1] if "bc.keep=last" in extra else log.val_mse.min()
+    assert run["best_val_mse"] == pytest.approx(kept) and run["best_closed_loop"]["n"] == 1
     assert (tmp_path / "run" / "best" / "closed_loop.json").exists()
 
 
