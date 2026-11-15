@@ -273,6 +273,8 @@ def finetune(run_dir, cfg: dict) -> str:
 
         while True:
             results = envs.poll(timeout=0.05)
+            if 0 < len(results) < n // 4:  # gather a few more: one policy call for several environments
+                results += envs.poll(timeout=0.002)
             for i, (o_next, r, done, next_obs, ep) in results:
                 buf.add(nsteps[i].add(obs[i].copy(), last_act[i].copy(), r, next_obs, done))
                 obs[i] = o_next

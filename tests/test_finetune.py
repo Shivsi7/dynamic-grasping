@@ -58,7 +58,7 @@ def test_buffer_wraps_samples_and_round_trips(tmp_path):
 
 
 def test_agent_updates_and_critic_only_warmup(tmp_path):
-    cfg = small_cfg(tmp_path, n_critics=4, critic_subset=2, bc_weight=1.0, bc_policy_weight=1.0)
+    cfg = small_cfg(tmp_path, n_critics=4, critic_subset=2, bc_weight=1.0, bc_policy_weight=1.0, bc_q_filter=True)
     params = bc.sbx_params(dict(np.load(Path(cfg["ft"]["bc_checkpoint"]) / "actor.npz")))
     agent = Agent(cfg, params)
     rng = np.random.default_rng(0)

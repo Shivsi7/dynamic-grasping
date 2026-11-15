@@ -10,7 +10,8 @@ LayerNorm on (obs, action).  One update (RLPD-style when the batch mixes online 
            a low-entropy policy's -alpha log pi < 0 would be a per-step cost that makes ending episodes (by a
            collision too) look good.
   actor    alpha log pi(a|s) - mean over critics Q(s, a), a ~ pi(.|s), plus optional regularisers:
-           bc_weight x MSE(tanh(mean(s)), a_demo) on the demonstration rows,
+           bc_weight x MSE(tanh(mean(s)), a_demo) on the demonstration rows (bc_q_filter: only those where the
+           critics value the demonstrated action above the policy's mean action),
            bc_policy_weight x MSE(tanh(mean(s)), tanh(mean_BC(s))) on every row (BC = the frozen initial actor)
   alpha    automatic (target entropy, settable: set_target_entropy) or fixed
   targets  Polyak averaging (tau)
@@ -177,6 +178,10 @@ class Agent:
         # actor and temperature
         mean_bc = jax.lax.stop_gradient(jnp.tanh(actor_forward(s["bc"], obs)[0]))
         demo = b["is_demo"]
+        if f["bc_q_filter"]:  # BC only where the critics prefer the demonstrated action (Nair et al. 2018)
+            mean_now = jnp.tanh(actor_forward(s["actor"], obs)[0])
+            better = self.critic.apply(critic, obs, act).mean(0) > self.critic.apply(critic, obs, mean_now).mean(0)
+            demo = demo * jax.lax.stop_gradient(better)
 
         def actor_loss(ap):
             mean, log_std = actor_forward(ap, obs)

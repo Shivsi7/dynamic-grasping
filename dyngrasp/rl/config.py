@@ -121,7 +121,8 @@ DEFAULTS = {
         "target_entropy_bc_offset": None,  # ... unless set: the initial actor's entropy on demonstration states + this
         "backup_entropy": False,  # entropy term in the critic target (agent.py: off, episodes end by termination)
         "actor_delay": 1,  # actor (and alpha) update every this many critic updates
-        "bc_weight": 0.0,  # x MSE(policy mean action, demonstration action) on the demonstration rows
+        "bc_weight": 0.0,  # x MSE(policy mean action, demonstration action) on the demonstration rows ...
+        "bc_q_filter": False,  # ... only where the critics value the demonstrated action above the policy's
         "bc_policy_weight": 0.0,  # x MSE(policy mean action, initial BC policy's) on every row
         "val_every": 250_000,  # environment steps between validations (and one at step 0)
         "val_workers": 8,
