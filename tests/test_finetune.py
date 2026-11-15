@@ -190,7 +190,7 @@ def test_awac_q_norm_and_calql_update(tmp_path):
              "is_demo": np.zeros((K, B))}
     batch["mc"] = rng.standard_normal((K, B))
     for ft in ({"awac_beta": 0.1, "init_log_std": -3.0}, {"q_norm": True, "bc_policy_weight": 0.4},
-               {"cql_alpha": 1.0, "calql": True}):
+               {"cql_alpha": 1.0, "calql": True}, {"awac_beta": 0.05, "awr": True}):
         cfg = small_cfg(tmp_path, **ft)
         agent = Agent(cfg, bc.sbx_params(dict(np.load(Path(cfg["ft"]["bc_checkpoint"]) / "actor.npz"))))
         leaves0 = jax.device_get(jax.tree_util.tree_leaves(agent.state["actor"]))
@@ -198,7 +198,11 @@ def test_awac_q_norm_and_calql_update(tmp_path):
         assert all(np.isfinite(v) for v in m.values())
         leaves1 = jax.device_get(jax.tree_util.tree_leaves(agent.state["actor"]))
         assert any(not np.array_equal(a, b) for a, b in zip(leaves0, leaves1))
-        if "awac_beta" in ft:  # the log_std head gets no gradient
+        if "awr" in ft:  # state values: the action input does not matter
+            o = batch["obs"][0]
+            q1, q2 = (agent.critic.apply(agent.state["critic"], o, x) for x in (np.zeros((B, 8)), batch["act"][0]))
+            assert not np.allclose(q1, q2) and np.isfinite(m["adv_std"])
+        if "init_log_std" in ft:  # (AWAC) the log_std head gets no gradient
             assert np.allclose(np.asarray(agent.pi(agent.state["actor"], agent.state["bc"], batch["obs"][0])[1]), -3.0)
 
 

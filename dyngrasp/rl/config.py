@@ -130,6 +130,7 @@ DEFAULTS = {
         "cql_n": 4,  # ... with this many uniform, policy (s) and policy (s') actions per row
         "cql_is": False,  # ... importance-weighted by the sampling densities (CQL(H); degenerate with a narrow policy)
         "calql": False,  # ... and Cal-QL's lower bound (the Monte-Carlo return) on the policy actions' values
+        "awr": False,  # with awac_beta: state-value critics and n-step TD advantages (AWR; agent.py)
         "q_norm": False,  # SAC actor term / mean |Q| (TD3+BC; agent.py)
         "awac_beta": 0.0,  # > 0: AWAC actor (advantage-weighted regression, temperature) instead of SAC's
         "actor_obs_noise": 0.0,  # std of Gaussian noise on the actor's observations (BC's bc.obs_noise; agent.py)

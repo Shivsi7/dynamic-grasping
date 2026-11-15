@@ -16,7 +16,9 @@ LayerNorm on (obs, action).  One update (RLPD-style when the batch mixes online 
            q_norm: the SAC term divided by mean |Q| (TD3+BC's normalisation, so the regularisers' weights are relative);
            awac_beta > 0: instead of the SAC term, AWAC's weighted regression on the batch actions,
            MSE(tanh(mean(s)), a) x exp(A/awac_beta) (clipped at 100, normalised to mean 1), A = Q(s, a) - Q(s, tanh(mean(s)))
-           (the log_std head then gets no gradient: the exploration noise stays as it starts)
+           (the log_std head then gets no gradient: the exploration noise stays as it starts);
+           awr: the critics are state values V(s) (zero action input, TD on the batch's n-step rows) and
+           A = r^(n) + gamma^n V'(s_n) - V(s) (AWR, Peng et al. 2019): no extrapolation in the action
            cql_alpha > 0: + cql_alpha x (log-sum-exp of Q over cql_n uniform and 2 cql_n policy actions at s and s',
            importance-weighted if cql_is, minus Q(s, a)) per critic (CQL(H)); calql: the policy actions' Q bounded below by the
            row's Monte-Carlo return (Cal-QL, Nakamoto et al. 2023)
@@ -199,11 +201,14 @@ class Agent:
         key, k_next, k_sub, k_pi, k_cql, k_obs = jax.random.split(s["key"], 6)
         alpha = jnp.exp(s["log_alpha"])
         obs, act = b["obs"], b["act"]
+        awr = f["awr"]
+        if awr:  # state values: the critics see a zero action
+            act = jnp.zeros_like(act)
 
         # critic
         mean_n, log_std_n = self.pi(s[self.pol], s["bc"], b["next_obs"])
         a_n, logp_n = sample_action(mean_n, log_std_n, k_next)
-        q_next = self.critic.apply(s["target"], b["next_obs"], a_n)
+        q_next = self.critic.apply(s["target"], b["next_obs"], jnp.zeros_like(a_n) if awr else a_n)
         sub = jax.random.choice(k_sub, f["n_critics"], (f["critic_subset"],), replace=False)
         v_next = q_next[sub].min(0) - (alpha * logp_n if f["backup_entropy"] else 0.0)
         y = jax.lax.stop_gradient(b["rew"] + b["disc"] * (1.0 - b["done"]) * v_next)
@@ -253,14 +258,19 @@ class Agent:
             demo = demo * jax.lax.stop_gradient(better)
 
         if f["awac_beta"] > 0:  # advantage weights of the batch actions over the policy's mean action
-            mean_now = jnp.tanh(self.pi(s["actor"], s["bc"], obs)[0])
-            adv = self.critic.apply(critic, obs, act).mean(0) - self.critic.apply(critic, obs, mean_now).mean(0)
+            if awr:  # (AWR: the row's n-step return + bootstrapped value - V(s))
+                adv = y - self.critic.apply(critic, obs, act).mean(0)
+            else:
+                mean_now = jnp.tanh(self.pi(s["actor"], s["bc"], obs)[0])
+                adv = self.critic.apply(critic, obs, act).mean(0) - self.critic.apply(critic, obs, mean_now).mean(0)
             w = jnp.minimum(jnp.exp(adv / float(f["awac_beta"])), 100.0)
             w = jax.lax.stop_gradient(w / w.mean())
             metrics.update(adv_mean=adv.mean(), adv_std=adv.std(), w_max=w.max())
 
         noise = float(f["actor_obs_noise"])  # (as BC's bc.obs_noise: the actor sees perturbed observations)
         obs_a = obs + noise * jax.random.normal(k_obs, obs.shape) if noise > 0 else obs
+
+        act = b["act"]
 
         def actor_loss(ap):
             mean, log_std = self.pi(ap, s["bc"], obs_a)
