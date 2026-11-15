@@ -6,6 +6,11 @@ progress   k_p (gamma Phi_p(s') - Phi_p(s)),  Phi_p = -(|p_grasp - p_G| + rot_we
            penalised; this keeps the term a potential difference (of the state including "in hand").
 clearance  gamma Phi_c(s') - Phi_c(s),  Phi_c = -weight x max(0, d_clear - d_min) / d_clear, d_min = the
            monitor's minimum robot <-> obstacle distance in the simulation (inf without obstacles).
+clearance_env  the same for the cart and the floor: Phi_e = -env_clearance_weight x max(hinge(d_arm, d_clear_env_arm),
+           hinge(d_hand, d_clear_env_hand)), hinge(d, m) = max(0, m - d) / m, d_arm / d_hand the minimum distance of the
+           iiwa links / of the WSG (body and fingers) to the cart and the floor (`env_clearances`, the monitor's query).
+           The hand has to come close to the cart top to grasp: its margin is (C)'s own (d_safe_env, 5 mm), so (C)'s
+           grasps pay nothing; the links get 2 cm.
 close      on a close event: close_bonus x exp(-|v_gripper - v_object| / close_v_scale) for the first close with
            the gripper within the level's tolerances of the grasp pose; bad_close for every close outside them.
 terminal   success / collision / dropped / timeout, as the harness decides them (success after HOLD_TIME).
@@ -41,3 +46,23 @@ def close_reward(good: bool, first_good: bool, v_rel: float, cfg: dict) -> float
     if not good:
         return cfg["bad_close"]
     return cfg["close_bonus"] * float(np.exp(-v_rel / cfg["close_v_scale"])) if first_good else 0.0
+
+
+def env_clearances(roles, query_object, max_distance: float = 0.1) -> tuple[float, float]:
+    """(min distance iiwa links <-> cart/floor, min distance WSG body and fingers <-> cart/floor), inf beyond
+    max_distance; roles: the monitor's BodyRoles."""
+    d_arm = d_hand = np.inf
+    for pair in query_object.ComputeSignedDistancePairwiseClosestPoints(max_distance):
+        c = roles.classify_geometry_pair(pair.id_A, pair.id_B)
+        if c is None or c[2] not in ("cart", "floor"):
+            continue
+        if c[0] in roles.gripper:
+            d_hand = min(d_hand, pair.distance)
+        else:
+            d_arm = min(d_arm, pair.distance)
+    return d_arm, d_hand
+
+
+def env_clearance_potential(d_arm: float, d_hand: float, cfg: dict) -> float:
+    hinge = lambda d, m: max(0.0, m - d) / m
+    return -cfg["env_clearance_weight"] * max(hinge(d_arm, cfg["d_clear_env_arm"]), hinge(d_hand, cfg["d_clear_env_hand"]))

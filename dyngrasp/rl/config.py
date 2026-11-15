@@ -30,6 +30,11 @@ DEFAULTS = {
         "rot_weight": 0.1,  # Phi_p = -(position error + rot_weight x orientation error in rad)
         "clearance_weight": 0.5,  # Phi_c = -clearance_weight x max(0, d_clear - d_min) / d_clear
         "d_clear": 0.04,
+        # Phi_e (cart and floor, rewards.py): within 2 cm for the iiwa links, 5 mm ((C)'s d_safe_env) for the WSG, which
+        # has to come close to the cart top to grasp; half the obstacle term's weight
+        "env_clearance_weight": 0.25,
+        "d_clear_env_arm": 0.02,
+        "d_clear_env_hand": 0.005,
         "close_bonus": 0.5,  # first good close: close_bonus x exp(-|v_gripper - v_object| / close_v_scale)
         "close_v_scale": 0.05,
         "bad_close": -0.1,

@@ -17,7 +17,12 @@ from dyngrasp.rl.controller import NumpyActor, RLController
 from dyngrasp.rl.curriculum import Curriculum, sample_level
 from dyngrasp.rl.env import GraspEnv
 from dyngrasp.rl.observation import N_OBSTACLES, OBS_DIM
-from dyngrasp.rl.rewards import clearance_potential, close_reward, progress_potential
+from dyngrasp.rl.rewards import (
+    clearance_potential,
+    close_reward,
+    env_clearance_potential,
+    progress_potential,
+)
 
 LO, HI, VMAX, AMAX = -np.ones(7) * 2.0, np.ones(7) * 2.0, np.ones(7) * 1.5, np.ones(7) * 5.0
 REWARD = DEFAULTS["reward"]
@@ -100,6 +105,15 @@ def test_clearance_potential():
     assert g * clearance_potential(0.01, 0.04, 0.5) - clearance_potential(0.03, 0.04, 0.5) < 0
 
 
+def test_cart_and_floor_clearance_potential():
+    w, ma, mh = REWARD["env_clearance_weight"], REWARD["d_clear_env_arm"], REWARD["d_clear_env_hand"]
+    assert env_clearance_potential(np.inf, np.inf, REWARD) == env_clearance_potential(ma, mh, REWARD) == 0.0
+    assert env_clearance_potential(0.5 * ma, np.inf, REWARD) == pytest.approx(-0.5 * w)  # a link 1 cm from the cart
+    assert env_clearance_potential(np.inf, 0.5 * ma, REWARD) == 0.0  # the hand at 1 cm: grasping distance, free
+    assert env_clearance_potential(0.5 * ma, 0.0, REWARD) == pytest.approx(-w)  # the worse of the two
+    assert ma > mh == 0.005
+
+
 def test_close_reward():
     assert close_reward(True, True, 0.0, REWARD) == pytest.approx(0.5)
     assert close_reward(True, True, 0.05, REWARD) == pytest.approx(0.5 * np.exp(-1))
@@ -162,6 +176,27 @@ def test_collision_ends_the_episode_with_minus_one():
     info = steps[-1][3]
     assert info["outcome"] == "collision" and info["terms"]["terminal"] == -1.0
     assert env.h.monitor.collisions[0].category in ("cart", "floor")
+
+
+def test_cart_and_floor_clearance_term_before_a_collision():
+    """The shoulder driven down into the conveyor: no cart/floor term at the start, the potential at -weight or below
+    at contact (the term adds up to it), and the collision is the terminal's -1."""
+    env = GraspEnv(seed=0)
+    env.reset(options={"spec": S.no_obstacles(0.1), "level": 0})
+    assert env.phi_e == 0.0
+    a = np.zeros(8)
+    a[1], a[7] = 1.0, 1.0
+    terms = []
+    while True:
+        _, r, term, _, info = env.step(a)
+        terms.append(info["terms"])
+        assert r == pytest.approx(sum(info["terms"].values()))
+        if term:
+            break
+    assert info["outcome"] == "collision" and env.h.monitor.collisions[0].category in ("cart", "floor")
+    w, g = REWARD["env_clearance_weight"], env.cfg["gamma"]
+    assert env.phi_e <= -w * 0.99
+    assert sum(g**t * x["clearance_env"] for t, x in enumerate(terms)) == pytest.approx(g ** len(terms) * env.phi_e)
 
 
 def test_drop_ends_the_episode_with_minus_one():

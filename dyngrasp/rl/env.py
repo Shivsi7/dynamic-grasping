@@ -36,11 +36,18 @@ from dyngrasp.rl.config import load_config
 from dyngrasp.rl.controller import RLController
 from dyngrasp.rl.curriculum import sample_level
 from dyngrasp.rl.observation import OBS_DIM
-from dyngrasp.rl.rewards import clearance_potential, close_reward, grasp_errors, progress_potential
+from dyngrasp.rl.rewards import (
+    clearance_potential,
+    close_reward,
+    env_clearance_potential,
+    env_clearances,
+    grasp_errors,
+    progress_potential,
+)
 from dyngrasp.rl.scenes import sample_training_scene
 from dyngrasp.scenario import ScenarioSpec
 
-TERMS = ("progress", "clearance", "close", "terminal")
+TERMS = ("progress", "clearance", "clearance_env", "close", "terminal")
 PAST_TICK = 0.5e-3  # AdvanceTo(tick time + this): Drake runs that time's updates (physics, controller)
 
 
@@ -114,7 +121,7 @@ class GraspEnv(gym.Env):
         self.close_paid, self.n_close = False, {"good": 0, "bad": 0}
         self.succeeded = False  # post_success: success paid, the episode going on
         self.ep_terms = dict.fromkeys(TERMS, 0.0)
-        self.phi_p, self.phi_c = self._potentials(state)
+        self.phi_p, self.phi_c, self.phi_e = self._potentials(state)
         return self.ctrl.obs
 
     def _to_policy_tick(self):
@@ -125,13 +132,17 @@ class GraspEnv(gym.Env):
         assert state is not None and abs(state.t - t) < 1e-9, (t, state and state.t)
         return state
 
-    def _potentials(self, state) -> tuple[float, float]:
-        """Progress (state) and clearance (the monitor's sample at state.t) potentials."""
-        r, log = self.cfg["reward"], self.h.monitor.log
+    def _potentials(self, state) -> tuple[float, float, float]:
+        """Progress (state), obstacle clearance (the monitor's sample at state.t) and cart/floor clearance (the monitor's
+        query now) potentials."""
+        r, m = self.cfg["reward"], self.h.monitor
+        log = m.log
         assert abs(log.t[-1] - state.t) < 1e-9, (log.t[-1], state.t)
         d_min, in_hand = float(log.clearance_obstacles[-1]), bool(log.in_hand[-1])
+        query = m._query_in.Eval(m.GetMyContextFromRoot(self.sim.get_context()))
         return (progress_potential(state.X_WG, self.world.grasp_pose(state.t), in_hand, r["rot_weight"]),
-                clearance_potential(d_min, r["d_clear"], r["clearance_weight"]))
+                clearance_potential(d_min, r["d_clear"], r["clearance_weight"]),
+                env_clearance_potential(*env_clearances(m.roles, query), r))
 
     def _speeds_apart(self) -> float:
         """|v_gripper - v_object| in the simulation."""
@@ -147,14 +158,15 @@ class GraspEnv(gym.Env):
         self.ctrl.set_action(a)
         self.n_steps += 1
         state = self._to_policy_tick()
-        phi_p, phi_c = self._potentials(state)
+        phi_p, phi_c, phi_e = self._potentials(state)
         r = {
             "progress": rc["k_p"] * (gamma * phi_p - self.phi_p),
             "clearance": gamma * phi_c - self.phi_c,
+            "clearance_env": gamma * phi_e - self.phi_e,
             "close": 0.0,
             "terminal": 0.0,
         }
-        self.phi_p, self.phi_c = phi_p, phi_c
+        self.phi_p, self.phi_c, self.phi_e = phi_p, phi_c, phi_e
         if is_close_event(width_before, gripper_width(a[7]), self.world.object.grasp_width):
             e_p, e_r = grasp_errors(state.X_WG, self.world.grasp_pose(state.t))
             good = e_p <= self.tol_pos and e_r <= self.tol_rot
