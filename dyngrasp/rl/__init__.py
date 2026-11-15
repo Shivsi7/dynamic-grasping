@@ -1,4 +1,4 @@
-"""Approach (D): a learned policy on the evaluation's Drake simulation; behaviour cloning of (C) (SAC: branch rl-sac).
+"""Approach (D): a learned policy on the evaluation's Drake simulation; behaviour cloning of (C) (SAC, PPO: branch rl).
 
 actions      policy action -> velocity ramp, joint position commands, gripper opening
 observation  the flat observation vector (fixed scales)
