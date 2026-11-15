@@ -150,3 +150,12 @@ def test_residual_mode_starts_at_the_bc_policy_and_exports_for_the_controller(tm
     np.savez(out / "actor.npz", **agent.export_arrays())
     (out / "config.yaml").write_text(yaml.safe_dump(cfg))
     np.testing.assert_allclose(np.array([RLController(out).actor(o) for o in x]), a, atol=1e-5)
+
+
+def test_init_log_std_replaces_the_bc_noise():
+    cfg = load_config(overrides=[f"ft.critic_arch={ARCH}", "ft.init_log_std=-3.0"])
+    agent = Agent(cfg, bc.init_params(ARCH, 0))
+    x = np.random.default_rng(0).standard_normal((4, OBS_DIM)).astype(np.float32)
+    mean, log_std = agent.pi(agent.state["actor"], agent.state["bc"], x)
+    np.testing.assert_allclose(np.asarray(log_std), -3.0)
+    np.testing.assert_allclose(np.asarray(mean), np.asarray(actor_forward(bc.init_params(ARCH, 0), x)[0]), atol=1e-6)

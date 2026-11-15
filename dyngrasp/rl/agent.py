@@ -115,6 +115,12 @@ class Agent:
         critic_params = self.critic.init(k, jnp.zeros((1, OBS_DIM)), jnp.zeros((1, ACTION_DIM)))
         actor_params = jax.tree_util.tree_map(jnp.asarray, actor_params)
         self.res_scale = float(f["residual_scale"])
+        if f["init_log_std"] is not None:  # a constant exploration noise instead of the BC log_std head
+            p = dict(actor_params["params"])
+            n = len(p) - 2
+            p[f"Dense_{n + 1}"] = {"kernel": jnp.zeros_like(p[f"Dense_{n + 1}"]["kernel"]),
+                                   "bias": jnp.full_like(p[f"Dense_{n + 1}"]["bias"], float(f["init_log_std"]))}
+            actor_params = {"params": p}
         bc_params = actor_params
         if self.res_scale > 0:  # the residual network: BC's weights, mean head zeroed (no change at the start)
             p = dict(actor_params["params"])
