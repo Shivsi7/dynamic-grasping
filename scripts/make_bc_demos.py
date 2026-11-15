@@ -2,6 +2,8 @@
 """(D) behaviour-cloning demonstrations from (C) (dyngrasp/rl/demos.py), and the dataset built from them.
 
     python scripts/make_bc_demos.py generate --out runs/demos/part0 --episodes 500 --workers 16 --seed 0
+    python scripts/make_bc_demos.py takeover --policy runs/bc0/best --out runs/dagger1/part0 --episodes 500 --switches 2
+    python scripts/make_bc_demos.py takeover --out runs/dart/part0 --episodes 500 --switches 2 --noise 0.1
     python scripts/make_bc_demos.py merge runs/demos/part* --out runs/demos/dataset.npz
 
 generate: (C) on fresh training scenes (scenes.sample_training_scene: never an evaluation or validation scene),
@@ -11,6 +13,11 @@ open-loop through RLController (the fidelity check; --no-replay skips it).  Writ
 episode's metadata, failures too) and <out>/eps/<e>.npz (obs, actions of the successes, and obs_replay: the
 observations RLController computed in the replay).  Stops starting
 episodes after --max-minutes.  Running it again on the same --out skips the episodes already there.
+takeover (demos.Takeover, (C) through (D)'s actions): DAgger with --policy: on each scene the policy alone, then,
+for each of --switches times drawn uniformly before its failure (collision; else its grasp or the episode's end),
+the policy until then and (C) from there; the steps from the switch on are labelled with (C)'s actions.  DART
+without --policy: (C) from the start, its joint actions executed with --noise and labelled clean.  A scene's
+episodes are e x switches + j.
 merge: the successes of the given runs (one per scene: duplicates dropped) -> one compressed .npz:
   obs (N, 84) float32, act (N, 8) float32, obs_replay (N, 84) float32 (NaN where the replay had ended or did not
   run), ep_start / ep_len / level / seed / replay_success (E,) per episode (-1: not replayed), meta: JSON with the per-episode metadata (scene spec, (C) result) and the
@@ -20,6 +27,7 @@ merge: the successes of the given runs (one per scene: duplicates dropped) -> on
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import subprocess
@@ -85,20 +93,69 @@ def episode(cfg: dict, seed: int, e: int, out: str, do_replay: bool) -> dict:
         obs_replay = np.full_like(obs, np.nan)
         if do_replay:
             obs_replay[:n] = seen[:n]
-        tmp = Path(out) / "eps" / f".{e}.npz"
-        np.savez_compressed(tmp, obs=obs, act=act, obs_replay=obs_replay)
-        os.replace(tmp, tmp.with_name(f"{e}.npz"))
+        save(out, e, obs=obs, act=act, obs_replay=obs_replay)
     return d
+
+
+def save(out: str, e: int, **arrays) -> None:
+    tmp = Path(out) / "eps" / f".{e}.npz"
+    np.savez_compressed(tmp, **arrays)
+    os.replace(tmp, tmp.with_name(f"{e}.npz"))
+
+
+def takeover_task(cfg: dict, seed: int, e: int, out: str, policy: str | None, switches: int, noise: float) -> list[dict]:
+    from dyngrasp.rl.controller import NumpyActor
+    from dyngrasp.rl.demos import run_takeover
+    from dyngrasp.rl.scenes import sample_training_scene
+
+    rng = np.random.default_rng([seed, e])
+    w = np.asarray(cfg["demos"]["level_weights"], float)
+    level = int(rng.choice(len(w), p=w / w.sum()))
+    spec = sample_training_scene(level, rng)
+    actor = NumpyActor(dict(np.load(Path(policy) / "actor.npz"))) if policy else None
+    base = {"task": e}
+    if actor is not None:
+        b = run_takeover(spec, level, cfg, actor, np.inf)
+        r = b["c_result"]
+        t_fail = r["t_first_collision"] if b["outcome"] == "collision" else (r["t_grasp"] or r["t_end"])
+        times = [round(float(rng.uniform(0.0, max(0.1, t_fail - 0.2))), 1) for _ in range(switches)]
+        base.update(policy_outcome=b["outcome"], policy_t_fail=t_fail, policy_wall_s=b["wall_s"])
+    else:
+        times = [0.0] * switches
+    rows = []
+    for j, ts in enumerate(times):
+        t = time.perf_counter()
+        try:
+            d = run_takeover(spec, level, cfg, actor, ts, noise, seed=int(rng.integers(2**31)))
+        except Exception as exc:  # noqa: BLE001
+            d = {"level": level, "outcome": "error", "error": repr(exc), "fingerprint": None, "wall_s": time.perf_counter() - t}
+        d.update(base, episode=e * switches + j)
+        if d.get("fingerprint"):
+            d["fingerprint"] += f"|switch {ts}|noise {noise}|{j}"
+        if "actions" in d:
+            obs, act = d.pop("obs"), d.pop("actions")
+            d.pop("executed")
+            d["n_steps"] = len(act)
+            save(out, d["episode"], obs=obs, act=act)
+        rows.append(d)
+    return rows
 
 
 def generate(args, cfg):
     out = Path(args.out)
     (out / "eps").mkdir(parents=True, exist_ok=True)
     log = out / "episodes.jsonl"
-    done = {json.loads(line)["episode"] for line in log.read_text().splitlines()} if log.exists() else set()
+    lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    done = {m.get("task", m["episode"]) for m in lines}
     todo = [e for e in range(args.episodes) if e not in done]
     info = {"seed": args.seed, "episodes": args.episodes, "config": cfg, "code_commit": git("rev-parse", "HEAD"),
             "c_commit": git("log", "-1", "--format=%H", "--", "dyngrasp/hybrid.py"), "replay": not args.no_replay}
+    if args.cmd == "takeover":
+        info.update(policy=args.policy and str(Path(args.policy).resolve()), switches=args.switches, noise=args.noise,
+                    replay=False)
+        task = functools.partial(takeover_task, policy=args.policy, switches=args.switches, noise=args.noise)
+    else:
+        task = functools.partial(episode, do_replay=not args.no_replay)
     (out / "run.json").write_text(json.dumps(info, indent=1))
     t0, stop_at = time.time(), time.time() + 60 * args.max_minutes
     print(f"{len(todo)} episodes to run ({len(done)} already done), {args.workers} workers", flush=True)
@@ -110,20 +167,22 @@ def generate(args, cfg):
         def submit():
             e = next(it, None)
             if e is not None and time.time() < stop_at:
-                pending.add(ex.submit(episode, cfg, args.seed, e, str(out), not args.no_replay))
+                pending.add(ex.submit(task, cfg, args.seed, e, str(out)))
 
         for _ in range(2 * args.workers):
             submit()
         while pending:
             fut = next(as_completed(pending))
             pending.remove(fut)
-            d = fut.result()
-            f.write(json.dumps(d, default=_json) + "\n")
-            f.flush()
-            counts[d["outcome"]] = counts.get(d["outcome"], 0) + 1
-            rep = f" replay {d['replay_outcome']}" if "replay_outcome" in d else ""
-            print(f"[{sum(counts.values())}] ep {d['episode']} L{d['level']} {d['outcome']}{rep} "
-                  f"({d['wall_s']:.0f} s)  {counts}  {(time.time() - t0) / 60:.1f} min", flush=True)
+            res = fut.result()
+            for d in res if isinstance(res, list) else [res]:
+                f.write(json.dumps(d, default=_json) + "\n")
+                f.flush()
+                counts[d["outcome"]] = counts.get(d["outcome"], 0) + 1
+                rep = f" replay {d['replay_outcome']}" if "replay_outcome" in d else ""
+                sw = f" switch {d['t_switch']} (policy {d.get('policy_outcome')})" if "t_switch" in d else ""
+                print(f"[{sum(counts.values())}] ep {d['episode']} L{d['level']} {d['outcome']}{rep}{sw} "
+                      f"({d['wall_s']:.0f} s)  {counts}  {(time.time() - t0) / 60:.1f} min", flush=True)
             submit()
     print(f"done in {(time.time() - t0) / 60:.1f} min: {counts}", flush=True)
 
@@ -167,8 +226,9 @@ def merge(args):
         "replay_success_rate": float(np.mean(rep[rep >= 0] == 1)) if np.any(rep >= 0) else None,
         "replay_outcomes": {o: sum(m.get("replay_outcome") == o for m in keep)
                             for o in sorted({m["replay_outcome"] for m in keep if "replay_outcome" in m})},
-        "track_err_max_rad": {q: float(np.quantile([m["track_err_max"] for m in keep], p))
-                              for q, p in (("median", 0.5), ("p99", 0.99), ("max", 1.0))},
+        "track_err_max_rad": {q: float(np.quantile([m["track_err_max"] for m in keep if "track_err_max" in m], p))
+                              for q, p in (("median", 0.5), ("p99", 0.99), ("max", 1.0))}
+        if any("track_err_max" in m for m in keep) else None,
         "replay_obs_diff_t0_max": max((m.get("replay_obs_diff_t0", 0.0) for m in keep), default=None),
         "replay_q_diff_max_rad": {q: float(np.quantile([m["replay_q_diff_max"] for m in keep if "replay_q_diff_max" in m], p))
                                   for q, p in (("median", 0.5), ("p99", 0.99), ("max", 1.0))}
@@ -196,11 +256,24 @@ def main():
     g.add_argument("--no-replay", action="store_true")
     g.add_argument("--config", help="YAML overriding dyngrasp/rl/config.py DEFAULTS")
     g.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
+    k = sub.add_parser("takeover")
+    k.add_argument("--policy", help="checkpoint directory (actor.npz): DAgger; none: DART, (C) from the start")
+    k.add_argument("--switches", type=int, default=2, help="takeover episodes per scene")
+    k.add_argument("--noise", type=float, default=0.0, help="std of the noise on (C)'s executed joint actions")
+    for a in ("--out", "--episodes"):
+        k.add_argument(a, required=True, type=int if a == "--episodes" else str)
+    k.add_argument("--workers", type=int, default=os.cpu_count())
+    k.add_argument("--seed", type=int, default=0)
+    k.add_argument("--max-minutes", type=float, default=np.inf)
+    k.add_argument("--tasks-per-child", type=int, default=10)
+    k.add_argument("--config")
+    k.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
+    k.set_defaults(no_replay=True)
     m = sub.add_parser("merge")
     m.add_argument("runs", nargs="+")
     m.add_argument("--out", required=True)
     args = ap.parse_args()
-    if args.cmd == "generate":
+    if args.cmd in ("generate", "takeover"):
         generate(args, load_config(args.config, args.set))
     else:
         merge(args)

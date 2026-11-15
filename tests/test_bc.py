@@ -16,7 +16,15 @@ from dyngrasp.rl import bc
 from dyngrasp.rl.actions import gripper_width
 from dyngrasp.rl.config import load_config
 from dyngrasp.rl.controller import NumpyActor, RLController
-from dyngrasp.rl.demos import C_TICK, gripper_action, make_processor, replay, run_demo, to_actions
+from dyngrasp.rl.demos import (
+    C_TICK,
+    gripper_action,
+    make_processor,
+    replay,
+    run_demo,
+    run_takeover,
+    to_actions,
+)
 from dyngrasp.rl.observation import OBS_DIM
 
 CFG = load_config()
@@ -176,3 +184,28 @@ def test_bc_weights_load_into_the_controller_and_sbx(tmp_path):
     model.policy.actor_state = model.policy.actor_state.replace(params=loaded)
     np.testing.assert_allclose(model.predict(x, deterministic=True)[0], np.tanh(mean), atol=1e-5)
     assert np.array_equal(NumpyActor(dict(np.load(ckpt / "actor.npz"))).mean[0], np.asarray(params["params"]["Dense_3"]["kernel"]))
+
+
+# ---- takeover: (C) through (D)'s actions (DAgger / DART) ----------------------------------------------------------
+
+
+def test_c_through_d_actions_from_the_start_grasps_like_c():
+    spec = S.no_obstacles(0.1)
+    d = run_takeover(spec, 0, CFG, None, 0.0)
+    c = run_demo(spec, 0, CFG)
+    assert d["outcome"] == "success" and d["n_policy_steps"] == 0 and d["c_result"]["latency_mode"] == "none"
+    assert abs(d["c_result"]["t_grasp"] - c["c_result"]["t_grasp"]) < 0.15
+    assert d["obs"].shape == (len(d["actions"]), OBS_DIM) and np.array_equal(d["executed"], d["actions"])
+    r, _ = replay(spec, d["actions"], CFG["env"])  # the labels are the executed actions: they replay
+    assert r.outcome == "success"
+    noisy = run_takeover(spec, 0, CFG, None, 0.0, noise_std=0.03, seed=1)  # DART: executed with noise, labelled clean
+    assert noisy["outcome"] == "success" and np.abs(noisy["executed"] - noisy["actions"])[:, :7].max() > 0.05
+
+
+def test_takeover_brakes_a_moving_robot_and_c_grasps():
+    """A policy swinging joint 1 at 0.4 v_max until 1.5 s: (C) brakes it, plans from where it stops, and grasps."""
+    spec = S.no_obstacles(0.1)
+    d = run_takeover(spec, 0, CFG, lambda obs: np.array([0.4, 0, 0, 0, 0, 0, 0, 1.0]), 1.5)
+    assert d["outcome"] == "success" and d["n_policy_steps"] == 15 and len(d["executed"]) == 15 + len(d["actions"])
+    assert d["obs"][0, 7] > 0.3  # the first labelled step: moving at the policy's speed ...
+    assert d["actions"][0, 0] < d["obs"][0, 7] - 0.2  # ... (C) brakes
