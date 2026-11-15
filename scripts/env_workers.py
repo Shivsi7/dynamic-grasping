@@ -2,9 +2,10 @@
 """Remote environments for fine-tuning runs (dyngrasp/rl/vecenv.py): N worker processes per run directory, each
 connecting to the run's learner (address in RUN_DIR/workers.addr, key in workers.addr.key, written by the learner
 with ft.remote_envs > 0) and serving a GraspEnv; after a dropped connection (learner preempted or restarted) they
-reconnect to the address then in the file.  Exits when every run has its DONE file.
+reconnect to the address then in the file.  Every worker process is replaced by a fresh one after --recycle episodes
+(GraspEnv's memory grows with every episode).  Exits when every run has its DONE file.
 
-    python scripts/env_workers.py RUN_DIR:N [RUN_DIR:N ...]
+    python scripts/env_workers.py [--recycle 100] RUN_DIR:N [RUN_DIR:N ...]
 """
 
 from __future__ import annotations
@@ -24,22 +25,34 @@ from dyngrasp.rl.vecenv import remote_worker
 
 
 def main():
-    runs = [(Path(a.rsplit(":", 1)[0]), int(a.rsplit(":", 1)[1])) for a in sys.argv[1:]]
+    args = sys.argv[1:]
+    recycle = 100
+    if args[:1] == ["--recycle"]:
+        recycle, args = int(args[1]), args[2:]
+    runs = [(Path(a.rsplit(":", 1)[0]), int(a.rsplit(":", 1)[1])) for a in args]
     if not runs:
         sys.exit(__doc__)
     ctx = mp.get_context("spawn")
-    procs = [ctx.Process(target=remote_worker, args=(str(d / "workers.addr"), str(d / "DONE")), daemon=True)
-             for d, n in runs for _ in range(n)]
-    for p in procs:
+    slots = [d for d, n in runs for _ in range(n)]
+
+    def start(d):
+        p = ctx.Process(target=remote_worker, args=(str(d / "workers.addr"), str(d / "DONE"), recycle), daemon=True)
         p.start()
-    print(f"{len(procs)} workers for {[str(d) for d, _ in runs]}", flush=True)
-    reported = set()
-    while any(p.is_alive() for p in procs):
-        time.sleep(30)
-        dead = [k for k, p in enumerate(procs) if not p.is_alive() and p.exitcode and k not in reported]
-        if dead:
-            print(f"{len(dead)} workers exited with errors: {[procs[k].exitcode for k in dead]}", flush=True)
-            reported.update(dead)
+        return p
+
+    procs = [start(d) for d in slots]
+    print(f"{len(procs)} workers for {[str(d) for d, _ in runs]}, recycled every {recycle} episodes", flush=True)
+    fresh = errors = 0
+    while not all((d / "DONE").exists() for d, _ in runs) or any(p.is_alive() for p in procs):
+        time.sleep(10)
+        for k, p in enumerate(procs):
+            if p.is_alive() or (slots[k] / "DONE").exists():
+                continue
+            errors += bool(p.exitcode)
+            fresh += 1
+            procs[k] = start(slots[k])
+            if fresh % 100 == 0:
+                print(f"{fresh} fresh worker processes so far ({errors} after an error)", flush=True)
     print("every run is DONE", flush=True)
 
 

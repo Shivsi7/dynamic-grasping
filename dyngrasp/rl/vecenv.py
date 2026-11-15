@@ -32,11 +32,11 @@ import numpy as np
 EPISODE_KEYS = ("outcome", "level", "scene", "ep_terms", "ep_len", "closes", "collision")
 
 
-def serve(conn) -> None:
-    """A worker's loop on one connection, until "close" or the connection drops."""
+def serve(conn, max_episodes: int | None = None) -> bool:
+    """A worker's loop on one connection, until "close", the connection drops or (True) max_episodes episodes end."""
     from dyngrasp.rl.env import GraspEnv
 
-    env, ret = None, 0.0
+    env, ret, episodes = None, 0.0, 0
     try:
         while True:
             cmd, data = conn.recv()
@@ -61,6 +61,10 @@ def serve(conn) -> None:
                     ep = {k: info[k] for k in EPISODE_KEYS}
                     ep["return"] = ret
                     ret = 0.0
+                    episodes += 1
+                    if max_episodes and episodes >= max_episodes:  # (the learner sees the slot drop after this episode)
+                        conn.send(("step", (obs, r, True, obs, ep)))
+                        return True
                     obs0, _ = env.reset()
                     conn.send(("step", (obs0, r, True, obs, ep)))
                 else:
@@ -74,6 +78,7 @@ def serve(conn) -> None:
     finally:
         if env is not None:
             env.close()
+    return False
 
 
 def _ignore_signals() -> None:
@@ -89,8 +94,10 @@ def _local_worker(conn) -> None:
         conn.close()
 
 
-def remote_worker(addr_file: str, stop_file: str) -> None:
-    """Connect to the learner at the address in addr_file (and its .key), serve, reconnect; until stop_file exists."""
+def remote_worker(addr_file: str, stop_file: str, max_episodes: int | None = None) -> None:
+    """Connect to the learner at the address in addr_file (and its .key), serve, reconnect; until stop_file exists or
+    (max_episodes) this process has served that many episodes on one connection (a fresh process then takes over:
+    GraspEnv's memory grows with every episode's new simulation)."""
     _ignore_signals()
     while not os.path.exists(stop_file):
         try:
@@ -101,7 +108,8 @@ def remote_worker(addr_file: str, stop_file: str) -> None:
             time.sleep(5.0)
             continue
         try:
-            serve(conn)
+            if serve(conn, max_episodes):
+                return
         except Exception as exc:  # noqa: BLE001  (the learner sees a dropped connection)
             print(f"worker error: {exc!r}", flush=True)
         finally:
