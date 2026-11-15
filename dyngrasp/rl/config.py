@@ -132,6 +132,8 @@ DEFAULTS = {
         "calql": False,  # ... and Cal-QL's lower bound (the Monte-Carlo return) on the policy actions' values
         "q_norm": False,  # SAC actor term / mean |Q| (TD3+BC; agent.py)
         "awac_beta": 0.0,  # > 0: AWAC actor (advantage-weighted regression, temperature) instead of SAC's
+        "actor_obs_noise": 0.0,  # std of Gaussian noise on the actor's observations (BC's bc.obs_noise; agent.py)
+        "actor_ema": 0.0,  # > 0: act, validate and bootstrap with this EMA of the actor's parameters (BC's bc.ema)
         "init_log_std": None,  # set: the actor's log_std head starts as this constant (the BC head can be wild)
         "residual_scale": 0.0,  # > 0: frozen BC actor + this x tanh(a trained residual) before the tanh (agent.py)
         "val_every": 250_000,  # environment steps between validations (and one at step 0)

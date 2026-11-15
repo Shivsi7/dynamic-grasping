@@ -200,3 +200,19 @@ def test_awac_q_norm_and_calql_update(tmp_path):
         assert any(not np.array_equal(a, b) for a, b in zip(leaves0, leaves1))
         if "awac_beta" in ft:  # the log_std head gets no gradient
             assert np.allclose(np.asarray(agent.pi(agent.state["actor"], agent.state["bc"], batch["obs"][0])[1]), -3.0)
+
+
+def test_actor_ema_acts_and_exports_and_obs_noise_trains(tmp_path):
+    rng = np.random.default_rng(0)
+    K, B = 3, 32
+    batch = {"obs": rng.standard_normal((K, B, OBS_DIM)), "act": rng.uniform(-1, 1, (K, B, 8)), "rew": rng.standard_normal((K, B)),
+             "next_obs": rng.standard_normal((K, B, OBS_DIM)), "done": np.zeros((K, B)), "disc": np.full((K, B), 0.99),
+             "is_demo": np.zeros((K, B))}
+    cfg = small_cfg(tmp_path, awac_beta=0.1, actor_ema=0.9, actor_obs_noise=0.02)
+    agent = Agent(cfg, bc.sbx_params(dict(np.load(Path(cfg["ft"]["bc_checkpoint"]) / "actor.npz"))))
+    a0 = jax.device_get(jax.tree_util.tree_leaves(agent.state["actor"]))
+    agent.update(batch, train_actor=True)
+    a1, e1 = (jax.device_get(jax.tree_util.tree_leaves(agent.state[k])) for k in ("actor", "ema"))
+    assert 0 < np.abs(e1[0] - a0[0]).sum() < np.abs(a1[0] - a0[0]).sum()  # the EMA lags the actor
+    exported, ema = agent.export_arrays(), bc.to_arrays(jax.device_get(agent.state["ema"]))
+    assert all(np.array_equal(exported[k], ema[k]) for k in ema)

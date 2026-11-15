@@ -20,6 +20,8 @@ LayerNorm on (obs, action).  One update (RLPD-style when the batch mixes online 
            cql_alpha > 0: + cql_alpha x (log-sum-exp of Q over cql_n uniform and 2 cql_n policy actions at s and s',
            importance-weighted if cql_is, minus Q(s, a)) per critic (CQL(H)); calql: the policy actions' Q bounded below by the
            row's Monte-Carlo return (Cal-QL, Nakamoto et al. 2023)
+           actor_obs_noise: the actor's terms on observations + this x N(0, 1) (BC's obs_noise)
+  actor_ema > 0: the policy that acts, is exported and gives the critic targets' actions is this EMA of the actor (as BC's)
   alpha    automatic (target entropy, settable: set_target_entropy) or fixed
   targets  Polyak averaging (tau)
 Residual mode (residual_scale > 0): the BC actor stays frozen and the trained network (a copy of it with a zero mean
@@ -138,6 +140,7 @@ class Agent:
         copy = partial(jax.tree_util.tree_map, lambda x: jnp.array(x, copy=True))  # distinct buffers (donated)
         self.state = {
             "actor": actor_params, "bc": copy(bc_params),
+            **({"ema": copy(actor_params)} if f["actor_ema"] > 0 else {}),
             "critic": critic_params, "target": copy(critic_params),
             "log_alpha": log_alpha,
             "opt_actor": self.opt_actor.init(actor_params),
@@ -147,6 +150,7 @@ class Agent:
             "n_updates": jnp.zeros((), jnp.int32),
             "target_entropy": jnp.asarray(float(-ACTION_DIM if f["target_entropy"] is None else f["target_entropy"])),
         }
+        self.pol = "ema" if f["actor_ema"] > 0 else "actor"  # the acting (and exported, and target) policy's parameters
         self._act = jax.jit(self._act_impl, static_argnames="deterministic")
         self.pi = partial(policy, res_scale=self.res_scale)
         self._chunk = jax.jit(self._chunk_impl, static_argnames="train_actor", donate_argnums=0)
@@ -157,18 +161,18 @@ class Agent:
         return jnp.tanh(mean) if deterministic else sample_action(mean, log_std, key)[0]
 
     def act(self, obs: np.ndarray, key, deterministic: bool = False) -> np.ndarray:
-        return np.asarray(self._act(self.state["actor"], self.state["bc"], jnp.asarray(obs), key, deterministic))
+        return np.asarray(self._act(self.state[self.pol], self.state["bc"], jnp.asarray(obs), key, deterministic))
 
     def entropy(self, obs: np.ndarray, key) -> float:
         """-mean log pi(a|s), a ~ pi(.|s), of the current actor on these observations."""
-        mean, log_std = self.pi(self.state["actor"], self.state["bc"], jnp.asarray(obs))
+        mean, log_std = self.pi(self.state[self.pol], self.state["bc"], jnp.asarray(obs))
         return -float(sample_action(mean, log_std, key)[1].mean())
 
     def export_arrays(self) -> dict:
         """actor.npz arrays (bc.to_arrays format; residual mode: the BC actor's, plus res_* and res_scale)."""
         from dyngrasp.rl.bc import to_arrays
 
-        actor = to_arrays(jax.device_get(self.state["actor"]))
+        actor = to_arrays(jax.device_get(self.state[self.pol]))
         if self.res_scale <= 0:
             return actor
         return {**to_arrays(jax.device_get(self.state["bc"])), **{f"res_{k}": v for k, v in actor.items()},
@@ -192,12 +196,12 @@ class Agent:
 
     def _update(self, s, b, train_actor: bool):
         f = self.f
-        key, k_next, k_sub, k_pi, k_cql = jax.random.split(s["key"], 5)
+        key, k_next, k_sub, k_pi, k_cql, k_obs = jax.random.split(s["key"], 6)
         alpha = jnp.exp(s["log_alpha"])
         obs, act = b["obs"], b["act"]
 
         # critic
-        mean_n, log_std_n = self.pi(s["actor"], s["bc"], b["next_obs"])
+        mean_n, log_std_n = self.pi(s[self.pol], s["bc"], b["next_obs"])
         a_n, logp_n = sample_action(mean_n, log_std_n, k_next)
         q_next = self.critic.apply(s["target"], b["next_obs"], a_n)
         sub = jax.random.choice(k_sub, f["n_critics"], (f["critic_subset"],), replace=False)
@@ -255,8 +259,11 @@ class Agent:
             w = jax.lax.stop_gradient(w / w.mean())
             metrics.update(adv_mean=adv.mean(), adv_std=adv.std(), w_max=w.max())
 
+        noise = float(f["actor_obs_noise"])  # (as BC's bc.obs_noise: the actor sees perturbed observations)
+        obs_a = obs + noise * jax.random.normal(k_obs, obs.shape) if noise > 0 else obs
+
         def actor_loss(ap):
-            mean, log_std = self.pi(ap, s["bc"], obs)
+            mean, log_std = self.pi(ap, s["bc"], obs_a)
             a, logp = sample_action(mean, log_std, k_pi)
             qa = self.critic.apply(critic, obs, a).mean(0)
             dev = jnp.mean((jnp.tanh(mean) - mean_bc) ** 2, -1)
@@ -279,6 +286,9 @@ class Agent:
         upd = jax.tree_util.tree_map(lambda u: jnp.where(do, u, 0.0), upd)
         opt_a = jax.tree_util.tree_map(lambda new, old: jnp.where(do, new, old), opt_a, s["opt_actor"])
         s = {**s, "actor": optax.apply_updates(s["actor"], upd), "opt_actor": opt_a}
+        if self.pol == "ema":
+            d = jnp.where(do, float(f["actor_ema"]), 1.0)
+            s = {**s, "ema": jax.tree_util.tree_map(lambda e, p: d * e + (1.0 - d) * p, s["ema"], s["actor"])}
         if self.auto_alpha and f["awac_beta"] <= 0:  # (AWAC: no entropy term)
             ent_gap = jax.lax.stop_gradient(aux["logp"] + s["target_entropy"])
             ga = jax.grad(lambda la_: -la_ * ent_gap)(s["log_alpha"])
