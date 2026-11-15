@@ -128,6 +128,7 @@ DEFAULTS = {
         "bc_policy_weight": 0.0,  # x MSE(policy mean action, initial BC policy's) on every row
         "cql_alpha": 0.0,  # > 0: CQL(H) term in the critic loss (agent.py) ...
         "cql_n": 4,  # ... with this many uniform, policy (s) and policy (s') actions per row
+        "cql_is": False,  # ... importance-weighted by the sampling densities (CQL(H); degenerate with a narrow policy)
         "calql": False,  # ... and Cal-QL's lower bound (the Monte-Carlo return) on the policy actions' values
         "q_norm": False,  # SAC actor term / mean |Q| (TD3+BC; agent.py)
         "awac_beta": 0.0,  # > 0: AWAC actor (advantage-weighted regression, temperature) instead of SAC's

@@ -18,7 +18,7 @@ LayerNorm on (obs, action).  One update (RLPD-style when the batch mixes online 
            MSE(tanh(mean(s)), a) x exp(A/awac_beta) (clipped at 100, normalised to mean 1), A = Q(s, a) - Q(s, tanh(mean(s)))
            (the log_std head then gets no gradient: the exploration noise stays as it starts)
            cql_alpha > 0: + cql_alpha x (log-sum-exp of Q over cql_n uniform and 2 cql_n policy actions at s and s',
-           importance-weighted, minus Q(s, a)) per critic (CQL(H)); calql: the policy actions' Q bounded below by the
+           importance-weighted if cql_is, minus Q(s, a)) per critic (CQL(H)); calql: the policy actions' Q bounded below by the
            row's Monte-Carlo return (Cal-QL, Nakamoto et al. 2023)
   alpha    automatic (target entropy, settable: set_target_entropy) or fixed
   targets  Polyak averaging (tau)
@@ -214,7 +214,10 @@ class Agent:
             a_nn, lp_nn = sample_action(rep(mean_n), rep(log_std_n), k_n)
             ood_a = jax.lax.stop_gradient(jnp.concatenate([jax.random.uniform(k_r, (N, nb, ACTION_DIM), minval=-1.0, maxval=1.0),
                                                            a_nn, a_c]))
-            ood_lp = jax.lax.stop_gradient(jnp.concatenate([jnp.full((N, nb), ACTION_DIM * jnp.log(0.5)), lp_nn, lp_c]))
+            # importance weights (CQL(H)'s default) only with cql_is: with a narrow policy (log pi ~ +30) they make the
+            # policy actions' terms vanish, and with them Cal-QL's bound
+            ood_lp = (jax.lax.stop_gradient(jnp.concatenate([jnp.full((N, nb), ACTION_DIM * jnp.log(0.5)), lp_nn, lp_c]))
+                      if f["cql_is"] else 0.0)
             ood_obs = jnp.broadcast_to(obs, (3 * N, *obs.shape))
             # Cal-QL: the policy actions' values are bounded below by the data's Monte-Carlo return
             lower = jnp.concatenate([jnp.full((N, nb), -jnp.inf), jnp.broadcast_to(b["mc"], (2 * N, nb))]) if f["calql"] else None
