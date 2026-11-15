@@ -29,7 +29,7 @@ import numpy as np
 _ENV = None
 
 
-def replay(spec_dict: dict, level: int, actions: np.ndarray) -> dict:
+def replay(spec_dict: dict, level: int, actions: np.ndarray, overrides=()) -> dict:
     global _ENV
     from dyngrasp.rl.config import load_config
     from dyngrasp.rl.env import GraspEnv
@@ -37,7 +37,7 @@ def replay(spec_dict: dict, level: int, actions: np.ndarray) -> dict:
     from dyngrasp.scenario import ScenarioSpec
 
     if _ENV is None:
-        _ENV = GraspEnv(load_config())
+        _ENV = GraspEnv(load_config(overrides=overrides))
         _ENV.set_level(N_LEVELS - 1)
     env = _ENV
     obs, _ = env.reset(options={"spec": ScenarioSpec.from_dict(spec_dict), "level": level})
@@ -62,6 +62,7 @@ def main():
     ap.add_argument("--episodes", type=int, default=6000, help="a random subset of this many episodes")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE", help="config overrides, e.g. env.post_success=true")
     ap.add_argument("--part", type=int, nargs=2, default=(0, 1), metavar=("K", "N"),
                     help="only the K-th of N equal slices of the chosen episodes (parallel jobs)")
     args = ap.parse_args()
@@ -74,7 +75,8 @@ def main():
     t0 = time.time()
     eps = []
     with ProcessPoolExecutor(args.workers) as ex:
-        futs = [ex.submit(replay, meta[e]["spec"], meta[e]["level"], act[start[e]: start[e] + length[e]]) for e in pick]
+        futs = [ex.submit(replay, meta[e]["spec"], meta[e]["level"], act[start[e]: start[e] + length[e]], args.set)
+                for e in pick]
         for j, fut in enumerate(futs, 1):
             eps.append(fut.result())
             if j % 200 == 0:
@@ -84,7 +86,7 @@ def main():
     outcomes = np.array([e["outcome"] for e in eps])
     np.savez(args.out, **out, ep_start=np.concatenate([[0], np.cumsum(ep_len)[:-1]]), ep_len=ep_len,
              outcome=outcomes, level=np.array([e["level"] for e in eps]), source_episode=pick)
-    summary = {"dataset": str(Path(args.dataset).resolve()), "episodes": len(eps), "transitions": int(ep_len.sum()),
+    summary = {"dataset": str(Path(args.dataset).resolve()), "overrides": args.set, "episodes": len(eps), "transitions": int(ep_len.sum()),
                "outcomes": {o: int(np.sum(outcomes == o)) for o in np.unique(outcomes)},
                "return_mean": float(np.mean([e["rew"].sum() for e in eps])),
                "minutes": (time.time() - t0) / 60}
