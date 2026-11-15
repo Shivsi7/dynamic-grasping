@@ -1,5 +1,5 @@
-"""(D) configuration: every number of the environment, the reward, the curriculum, SAC and behaviour
-cloning, in one dict.
+"""(D) configuration: every number of the environment, the reward, the curriculum, SAC, behaviour cloning, SAC
+fine-tuning and PPO, in one dict.
 
 `load_config(path, overrides)` = DEFAULTS, updated by a YAML file, then by "section.key=value"
 overrides whose values are parsed as YAML (`sac.batch_size=1024`, `train.n_envs=64`).
@@ -146,6 +146,50 @@ DEFAULTS = {
         "val_workers": 8,
         "checkpoint_minutes": 15.0,
         "log_seconds": 60.0,
+    },
+    "ppo": {  # PPO with an imitation term from the BC policy (ppo.py, rollout.py, scripts/ppo_rl.py)
+        "bc_checkpoint": None,  # directory with the BC actor.npz: the initial actor
+        "demos": None,  # (C)'s demonstrations for the imitation term (a make_bc_demos.py merge .npz: obs, act)
+        "dagger_init": None,  # DAgger labels made before the run (scripts/ppo_offline.py merge *_labels.npz)
+        "value_init": None,  # rollouts made before the run (ppo_offline.py *_rollouts.npz): V regressed on their returns
+        "value_init_epochs": 10,  # ... for this many epochs before the first batch
+        "seed": 0,
+        "max_steps": 300_000_000,  # environment steps
+        "batch_steps": 32768,  # environment steps (complete episodes) per PPO batch
+        "window": 1,  # PPO trains on the latest this many batches (behaviour log-probabilities in the ratio)
+        "value_window": 2,  # V trains on the latest this many batches' GAE returns
+        "epochs": 4,  # PPO epochs per batch (stopped early past 1.5 target_kl once w > 0)
+        "value_epochs": 4,
+        "minibatch": 4096,  # PPO and value minibatch
+        "imit_batch": 4096,  # imitation rows per actor step ...
+        "dagger_fraction": 0.5,  # ... this share from the DAgger labels (once there are min_dagger), the rest demonstrations
+        "min_dagger": 5000,
+        "lr_actor": 5.0e-5,
+        "lr_log_std": 1.0e-3,
+        "lr_value": 3.0e-4,
+        "max_grad_norm": 1.0,
+        "clip": 0.2,
+        "target_kl": 0.02,
+        "gae_lambda": 0.95,
+        "value_arch": [512, 512, 512],  # LayerNorm, ReLU
+        "init_log_std": [-3.5, -3.5, -3.5, -3.5, -3.5, -3.5, -3.5, -4.5],  # joints sigma 0.030, gripper 0.011 (BC: ~0.014)
+        "log_std_bounds": [-6.0, -1.5],
+        "ent_coef": [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.01],  # c_i: the entropy bonus per dimension
+        "imit_weight": 0.04,  # lam0 (lam = lam0 until the ramp, then down to 0)
+        "ppo_weight": 1.0,  # w at the end of the ramp
+        "nll_clip": 3.0,  # the imitation noise likelihood's residuals clipped at this many sigma
+        "obs_noise": 0.02,  # BC's observation noise, on the imitation rows
+        "action_eps": 1.0e-3,  # expert actions clipped to +-(1 - eps) for atanh
+        "ema": 0.999,  # the exported (validated) policy: this EMA of the trained one per actor step
+        "gate_ev": 0.5,  # PPO ramps in once V's explained variance of the returns of new batches is >= this ...
+        "gate_batches": 3,  # ... on this many batches in a row ...
+        "min_pretrain": 100,  # ... and at least this many batches have passed (BC + DAgger, V learning)
+        "ramp_batches": 300,  # batches over which w 0 -> ppo_weight, lam imit_weight -> 0, label_fraction -> 0
+        "label_fraction": 0.25,  # share of episodes followed by a DAgger takeover before the ramp
+        "label_max_wall_s": 60.0,  # a takeover is abandoned after this much wall time
+        "val_every": 25,  # batches between validations (val50, the EMA policy)
+        "val_workers": 16,
+        "checkpoint_minutes": 15.0,
     },
 }
 

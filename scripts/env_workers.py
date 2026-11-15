@@ -1,11 +1,12 @@
 #!/usr/bin/env python
-"""Remote environments for fine-tuning runs (dyngrasp/rl/vecenv.py): N worker processes per run directory, each
-connecting to the run's learner (address in RUN_DIR/workers.addr, key in workers.addr.key, written by the learner
-with ft.remote_envs > 0) and serving a GraspEnv; after a dropped connection (learner preempted or restarted) they
+"""Remote environments for fine-tuning and PPO runs (dyngrasp/rl/vecenv.py): N worker processes per run directory,
+each connecting to the run's learner (address in RUN_DIR/workers.addr, key in workers.addr.key, written by the learner)
+and serving a GraspEnv: step by step (fine-tuning, ft.remote_envs > 0) or, with --ppo, whole episodes with the run's
+latest policy and DAgger takeovers (rollout.serve); after a dropped connection (learner preempted or restarted) they
 reconnect to the address then in the file.  Every worker process is replaced by a fresh one after --recycle episodes
 (GraspEnv's memory grows with every episode).  Exits when every run has its DONE file.
 
-    python scripts/env_workers.py [--recycle 100] RUN_DIR:N [RUN_DIR:N ...]
+    python scripts/env_workers.py [--recycle 100] [--ppo] RUN_DIR:N [RUN_DIR:N ...]
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ from dyngrasp.rl.vecenv import remote_worker
 
 def main():
     args = sys.argv[1:]
-    recycle = 100
+    recycle, ppo = 100, "--ppo" in args
+    args = [a for a in args if a != "--ppo"]
     if args[:1] == ["--recycle"]:
         recycle, args = int(args[1]), args[2:]
     runs = [(Path(a.rsplit(":", 1)[0]), int(a.rsplit(":", 1)[1])) for a in args]
@@ -36,7 +38,7 @@ def main():
     slots = [d for d, n in runs for _ in range(n)]
 
     def start(d):
-        p = ctx.Process(target=remote_worker, args=(str(d / "workers.addr"), str(d / "DONE"), recycle), daemon=True)
+        p = ctx.Process(target=remote_worker, args=(str(d / "workers.addr"), str(d / "DONE"), recycle, ppo), daemon=True)
         p.start()
         return p
 

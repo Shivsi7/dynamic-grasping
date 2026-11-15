@@ -14,4 +14,6 @@ train        SAC from scratch (sbx), the curriculum, validation, checkpoints
 agent        SAC/RLPD agent in JAX for fine-tuning the BC actor
 vecenv       asynchronous environment processes
 finetune     SAC fine-tuning of the BC policy: demonstrations in the batches, warm-up, background validation
+ppo          PPO + imitation (demonstrations, DAgger) from the BC policy: one loss, a gated ramp, V tracked vs returns
+rollout      PPO's episode workers: the policy in numpy, whole episodes, DAgger takeovers by (C)
 """

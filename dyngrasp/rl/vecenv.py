@@ -94,11 +94,15 @@ def _local_worker(conn) -> None:
         conn.close()
 
 
-def remote_worker(addr_file: str, stop_file: str, max_episodes: int | None = None) -> None:
+def remote_worker(addr_file: str, stop_file: str, max_episodes: int | None = None, ppo: bool = False) -> None:
     """Connect to the learner at the address in addr_file (and its .key), serve, reconnect; until stop_file exists or
     (max_episodes) this process has served that many episodes on one connection (a fresh process then takes over:
-    GraspEnv's memory grows with every episode's new simulation)."""
+    GraspEnv's memory grows with every episode's new simulation).  ppo: serve whole episodes with the learner's
+    latest policy (rollout.serve) instead of steps."""
     _ignore_signals()
+    fn = serve
+    if ppo:
+        from dyngrasp.rl.rollout import serve as fn
     while not os.path.exists(stop_file):
         try:
             host, port = Path(addr_file).read_text().split()
@@ -108,7 +112,7 @@ def remote_worker(addr_file: str, stop_file: str, max_episodes: int | None = Non
             time.sleep(5.0)
             continue
         try:
-            if serve(conn, max_episodes):
+            if fn(conn, max_episodes):
                 return
         except Exception as exc:  # noqa: BLE001  (the learner sees a dropped connection)
             print(f"worker error: {exc!r}", flush=True)
