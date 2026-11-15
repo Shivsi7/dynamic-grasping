@@ -115,7 +115,11 @@ def takeover_task(cfg: dict, seed: int, e: int, out: str, policy: str | None, sw
     actor = NumpyActor(dict(np.load(Path(policy) / "actor.npz"))) if policy else None
     base = {"task": e}
     if actor is not None:
-        b = run_takeover(spec, level, cfg, actor, np.inf)
+        try:
+            b = run_takeover(spec, level, cfg, actor, np.inf)
+        except Exception as exc:  # noqa: BLE001
+            return [{**base, "episode": e * switches, "level": level, "outcome": "error", "error": repr(exc),
+                     "fingerprint": None, "wall_s": 0.0}]
         r = b["c_result"]
         t_fail = r["t_first_collision"] if b["outcome"] == "collision" else (r["t_grasp"] or r["t_end"])
         times = [round(float(rng.uniform(0.0, max(0.1, t_fail - 0.2))), 1) for _ in range(switches)]
