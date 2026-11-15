@@ -163,28 +163,48 @@ def test_takeover_labels_from_an_episodes_executed_actions():
 
 
 def test_ppo_run_with_remote_workers_gates_labels_and_resumes(tmp_path):
+    """A run stopped at its gate (stop_at_gate), continued with PPO ramping in to max_steps, then resumed."""
+    import yaml
+
     from dyngrasp.rl.vecenv import remote_worker
 
     run = tmp_path / "run"
-    cfg = small_cfg(tmp_path, batch_steps=150, gate_ev=-1e9, gate_batches=1, min_pretrain=1, ramp_batches=2,
-                    label_fraction=1.0, max_steps=400, val_every=2, label_max_wall_s=60.0, checkpoint_minutes=0.01)
+    cfg = small_cfg(tmp_path, batch_steps=150, gate_ev=-1e9, gate_batches=1, min_pretrain=2, ramp_batches=2,
+                    label_fraction=1.0, max_steps=600, val_every=2, label_max_wall_s=60.0, checkpoint_minutes=0.01,
+                    stop_at_gate=True)
     ctx = mp.get_context("spawn")
-    workers = [ctx.Process(target=remote_worker, args=(str(run / "workers.addr"), str(run / "DONE"), None, True), daemon=True)
-               for _ in range(2)]
-    for w in workers:
-        w.start()
+    workers = []
+
+    def ensure_workers():  # (they end when they see DONE)
+        workers[:] = [w for w in workers if w.is_alive()]
+        while len(workers) < 2:
+            w = ctx.Process(target=remote_worker, args=(str(run / "workers.addr"), str(run / "DONE"), None, True), daemon=True)
+            w.start()
+            workers.append(w)
+
     try:
-        assert ppo(run, cfg).startswith("max_steps")
+        ensure_workers()
+        assert ppo(run, cfg).startswith("gate open at batch 1")
+        st0 = json.loads((run / "ckpt" / "state.json").read_text())
+        rows0 = [json.loads(line) for line in (run / "metrics.jsonl").read_text().splitlines()]
+        assert st0["batch"] == st0["ramp_start"] == 2 and len(rows0) == 2 and all(r["w"] == 0.0 for r in rows0)
+        # the fork: on from the gate's checkpoint with its own config
+        (run / "DONE").unlink()
+        cfg1 = {**cfg, "ppo": {**cfg["ppo"], "stop_at_gate": False, "window": 2}}
+        (run / "config.yaml").write_text(yaml.safe_dump(cfg1))
+        ensure_workers()
+        assert ppo(run, cfg1).startswith("max_steps")
         rows = [json.loads(line) for line in (run / "metrics.jsonl").read_text().splitlines()]
-        assert len(rows) >= 2 and rows[-1]["steps"] >= 400 and rows[0]["w"] == 0.0
-        assert rows[-1]["ramp_x"] > 0 and abs(rows[0]["ratio0_mean"] - 1.0) < 0.05
+        assert len(rows) >= 4 and rows[-1]["steps"] >= 600 and rows[2]["ramp_x"] == 0.0 < rows[3]["ramp_x"]
+        assert abs(rows[0]["ratio0_mean"] - 1.0) < 0.05
         assert all(k in rows[0] for k in ("v_ev", "v_corr", "v_bias", "log_std", "imit_mse", "success"))
         assert (run / "labels.jsonl").exists() and (run / "final" / "actor.npz").exists()
         assert json.loads((run / "policy" / "latest.json").read_text())["version"] == rows[-1]["batch"]
         (run / "DONE").unlink()
         st = json.loads((run / "ckpt" / "state.json").read_text())
-        cfg2 = {**cfg, "ppo": {**cfg["ppo"], "max_steps": st["steps"] + 150}}
-        (run / "config.yaml").write_text(__import__("yaml").safe_dump(cfg2))
+        cfg2 = {**cfg1, "ppo": {**cfg1["ppo"], "max_steps": st["steps"] + 150}}
+        (run / "config.yaml").write_text(yaml.safe_dump(cfg2))
+        ensure_workers()
         assert ppo(run, cfg2).startswith("max_steps")
         rows2 = [json.loads(line) for line in (run / "metrics.jsonl").read_text().splitlines()]
         assert rows2[-1]["batch"] == st["batch"] + 1 and rows2[-1]["ramp_x"] == 1.0
