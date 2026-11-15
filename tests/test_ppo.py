@@ -131,14 +131,13 @@ def test_value_pretraining_and_initial_dagger_labels(tmp_path):
     assert im2.n_dagger == 35 and np.all(im2.obs[30:] == 2.0)
 
 
-def test_offline_rollouts_and_takeover_labels_merge(tmp_path):
+def test_offline_rollouts_and_takeover_labels_merge(tmp_path, monkeypatch):
     """scripts/ppo_offline.py: two scenes of a policy's noisy rollouts, a takeover each, merged."""
     import argparse
-    import importlib.util
+    import importlib
 
-    spec = importlib.util.spec_from_file_location("ppo_offline", Path(__file__).parents[1] / "scripts" / "ppo_offline.py")
-    off = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(off)
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[1] / "scripts"))  # (importable: its workers unpickle `task`)
+    off = importlib.import_module("ppo_offline")
     cfg = small_cfg(tmp_path)
     out = tmp_path / "off" / "part0"
     off.run(argparse.Namespace(policy=cfg["ppo"]["bc_checkpoint"], out=str(out), episodes=2, seed=5, switches=1, workers=2,
