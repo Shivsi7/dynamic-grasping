@@ -109,6 +109,10 @@ def test_phase_0_update_is_imitation_only_and_ppo_moves_the_policy(tmp_path):
     learner.update(batch, vb, imitation, {**schedule(cfg["ppo"], 10**6, 0), "c": [0.0] * 8}, rng, jax.random.PRNGKey(1))
     d = learner.logp(obs, u) - batch["logp"]
     assert d[good].mean() > 0 > d[~good].mean()
+    # decoupled PPO: clipped against the policy at the update's start; stale behaviour probabilities only weight the rows
+    m = learner.update({**batch, "logp": learner.logp(obs, u) - 5.0}, vb, imitation,
+                       {**schedule(cfg["ppo"], 10**6, 0), "c": [0.0] * 8}, rng, jax.random.PRNGKey(2))
+    assert m["is_capped"] == 1.0 and np.isclose(m["is_mean"], cfg["ppo"]["is_cap"]) and m["approx_kl"] < 1.0
 
 
 def test_value_pretraining_and_initial_dagger_labels(tmp_path):
