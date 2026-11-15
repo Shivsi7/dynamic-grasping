@@ -15,7 +15,7 @@ from multiprocessing.connection import wait
 
 import numpy as np
 
-EPISODE_KEYS = ("outcome", "level", "scene", "ep_terms", "ep_len", "closes")
+EPISODE_KEYS = ("outcome", "level", "scene", "ep_terms", "ep_len", "closes", "collision")
 
 
 def _worker(conn, cfg: dict, seed: int, level: int) -> None:

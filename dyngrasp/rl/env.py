@@ -172,8 +172,10 @@ class GraspEnv(gym.Env):
             self.ep_terms[k] += v
         info = {"t": state.t, "terms": r}
         if outcome is not None:
+            c = m.collisions[0] if m.collisions else None
             info.update(outcome=outcome, is_success=outcome == "success", level=self.scene_level, scene=self.spec.name,
-                        ep_terms=dict(self.ep_terms), ep_len=self.n_steps, closes=dict(self.n_close))
+                        ep_terms=dict(self.ep_terms), ep_len=self.n_steps, closes=dict(self.n_close),
+                        collision=f"{c.category}:{c.robot_body}" if c else "")
         return self.ctrl.obs, float(sum(r.values())), outcome is not None, False, info
 
     def close(self):

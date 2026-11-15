@@ -328,6 +328,8 @@ def finetune(run_dir, cfg: dict) -> str:
                     row["return"] = float(np.mean([e["return"] for e in episodes]))
                     row["ep_len"] = float(np.mean([e["ep_len"] for e in episodes]))
                     row["good_closes"] = float(np.mean([e["closes"]["good"] for e in episodes]))
+                    hits = [e["collision"].split(":")[0] for e in episodes if e["collision"]]
+                    row["collisions_by"] = {c: hits.count(c) for c in sorted(set(hits))}
                     for term in episodes[0]["ep_terms"]:
                         row[f"term_{term}"] = float(np.mean([e["ep_terms"][term] for e in episodes]))
                 row.update(metrics)
