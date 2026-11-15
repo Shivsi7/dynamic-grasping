@@ -91,18 +91,34 @@ def test_sampled_log_prob_matches_a_tanh_gaussian():
     assert np.asarray(actor_forward(bc.init_params(ARCH, 0), np.zeros((2, OBS_DIM)))[0]).shape == (2, 8)
 
 
-def test_async_envs_step_independently():
-    envs = AsyncEnvs(load_config(), 2, seed=0, level=0)
+def test_async_envs_step_independently_and_remote_workers_come_and_go(tmp_path):
+    import multiprocessing as mp
+
+    from dyngrasp.rl.vecenv import remote_worker
+
+    addr = tmp_path / "workers.addr"
+    envs = AsyncEnvs(load_config(), 1, seed=0, level=0, remote=2, addr_file=addr)
+    proc = mp.get_context("spawn").Process(target=remote_worker, args=(str(addr), str(tmp_path / "DONE")), daemon=True)
+    proc.start()
     try:
-        obs = envs.reset()
-        assert obs.shape == (2, OBS_DIM)
+        started = []
+        while len(started) < 2:
+            started += [(i, kind) for i, kind, _ in envs.poll(1.0)]
+        assert sorted(started) == [(0, "start"), (1, "start")] and envs.live == 2
         envs.send([0, 1], np.zeros((2, 8)))
-        got = envs.drain()
-        assert sorted(i for i, _ in got) == [0, 1]
-        o, r, done, _, ep = got[0][1]
+        got = {i: (kind, p) for i, kind, p in envs.drain()}
+        assert set(got) == {0, 1} and all(k == "step" for k, _ in got.values())
+        o, r, done, _, ep = got[1][1]
         assert o.shape == (OBS_DIM,) and np.isfinite(r) and not done and ep is None
+        proc.kill()
+        envs.send([1], np.zeros((1, 8)))
+        lost = []
+        while not lost:
+            lost = [i for i, kind, _ in envs.poll(1.0) if kind == "lost"]
+        assert lost == [1] and envs.live == 1
     finally:
         envs.close()
+        proc.kill()
 
 
 def test_finetune_runs_validates_and_resumes(tmp_path):
