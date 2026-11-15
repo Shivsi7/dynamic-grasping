@@ -218,7 +218,7 @@ class Agent:
             N, nb = int(f["cql_n"]), obs.shape[0]
             k_r, k_c, k_n = jax.random.split(k_cql, 3)
             mean_c, log_std_c = self.pi(s["actor"], s["bc"], obs)
-            rep = lambda x: jnp.broadcast_to(x, (N, *x.shape))  # noqa: E731
+            rep = lambda x: jnp.broadcast_to(x, (N, *x.shape))
             a_c, lp_c = sample_action(rep(mean_c), rep(log_std_c), k_c)
             a_nn, lp_nn = sample_action(rep(mean_n), rep(log_std_n), k_n)
             ood_a = jax.lax.stop_gradient(jnp.concatenate([jax.random.uniform(k_r, (N, nb, ACTION_DIM), minval=-1.0, maxval=1.0),
