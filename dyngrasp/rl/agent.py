@@ -12,7 +12,11 @@ LayerNorm on (obs, action).  One update (RLPD-style when the batch mixes online 
   actor    alpha log pi(a|s) - mean over critics Q(s, a), a ~ pi(.|s), plus optional regularisers:
            bc_weight x MSE(tanh(mean(s)), a_demo) on the demonstration rows (bc_q_filter: only those where the
            critics value the demonstrated action above the policy's mean action),
-           bc_policy_weight x MSE(tanh(mean(s)), tanh(mean_BC(s))) on every row (BC = the frozen initial actor)
+           bc_policy_weight x MSE(tanh(mean(s)), tanh(mean_BC(s))) on every row (BC = the frozen initial actor);
+           q_norm: the SAC term divided by mean |Q| (TD3+BC's normalisation, so the regularisers' weights are relative);
+           awac_beta > 0: instead of the SAC term, AWAC's weighted regression on the batch actions,
+           MSE(tanh(mean(s)), a) x exp(A/awac_beta) (clipped at 100, normalised to mean 1), A = Q(s, a) - Q(s, tanh(mean(s)))
+           (the log_std head then gets no gradient: the exploration noise stays as it starts)
   alpha    automatic (target entropy, settable: set_target_entropy) or fixed
   targets  Polyak averaging (tau)
 Residual mode (residual_scale > 0): the BC actor stays frozen and the trained network (a copy of it with a zero mean
@@ -216,13 +220,25 @@ class Agent:
             better = self.critic.apply(critic, obs, act).mean(0) > self.critic.apply(critic, obs, mean_now).mean(0)
             demo = demo * jax.lax.stop_gradient(better)
 
+        if f["awac_beta"] > 0:  # advantage weights of the batch actions over the policy's mean action
+            mean_now = jnp.tanh(self.pi(s["actor"], s["bc"], obs)[0])
+            adv = self.critic.apply(critic, obs, act).mean(0) - self.critic.apply(critic, obs, mean_now).mean(0)
+            w = jnp.minimum(jnp.exp(adv / float(f["awac_beta"])), 100.0)
+            w = jax.lax.stop_gradient(w / w.mean())
+            metrics.update(adv_mean=adv.mean(), adv_std=adv.std(), w_max=w.max())
+
         def actor_loss(ap):
             mean, log_std = self.pi(ap, s["bc"], obs)
             a, logp = sample_action(mean, log_std, k_pi)
             qa = self.critic.apply(critic, obs, a).mean(0)
             dev = jnp.mean((jnp.tanh(mean) - mean_bc) ** 2, -1)
             bc_demo = jnp.sum(demo * jnp.mean((jnp.tanh(mean) - act) ** 2, -1)) / jnp.maximum(demo.sum(), 1.0)
-            loss = jnp.mean(alpha * logp - qa) + float(f["bc_weight"]) * bc_demo + float(f["bc_policy_weight"]) * dev.mean()
+            if f["awac_beta"] > 0:
+                rl = jnp.mean(w * jnp.mean((jnp.tanh(mean) - act) ** 2, -1))
+            else:
+                scale = jax.lax.stop_gradient(jnp.abs(qa).mean()) if f["q_norm"] else 1.0
+                rl = jnp.mean(alpha * logp - qa) / scale
+            loss = rl + float(f["bc_weight"]) * bc_demo + float(f["bc_policy_weight"]) * dev.mean()
             return loss, {"logp": logp.mean(), "dev_bc": dev.mean(), "mse_demo": bc_demo, "log_std": log_std.mean(),
                           "q_pi": qa.mean()}
 

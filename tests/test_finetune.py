@@ -175,3 +175,21 @@ def test_init_log_std_replaces_the_bc_noise():
     mean, log_std = agent.pi(agent.state["actor"], agent.state["bc"], x)
     np.testing.assert_allclose(np.asarray(log_std), -3.0)
     np.testing.assert_allclose(np.asarray(mean), np.asarray(actor_forward(bc.init_params(ARCH, 0), x)[0]), atol=1e-6)
+
+
+def test_awac_and_q_norm_actors_update(tmp_path):
+    rng = np.random.default_rng(0)
+    K, B = 2, 32
+    batch = {"obs": rng.standard_normal((K, B, OBS_DIM)), "act": rng.uniform(-1, 1, (K, B, 8)), "rew": rng.standard_normal((K, B)),
+             "next_obs": rng.standard_normal((K, B, OBS_DIM)), "done": np.zeros((K, B)), "disc": np.full((K, B), 0.99),
+             "is_demo": np.zeros((K, B))}
+    for ft in ({"awac_beta": 0.1, "init_log_std": -3.0}, {"q_norm": True, "bc_policy_weight": 0.4}):
+        cfg = small_cfg(tmp_path, **ft)
+        agent = Agent(cfg, bc.sbx_params(dict(np.load(Path(cfg["ft"]["bc_checkpoint"]) / "actor.npz"))))
+        leaves0 = jax.device_get(jax.tree_util.tree_leaves(agent.state["actor"]))
+        m = agent.update(batch, train_actor=True)
+        assert all(np.isfinite(v) for v in m.values())
+        leaves1 = jax.device_get(jax.tree_util.tree_leaves(agent.state["actor"]))
+        assert any(not np.array_equal(a, b) for a, b in zip(leaves0, leaves1))
+        if "awac_beta" in ft:  # the log_std head gets no gradient
+            assert np.allclose(np.asarray(agent.pi(agent.state["actor"], agent.state["bc"], batch["obs"][0])[1]), -3.0)
