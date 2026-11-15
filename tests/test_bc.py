@@ -11,13 +11,15 @@ import pytest
 
 from dyngrasp import scenario as S
 from dyngrasp.controller import WSG_OPEN
-from dyngrasp.harness import shared_robot_model
+from dyngrasp.harness import run_episode, shared_robot_model
 from dyngrasp.rl import bc
 from dyngrasp.rl.actions import gripper_width
 from dyngrasp.rl.config import load_config
 from dyngrasp.rl.controller import NumpyActor, RLController
 from dyngrasp.rl.demos import (
     C_TICK,
+    ExpertC,
+    Takeover,
     gripper_action,
     make_processor,
     replay,
@@ -26,6 +28,7 @@ from dyngrasp.rl.demos import (
     to_actions,
 )
 from dyngrasp.rl.observation import OBS_DIM
+from dyngrasp.world import WorldModel
 
 CFG = load_config()
 REPO = Path(__file__).resolve().parents[1]
@@ -211,10 +214,38 @@ def test_a_takeover_task_whose_policy_run_is_aborted_is_recorded(tmp_path):
     assert len(rows) == 1 and rows[0]["outcome"] == "aborted" and rows[0]["task"] == 3 and rows[0]["episode"] == 6
 
 
-def test_takeover_brakes_a_moving_robot_and_c_grasps():
-    """A policy swinging joint 1 at 0.4 v_max until 1.5 s: (C) brakes it, plans from where it stops, and grasps."""
+def _swing(n_steps: int, n_moving: int):
+    """A policy holding still, then swinging joint 1 at 0.3 v_max for the last n_moving of its n_steps steps."""
+    k = iter(range(10**6))
+    return lambda obs: np.array([0.3 if next(k) >= n_steps - n_moving else 0.0, 0, 0, 0, 0, 0, 0, 1.0])
+
+
+def test_takeover_of_a_robot_moving_before_c_would_move_brakes_it_and_c_grasps():
+    """A switch 1 s before (C)'s approach would start (t_enter - lead_time; (C) holds still until then): the robot
+    brakes to rest, (C) plans its approach from there as it would from the start, and grasps."""
     spec = S.no_obstacles(0.1)
-    d = run_takeover(spec, 0, CFG, lambda obs: np.array([0.4, 0, 0, 0, 0, 0, 0, 1.0]), 1.5)
-    assert d["outcome"] == "success" and d["n_policy_steps"] == 15 and len(d["executed"]) == 15 + len(d["actions"])
-    assert d["obs"][0, 7] > 0.3  # the first labelled step: moving at the policy's speed ...
-    assert d["actions"][0, 0] < d["obs"][0, 7] - 0.2  # ... (C) brakes
+    t_sw = round(WorldModel(spec).t_enter - ExpertC().lead_time - 1.0, 1)
+    assert t_sw >= 0.5
+    n = round(t_sw / 0.1)
+    d = run_takeover(spec, 0, CFG, _swing(n, 10), t_sw)
+    assert d["outcome"] == "success" and d["n_policy_steps"] == n and len(d["executed"]) == n + len(d["actions"])
+    assert d["obs"][0, 7] > 0.25  # the first labelled step: moving at the policy's speed ...
+    assert d["actions"][0, 0] < d["obs"][0, 7] - 0.2  # ... the brake
+
+
+def test_takeover_of_a_moving_robot_plans_from_its_velocity():
+    """A switch after (C)'s approach would have started, joint 1 moving: (C) plans at once (zero latency), its approach
+    starts one tick after the switch at the robot's velocity (no brake to rest), and grasps."""
+    spec = S.no_obstacles(0.1)
+    t_sw = round(WorldModel(spec).t_enter - 0.5, 1)
+    n = round(t_sw / 0.1)
+    tk = Takeover(_swing(n, 5), CFG["env"], t_sw, max_wall_s=120.0, plan_cap_s=10.0)
+    r = run_episode(spec, tk, keep_log=False, latency="none")
+    assert r.outcome == "success"
+    t, obs, executed, expert = tk.steps[n]
+    assert abs(t - t_sw) < 1e-9 and expert is not None and tk.steps[n - 1][3] is None
+    v_switch = obs[7:14] * shared_robot_model().v_limits  # the commanded velocity at the switch
+    assert v_switch[0] > 0.4
+    assert abs(tk.c.t0 - (t_sw + C_TICK)) < 1e-9  # the approach starts one tick after the switch ...
+    v0 = tk.c.traj_dot.value(0.0).ravel()  # ... at the robot's velocity then (the brake's first tick: 0.02 rad/s less)
+    assert np.max(np.abs(v0 - v_switch)) < 0.05
