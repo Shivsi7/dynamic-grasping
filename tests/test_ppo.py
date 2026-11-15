@@ -23,7 +23,7 @@ from dyngrasp.rl.ppo import (
     schedule,
     value_report,
 )
-from dyngrasp.rl.rollout import NumpyPolicy, takeover_labels
+from dyngrasp.rl.rollout import NumpyPolicy, takeover_labels, to_action
 
 ARCH = [32, 32, 32]
 
@@ -69,6 +69,12 @@ def test_worker_and_learner_agree_on_the_policy_and_its_log_probability(tmp_path
     assert np.allclose(lp, lps, atol=1e-3)  # the importance ratio of fresh data is 1
     assert np.allclose(NumpyActor(arrays)(obs[0]), np.tanh(pol.mu(obs[0])))  # what RLController runs
     assert np.allclose(np.exp(pol.log_std), np.exp(cfg["ppo"]["init_log_std"]), rtol=1e-6)
+    # the joints' Gaussian is pre-tanh, the gripper's in action units around tanh(mu)
+    m = pol.mu(obs[0])
+    u = np.array([pol.sample(obs[0], rng)[0] for _ in range(4000)])
+    assert np.allclose(u.mean(0), np.concatenate([m[:7], np.tanh(m[7:])]), atol=4 * np.exp(pol.log_std) / np.sqrt(4000) + 1e-9)
+    a = to_action(u[0])
+    assert np.allclose(a[:7], np.tanh(u[0, :7])) and a[7] == np.clip(u[0, 7], -1, 1)
     bc0 = NumpyActor(dict(np.load(Path(cfg["ppo"]["bc_checkpoint"]) / "actor.npz")))
     assert np.allclose(bc0(obs[0]), NumpyActor(arrays)(obs[0]), atol=1e-6)  # starts as the BC policy
 
