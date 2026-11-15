@@ -135,8 +135,12 @@ def _ignore_signals() -> None:
         signal.signal(s, signal.SIG_IGN)
 
 
-def save_actor(params, cfg: dict, out: Path) -> Path:
-    return bc.save_policy(jax.device_get(params), cfg, out)
+def save_actor(agent: Agent, cfg: dict, out: Path) -> Path:
+    """What RLController loads: actor.npz and config.yaml."""
+    out.mkdir(parents=True, exist_ok=True)
+    np.savez(out / "actor.npz", **agent.export_arrays())
+    (out / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+    return out
 
 
 class Validator:
@@ -302,7 +306,7 @@ def finetune(run_dir, cfg: dict) -> str:
                     due -= K
             # validation
             if not validator.busy and st["steps"] >= st["next_val"]:
-                validator.start(st["steps"], save_actor(agent.state["actor"], cfg, run_dir / "vals" / f"{st['steps']:09d}"))
+                validator.start(st["steps"], save_actor(agent, cfg, run_dir / "vals" / f"{st['steps']:09d}"))
                 st["next_val"] = st["steps"] + f["val_every"]
             v = validator.result()
             if v is not None:

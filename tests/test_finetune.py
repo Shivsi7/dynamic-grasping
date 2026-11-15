@@ -127,3 +127,26 @@ def test_finetune_runs_validates_and_resumes(tmp_path):
     st2 = json.loads((run / "ckpt" / "state.json").read_text())
     assert st2["steps"] >= 80 and st2["starts"] == 2
     assert (run / "vals").exists()
+
+
+def test_residual_mode_starts_at_the_bc_policy_and_exports_for_the_controller(tmp_path):
+    cfg = small_cfg(tmp_path, residual_scale=0.3)
+    params = jax.tree_util.tree_map(lambda x: x + 0.05, bc.sbx_params(dict(np.load(Path(cfg["ft"]["bc_checkpoint"]) / "actor.npz"))))
+    agent = Agent(cfg, params)
+    x = np.random.default_rng(0).standard_normal((6, OBS_DIM)).astype(np.float32)
+    bc_mean = np.tanh(np.asarray(actor_forward(params, x)[0]))
+    np.testing.assert_allclose(agent.act(x, jax.random.PRNGKey(0), deterministic=True), bc_mean, atol=1e-5)
+    rng = np.random.default_rng(1)
+    K, B = 2, 32
+    batch = {"obs": rng.standard_normal((K, B, OBS_DIM)), "act": rng.uniform(-1, 1, (K, B, 8)), "rew": rng.standard_normal((K, B)),
+             "next_obs": rng.standard_normal((K, B, OBS_DIM)), "done": np.zeros((K, B)), "disc": np.full((K, B), 0.99),
+             "is_demo": np.zeros((K, B))}
+    agent.update(batch, train_actor=True)
+    a = agent.act(x, jax.random.PRNGKey(0), deterministic=True)
+    assert not np.allclose(a, bc_mean, atol=1e-6)
+    assert np.all(np.abs(np.arctanh(np.clip(a, -0.999999, 0.999999)) - np.arctanh(np.clip(bc_mean, -0.999999, 0.999999))) <= 0.3 + 1e-4)
+    out = tmp_path / "res"
+    out.mkdir()
+    np.savez(out / "actor.npz", **agent.export_arrays())
+    (out / "config.yaml").write_text(yaml.safe_dump(cfg))
+    np.testing.assert_allclose(np.array([RLController(out).actor(o) for o in x]), a, atol=1e-5)

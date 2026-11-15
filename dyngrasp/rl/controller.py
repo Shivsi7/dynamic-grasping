@@ -28,12 +28,17 @@ from dyngrasp.world import WorldModel
 
 
 class NumpyActor:
-    """Deterministic action of an sbx SquashedGaussianActor: tanh(mean), ReLU hidden layers."""
+    """Deterministic action of an sbx SquashedGaussianActor: tanh(mean), ReLU hidden layers.  With res_* arrays and
+    res_scale (agent.py's residual mode): tanh(mean + res_scale x tanh(the residual network's mean))."""
 
     def __init__(self, arrays: dict[str, np.ndarray]):
         n = sum(k.startswith("W") and k[1:].isdigit() for k in arrays)
         self.hidden = [(np.asarray(arrays[f"W{i}"], np.float64), np.asarray(arrays[f"b{i}"], np.float64)) for i in range(n)]
         self.mean = (np.asarray(arrays["Wm"], np.float64), np.asarray(arrays["bm"], np.float64))
+        self.residual = None
+        if "res_scale" in arrays:
+            res = NumpyActor({k[4:]: v for k, v in arrays.items() if k.startswith("res_") and k != "res_scale"})
+            self.residual = (res, float(arrays["res_scale"]))
 
     @staticmethod
     def arrays_from_sbx(actor_params) -> dict[str, np.ndarray]:
@@ -46,12 +51,19 @@ class NumpyActor:
         out["Wm"], out["bm"] = np.asarray(p[f"Dense_{n}"]["kernel"]), np.asarray(p[f"Dense_{n}"]["bias"])
         return out
 
-    def __call__(self, obs: np.ndarray) -> np.ndarray:
+    def pre_tanh(self, obs: np.ndarray) -> np.ndarray:
         x = np.asarray(obs, np.float64)
         for W, b in self.hidden:
             x = np.maximum(x @ W + b, 0.0)
         W, b = self.mean
-        return np.tanh(x @ W + b)
+        return x @ W + b
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        m = self.pre_tanh(obs)
+        if self.residual is not None:
+            res, scale = self.residual
+            m = m + scale * np.tanh(res.pre_tanh(obs))
+        return np.tanh(m)
 
 
 class RLController(Controller):
