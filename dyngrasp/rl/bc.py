@@ -6,8 +6,10 @@ actor a SAC fine-tuning can start from (`sbx_params`).  Same observation as RL (
     MSE(tanh(mean), a) + nll_weight x NLL(atanh(a) | stop_gradient(mean), exp(log_std))
 
 with the log_std head on the trunk's features with their gradient stopped (it does not move the policy).
-Adam on minibatches.  After every epoch the MSE on held-out episodes (val_fraction, split by episode); training
-stops after `patience` epochs without a lower one and keeps the lowest (best/).  Every closed_loop_every
+Adam on minibatches (optionally: Gaussian noise on the observations, bc.obs_noise; the policy an
+exponential moving average of the weights, bc.ema).  After every epoch the MSE on held-out episodes
+(val_fraction, split by episode); training stops after `patience` epochs without a lower one and keeps
+the lowest (best/).  Every closed_loop_every
 epochs and on best/, the deterministic policy tanh(mean) runs on the validation scenes in the harness
 (config env latency, graded as in evaluation).
 
@@ -157,15 +159,23 @@ def train(run_dir, cfg: dict, data_path) -> str:
     opt_state = opt.init(params)
     eps, w = float(c["action_eps"]), float(c["nll_weight"])
 
+    decay, noise = float(c["ema"]), float(c["obs_noise"])
+
     @jax.jit
-    def step(params, opt_state, obs, act, idx):
+    def step(params, ema, opt_state, obs, act, idx, key):
+        x = obs[idx]
+        if noise > 0:
+            x = x + noise * jax.random.normal(key, x.shape)
+
         def loss(p):
-            mse, nll = losses(p, obs[idx], act[idx], eps)
+            mse, nll = losses(p, x, act[idx], eps)
             return mse + w * nll, (mse, nll)
 
         (l, aux), g = jax.value_and_grad(loss, has_aux=True)(params)
         updates, opt_state = opt.update(g, opt_state, params)
-        return optax.apply_updates(params, updates), opt_state, l, aux[0]
+        params = optax.apply_updates(params, updates)
+        ema = jax.tree_util.tree_map(lambda e, p: decay * e + (1.0 - decay) * p, ema, params) if decay > 0 else params
+        return params, ema, opt_state, l, aux[0]
 
     @jax.jit
     def evaluate(params, obs, act, idx):
@@ -174,6 +184,8 @@ def train(run_dir, cfg: dict, data_path) -> str:
     val_specs = validation_scenes()[: cfg["validation"]["n_scenes"]]
     latency = cfg["env"]["latency"]
     rng = np.random.default_rng(c["seed"])
+    key = jax.random.PRNGKey(c["seed"])
+    ema = params
     B = c["batch_size"]
     best, best_epoch, rows, reason = np.inf, 0, [], f"max_epochs ({c['max_epochs']})"
     for epoch in range(1, c["max_epochs"] + 1):
@@ -181,17 +193,18 @@ def train(run_dir, cfg: dict, data_path) -> str:
         perm = rng.permutation(tr)
         ls, ms = [], []
         for i in range(len(perm) // B):
-            params, opt_state, l, m = step(params, opt_state, obs, act, jnp.asarray(perm[i * B: (i + 1) * B]))
+            key, k = jax.random.split(key)
+            params, ema, opt_state, l, m = step(params, ema, opt_state, obs, act, jnp.asarray(perm[i * B: (i + 1) * B]), k)
             ls.append(l)
             ms.append(m)
-        v_mse, v_nll = (float(x) for x in evaluate(params, obs, act, va))
+        v_mse, v_nll = (float(x) for x in evaluate(ema, obs, act, va))
         row = {"epoch": epoch, "train_loss": float(np.mean(jnp.stack(ls))), "train_mse": float(np.mean(jnp.stack(ms))),
                "val_mse": v_mse, "val_nll": v_nll, "epoch_s": time.time() - t}
         if v_mse < best:
             best, best_epoch = v_mse, epoch
-            save_policy(params, cfg, run_dir / "best")
+            save_policy(ema, cfg, run_dir / "best")
         if c["closed_loop_every"] and epoch % c["closed_loop_every"] == 0:
-            r, _ = closed_loop(save_policy(params, cfg, run_dir / "epochs" / f"{epoch:04d}"), val_specs,
+            r, _ = closed_loop(save_policy(ema, cfg, run_dir / "epochs" / f"{epoch:04d}"), val_specs,
                                c["closed_loop_workers"], latency)
             row.update({f"cl_{k}": v for k, v in r.items() if k in (*OUTCOMES, "t_grasp_median")})
         rows.append(row)

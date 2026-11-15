@@ -84,6 +84,8 @@ DEFAULTS = {
         "nll_weight": 1.0,  # log_std head: Gaussian NLL of atanh(action), its own head (trunk gradient stopped)
         "action_eps": 1.0e-3,  # actions clipped to +-(1 - eps) for atanh
         "seed": 0,
+        "ema": 0.0,  # > 0: the policy is the exponential moving average of the weights (this decay per minibatch)
+        "obs_noise": 0.0,  # std of Gaussian noise added to the training observations (their fixed scales)
         "closed_loop_every": 10,  # epochs between closed-loop runs on the validation scenes (and at the end)
         "closed_loop_workers": 15,  # processes for them
     },

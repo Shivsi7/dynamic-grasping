@@ -131,7 +131,8 @@ def test_merged_dataset_shapes_and_split(tmp_path):
 # ---- training and weights -------------------------------------------------------------------------------------------
 
 
-def test_bc_training_lowers_the_loss_and_its_policy_runs(tmp_path):
+@pytest.mark.parametrize("extra", [[], ["bc.ema=0.99", "bc.obs_noise=0.01"]])
+def test_bc_training_lowers_the_loss_and_its_policy_runs(tmp_path, extra):
     rng = np.random.default_rng(0)
     n_ep, T = 40, 50
     obs = rng.standard_normal((n_ep * T, OBS_DIM)).astype(np.float32)
@@ -139,7 +140,7 @@ def test_bc_training_lowers_the_loss_and_its_policy_runs(tmp_path):
     act[:, 7] = np.sign(obs[:, 0])
     np.savez(tmp_path / "data.npz", obs=obs, act=act, ep_start=np.arange(n_ep) * T, ep_len=np.full(n_ep, T))
     cfg = load_config(None, ["sac.net_arch=[64,64]", "bc.max_epochs=40", "bc.batch_size=64", "bc.learning_rate=1e-3",
-                             "bc.closed_loop_every=0", "validation.n_scenes=1", "bc.closed_loop_workers=1"])
+                             "bc.closed_loop_every=0", "validation.n_scenes=1", "bc.closed_loop_workers=1", *extra])
     bc.train(tmp_path / "run", cfg, tmp_path / "data.npz")
     log = pd.read_csv(tmp_path / "run" / "log.csv")
     assert log.val_mse.min() < 0.3 * log.val_mse.iloc[0] and log.train_mse.iloc[-1] < 0.3 * log.train_mse.iloc[0]
