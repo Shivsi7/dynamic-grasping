@@ -169,11 +169,15 @@ DEFAULTS = {
         "lr_value": 3.0e-4,
         "max_grad_norm": 1.0,
         "clip": 0.2,
+        "is_cap": 2.0,  # decoupled PPO: the prox / behaviour importance weight truncated here (ppo.py)
         "target_kl": 0.02,
         "gae_lambda": 0.95,
         "value_arch": [512, 512, 512],  # LayerNorm, ReLU
-        "init_log_std": [-3.5, -3.5, -3.5, -3.5, -3.5, -3.5, -3.5, -4.5],  # joints sigma 0.030, gripper 0.011 (BC: ~0.014)
-        "log_std_bounds": [-6.0, -1.5],
+        "init_log_std": [-3.5, -3.5, -3.5, -3.5, -3.5, -3.5, -3.5, -4.0],  # joints sigma 0.030 (BC: ~0.014), gripper 0.018
+        # log_std's lower (per dimension) and upper bounds; the gripper's sigma (action units, ppo.dist_mean) at least
+        # 0.018 (~1 mm of WSG width): its imitation residual is ~0 wherever both are saturated, which drives it to the
+        # bound, and a tiny sigma there makes PPO's ratios on the few closing steps explode
+        "log_std_bounds": [[-6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -4.0], -1.5],
         "ent_coef": [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.01],  # c_i: the entropy bonus per dimension
         "imit_weight": 0.04,  # lam0 (lam = lam0 until the ramp, then down to 0)
         "ppo_weight": 1.0,  # w at the end of the ramp

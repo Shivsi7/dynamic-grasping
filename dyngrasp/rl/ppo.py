@@ -7,9 +7,12 @@ log_std (initialised at ppo.init_log_std, learned):
 
     L = w(t) L_PPO + lam(t) L_imit - sum_i c_i log sigma_i
 
-  L_PPO   PPO's clipped surrogate on the latest `window` batches of complete episodes: ratio pi(u|s) / mu(u|s), mu the
-          behaviour probability the worker stored when it acted (u: pre-tanh for the joints, the tanh Jacobian cancels;
-          action units for the gripper, see dist_mean), GAE advantages (gamma, gae_lambda) normalised per update batch.
+  L_PPO   decoupled PPO (Hilton et al. 2021) on the latest `window` batches of complete episodes:
+            mean[ min(prox / mu, is_cap) x min(r A, clip(r, 1 +- clip) A) ],  r = pi(u|s) / prox(u|s)
+          prox the policy at the start of this update, mu the behaviour probability the worker stored when it acted
+          (versions older: asynchronous workers, window); the KL early stop is against prox too.  u: pre-tanh for the
+          joints (the tanh Jacobian cancels), action units for the gripper (dist_mean).  GAE advantages (gamma,
+          gae_lambda) normalised per update batch.
   L_imit  on rows of (C)'s demonstrations (ppo.demos, BC's dataset) and of the aggregated DAgger labels:
             sum_i (tanh mu_i(s~) - a*_i)^2 / (2 sbar^2)  +  sum_i (r_i^2 / (2 sigma_i^2) + log sigma_i)
           s~ = s + obs_noise x N(0, 1) (BC's trick); sbar^2 = the joints' mean sigma^2, gradient stopped: the first term
@@ -186,7 +189,8 @@ class Learner:
         self.opt_v = optax.chain(optax.clip_by_global_norm(p["max_grad_norm"]), optax.adam(float(p["lr_value"])))
         self.s = {"net": net, "ema": net, "log_std": log_std, "v": vparams, "os_net": self.opt_net.init(net),
                   "os_ls": self.opt_ls.init(log_std), "os_v": self.opt_v.init(vparams)}
-        self.lo, self.hi = float(p["log_std_bounds"][0]), float(p["log_std_bounds"][1])
+        self.lo = jnp.asarray(p["log_std_bounds"][0], jnp.float32)  # a number or one per dimension
+        self.hi = jnp.asarray(p["log_std_bounds"][1], jnp.float32)
         self.u_max = float(np.arctanh(1.0 - p["action_eps"]))
         self._actor_step = jax.jit(self._actor_step_impl)
         self._value_step = jax.jit(self._value_step_impl)
@@ -219,9 +223,12 @@ class Learner:
             log_std = jnp.clip(log_std, self.lo, self.hi)
             mu = mean_fn(net, mb["obs"])
             logp = gauss_logp(mb["u"], dist_mean(mu), log_std)
-            ratio = jnp.exp(jnp.clip(logp - mb["logp"], -20.0, 20.0))
+            # decoupled PPO: the clipped ratio against the policy at the start of this update (prox), weighted by
+            # prox / behaviour (the workers' policy, versions older), truncated at is_cap
+            ratio = jnp.exp(jnp.clip(logp - mb["logp_prox"], -20.0, 20.0))
+            w_is = jnp.minimum(jnp.exp(jnp.clip(mb["logp_prox"] - mb["logp"], -20.0, 20.0)), p["is_cap"])
             a = mb["adv"]
-            l_ppo = -jnp.mean(jnp.minimum(ratio * a, jnp.clip(ratio, 1.0 - p["clip"], 1.0 + p["clip"]) * a))
+            l_ppo = -jnp.mean(w_is * jnp.minimum(ratio * a, jnp.clip(ratio, 1.0 - p["clip"], 1.0 + p["clip"]) * a))
             x = im["obs"] + p["obs_noise"] * jax.random.normal(key, im["obs"].shape)
             mu_i = mean_fn(net, x)
             var = jnp.exp(2.0 * log_std)
@@ -234,7 +241,8 @@ class Learner:
             l_std = jnp.mean(jnp.sum(jnp.minimum(r**2, p["nll_clip"] ** 2 * var) / (2.0 * var) + log_std, -1))
             l_ent = -jnp.sum(c * log_std)
             total = w * l_ppo + lam * (l_mean + l_std) + l_ent
-            aux = {"l_ppo": l_ppo, "l_mean": l_mean, "l_std": l_std, "approx_kl": jnp.mean(mb["logp"] - logp),
+            aux = {"l_ppo": l_ppo, "l_mean": l_mean, "l_std": l_std, "approx_kl": jnp.mean(mb["logp_prox"] - logp),
+                   "is_mean": jnp.mean(w_is), "is_capped": jnp.mean(w_is >= p["is_cap"]),
                    "clipfrac": jnp.mean(jnp.abs(ratio - 1.0) > p["clip"]), "imit_mse": jnp.mean((jnp.tanh(mu_i) - im["act"]) ** 2),
                    "imit_resid_rms": jnp.sqrt(jnp.mean(r**2, 0))}
             return total, aux
@@ -261,6 +269,7 @@ class Learner:
         """PPO epochs (early stop at 1.5 target_kl) with an imitation minibatch per step, then the value epochs."""
         p = self.p
         n, M = len(ppo_batch["adv"]), p["minibatch"]
+        ppo_batch = {**ppo_batch, "logp_prox": self.logp(ppo_batch["obs"], ppo_batch["u"]).astype(np.float32)}
         jcoefs = {"w": jnp.float32(coefs["w"]), "lam": jnp.float32(coefs["lam"]), "c": jnp.asarray(coefs["c"], jnp.float32)}
         dev = {k: jnp.asarray(v) for k, v in ppo_batch.items()}
         logs, epochs = [], 0
