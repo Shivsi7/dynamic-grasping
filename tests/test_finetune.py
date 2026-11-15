@@ -99,7 +99,7 @@ def test_async_envs_step_independently():
         envs.send([0, 1], np.zeros((2, 8)))
         got = envs.drain()
         assert sorted(i for i, _ in got) == [0, 1]
-        o, r, done, nxt, ep = got[0][1]
+        o, r, done, _, ep = got[0][1]
         assert o.shape == (OBS_DIM,) and np.isfinite(r) and not done and ep is None
     finally:
         envs.close()
