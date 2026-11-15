@@ -91,6 +91,43 @@ DEFAULTS = {
         "closed_loop_every": 10,  # epochs between closed-loop runs on the validation scenes (and at the end)
         "closed_loop_workers": 15,  # processes for them
     },
+    "ft": {  # SAC fine-tuning of the BC policy (finetune.py, agent.py, scripts/finetune_rl.py)
+        "bc_checkpoint": None,  # directory with the BC actor.npz: the initial actor and the bc_policy_weight reference
+        "demos": None,  # transitions of (C) demonstrations (scripts/make_rl_demos.py), or None
+        "demo_fraction": 0.5,  # of every batch (RLPD); the rest from the online replay buffer
+        "n_envs": 56,  # asynchronous environment processes
+        "seed": 0,
+        "start_level": 5,  # curriculum level at the start (5: the final mix)
+        "max_steps": 20_000_000,  # environment steps
+        "buffer_size": 1_000_000,
+        "learning_starts": 5_000,  # online rows before the first update
+        "warmup_steps": 50_000,  # environment steps before the actor and alpha update (critics only until then)
+        "batch_size": 256,  # rows per update (online + demonstrations)
+        "utd": 1.0,  # updates per environment step
+        "updates_per_call": 16,  # updates per jitted call
+        "max_chunks_per_poll": 4,  # update calls between two rounds of actions at most
+        "lr_actor": 1.0e-4,
+        "lr_critic": 3.0e-4,
+        "lr_alpha": 3.0e-4,
+        "tau": 0.005,
+        "n_critics": 2,  # RLPD: 10
+        "critic_subset": 2,  # target = min over this many randomly chosen critics
+        "critic_arch": [512, 512, 512],
+        "layer_norm": True,
+        "n_step": 1,
+        "ent_coef": "auto",  # or a fixed value
+        "init_ent_coef": 0.01,
+        "target_entropy": None,  # None: -8 (minus the action dimension) ...
+        "target_entropy_bc_offset": None,  # ... unless set: the initial actor's entropy on demonstration states + this
+        "backup_entropy": False,  # entropy term in the critic target (agent.py: off, episodes end by termination)
+        "actor_delay": 1,  # actor (and alpha) update every this many critic updates
+        "bc_weight": 0.0,  # x MSE(policy mean action, demonstration action) on the demonstration rows
+        "bc_policy_weight": 0.0,  # x MSE(policy mean action, initial BC policy's) on every row
+        "val_every": 250_000,  # environment steps between validations (and one at step 0)
+        "val_workers": 8,
+        "checkpoint_minutes": 15.0,
+        "log_seconds": 60.0,
+    },
 }
 
 
