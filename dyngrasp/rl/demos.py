@@ -24,9 +24,9 @@ The observation at t_k is Observer(state, v) on the (C) episode's RobotState at 
 velocity and opening of the shadow processor: what RLController computes when it replays the actions.
 
 DAgger / DART (`run_takeover`, `Takeover`): a policy drives until a switch time, then (C) (ExpertC: its plan
-starts as soon as the robot is at rest instead of 2 s after it is computed) takes over through (D)'s actions,
-converted online the same way; its actions label the steps from the switch on.  From the start with noise on
-the executed actions (labelled clean): DART.
+starts as soon as it is computed, from the robot's moving state, instead of 2 s later from rest) takes over through
+(D)'s actions, converted online the same way; its actions label the steps from the switch on.  From the start with
+noise on the executed actions (labelled clean): DART.
 """
 
 from __future__ import annotations
@@ -191,13 +191,27 @@ def replay(spec: ScenarioSpec, actions: np.ndarray, env_cfg: dict, latency=None)
 
 
 class ExpertC(HybridController):
-    """(C) as a takeover's expert: unchanged, except when a grasp plan starts.  (C) starts it plan_budget (2 s) after
-    computing it; at zero latency that budget only caps the planner's wall time, and (C) taking over a moving robot
-    would hold it still for it.  Here a plan starts at t0 = max(t + one tick, t_ready, t_enter - lead_time), t_ready
-    the end of the takeover's brake: in an episode from the start the first plan starts as in (C)
-    (t_plan + budget = t_enter - lead_time); retries start at once instead of a budget later."""
+    """(C) as a takeover's expert: unchanged, except when a grasp plan starts and how long it may compute.  (C) starts
+    a plan plan_budget (2 s) after computing it; at zero latency that budget only caps the planner's wall time, and (C)
+    taking over a moving robot would hold it still for it.  Here a plan starts at t0 = max(t + one tick,
+    t_enter - lead_time), from the state the robot is in then: a robot moving at the switch (the takeover's brake, its
+    command if (C) sends nothing) is planned from at its velocity, as (C) plans from a dodge (hybrid.py's v0), not
+    stopped first.  In an episode from the start the first plan starts as in (C) (t_plan + budget = t_enter -
+    lead_time); retries start at once instead of a budget later.  A plan (all its seeds, run one after the other)
+    stops trying further seeds once it has taken plan_cap_s of wall time (config demos.plan_cap_s)."""
 
-    t_ready = 0.0
+    def __init__(self, plan_cap_s: float = np.inf, **kwargs):
+        super().__init__(**kwargs)
+        self.plan_cap_s, self.cap_end = plan_cap_s, np.inf
+
+    def _run_seeds(self, t, t0, q0, v0, seeds):  # (C)'s sequential seed loop, stopped at the wall-time cap
+        def capped():
+            for seed in seeds:
+                if time.perf_counter() > self.cap_end:
+                    return
+                yield seed
+
+        return super()._run_seeds(t, t0, q0, v0, capped())
 
     def update(self, state: RobotState, world) -> Command:  # HybridController.update with the start time above
         t = state.t
@@ -223,7 +237,8 @@ class ExpertC(HybridController):
         if self.phase == "no_plan" or t < t_plan:
             return stay
         tic = time.perf_counter()
-        t0 = max(t + self.period, self.t_ready, world.t_enter - self.lead_time)  # (C): t + self.budget
+        self.cap_end = tic + self.plan_cap_s
+        t0 = max(t + self.period, world.t_enter - self.lead_time)  # (C): t + self.budget
         if self.phase == "retry" and t0 >= world.t_exit - self.exit_margin:
             self.phase = stay.info["phase"] = "no_plan"
             return stay
@@ -248,19 +263,23 @@ class Takeover(Controller):
     (C) runs on what it commands itself (its q_cmd and trajectory, as the harness would keep them); the robot runs on
     (D) actions: at every policy tick the action whose ramp follows (C)'s active command over the step (ramp_action,
     as to_actions; the command is assumed to hold for the step).  At the switch (a policy tick) the robot may be
-    moving: (C) is handed a brake to rest (the (D) ramp of zero joint actions) as if it were its own dodge, and plans
-    from where it ends (t_ready).  t_switch = 0: (C) from the start; inf: the policy alone.
+    moving: (C) is handed a brake to rest (the (D) ramp of zero joint actions) as if it were its own dodge, i.e. what
+    the robot does while (C) has no plan; (C) plans from the brake's state at the plan's start (ExpertC): one tick
+    after the switch, from the robot's moving (q, v), once (C)'s approach would have started (t_enter - lead_time);
+    before that, as (C) holds still until then, from where the brake has taken it then (at rest unless it is still
+    braking).  Planning takes no simulated time (zero latency).  t_switch = 0: (C) from the start; inf: the policy
+    alone.
     `steps`: every policy step's (t, obs, executed action, expert action or None).  noise_std > 0 (DART): (C)'s joint
     actions are executed with Gaussian noise (action units) and recorded clean."""
 
     period = C_TICK
 
     def __init__(self, policy, env_cfg: dict, t_switch: float, noise_std: float = 0.0, seed: int = 0,
-                 max_wall_s: float = np.inf):
+                 max_wall_s: float = np.inf, plan_cap_s: float = np.inf):
         self.name, self.policy, self.t_switch = "takeover", policy, t_switch
         self.noise_std, self.rng, self.max_wall_s = noise_std, np.random.default_rng(seed), max_wall_s
         self.rl = RLController(env_cfg=env_cfg, actor=self._act)
-        self.c = ExpertC(n_workers=1)
+        self.c = ExpertC(plan_cap_s, n_workers=1)
         self.steps: list[tuple] = []
 
     def reset(self, world, robot, state):
@@ -297,7 +316,6 @@ class Takeover(Controller):
         self.brake = JointTrajectory(np.array(T), np.array(Q), np.full(len(T), WSG_OPEN)) if len(T) > 1 else None
         self.cmd = Command(trajectory=self.brake) if self.brake is not None else Command(q=Q[0])
         self.c_q, self.c_wsg = state.q_cmd.copy(), state.wsg_cmd
-        self.c.t_ready = T[-1]
         self.c.reset(self.world, self.robot, self._c_state(state))
 
     def update(self, state: RobotState, world) -> Command:
@@ -338,7 +356,7 @@ def run_takeover(spec: ScenarioSpec, level: int, cfg: dict, policy, t_switch: fl
     """A Takeover episode on `spec` (zero latency, as run_demo); for a success also the observations and (C)'s actions
     of the steps from the switch on (obs, actions), and of all steps the executed actions."""
     max_wall_s = cfg["demos"]["max_wall_s"] if max_wall_s is None else max_wall_s
-    tk = Takeover(policy, cfg["env"], t_switch, noise_std, seed, max_wall_s)
+    tk = Takeover(policy, cfg["env"], t_switch, noise_std, seed, max_wall_s, cfg["demos"]["plan_cap_s"])
     out = {"scene": spec.name, "level": level, "seed": spec.seed, "fingerprint": fingerprint(spec), "t_switch": t_switch,
            "noise_std": noise_std}
     t0 = time.perf_counter()

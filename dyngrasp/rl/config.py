@@ -74,6 +74,7 @@ DEFAULTS = {
         # A (C) episode is abandoned after this much wall time (it retries a failed plan every 5 ms at zero latency).
         # Pilot (144 scenes, ORCD): successes took <= 46 s, the 5 episodes stopped at 300 s were all still unsolved.
         "max_wall_s": 120.0,
+        "plan_cap_s": 10.0,  # takeovers (DAgger): wall time after which a (C) plan tries no further seeds (ExpertC)
     },
     "bc": {  # behaviour cloning (bc.py): the SAC actor (sac.net_arch), MSE on tanh(mean), NLL for log_std
         "learning_rate": 3.0e-4,  # Adam
