@@ -401,3 +401,29 @@ def test_rl_controller_runs_an_evaluation_episode_with_measured_latency():
     assert r.latency_mode == "measured" and r.outcome == "timeout" and r.n_cycles >= 295
     assert len(calls) == 30  # the policy runs at 10 Hz
     assert r.compute_max_ms < 50.0 and r.compute_mean_ms < 5.0
+
+
+def test_post_success_episodes_go_on_to_the_scene_end_and_are_graded_as_the_harness():
+    cfg = load_config(overrides=["env.post_success=true"])
+    env = GraspEnv(cfg, seed=0)
+    spec = S.no_obstacles(0.15)
+    env.reset(options={"spec": spec, "level": 0})
+    A = ReactiveQPController(lift_height=0.2)
+    A.reset(env.world, env.robot, env.ctrl.state)
+    steps = run_scripted(env, lambda: a_policy(env, A), 400)
+    info = steps[-1][3]
+    paid = [s[3]["terms"]["terminal"] for s in steps]
+    assert info["outcome"] == "success" and sum(paid) == 1.0 and paid.count(1.0) == 1
+    assert steps[-1][3]["t"] >= spec.duration - 1e-9 > env.h.monitor.t_success
+    # letting go after success: dropped at the end, terminal rewards add up to the drop's
+    env.reset(options={"spec": spec, "level": 0})
+    A.reset(env.world, env.robot, env.ctrl.state)
+
+    def let_go():
+        a = a_policy(env, A)
+        if env.succeeded:
+            a[7] = 1.0
+        return a
+
+    steps = run_scripted(env, let_go, 400)
+    assert steps[-1][3]["outcome"] == "dropped" and sum(s[3]["terms"]["terminal"] for s in steps) == pytest.approx(-1.0)

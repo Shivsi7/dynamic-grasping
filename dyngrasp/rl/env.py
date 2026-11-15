@@ -8,7 +8,11 @@ completes that tick's command.  Differences from an evaluation episode:
 * the episode ends at the first step that ends in success (object lifted and held for HOLD_TIME),
   collision or drop; otherwise at the first step end at or after the scene's duration (timeout).
   All four are terminations (no truncation: the observation has the time left before the object
-  leaves reach, and the scene ends a fixed 1.5 s after that);
+  leaves reach, and the scene ends a fixed 1.5 s after that).  With env.post_success the episode goes
+  on after success to the scene's end, graded as the harness grades it: a collision after success,
+  or the object not in hand and lifted at the end, makes it a failure (outcome collision or dropped,
+  reward collision/dropped - success, so the episode's terminal rewards add up to the failure's);
+  the success reward is paid at success, and nothing more at a successful end;
 * a fixed 1 ms command latency (one tick, as "measured" latency gives a policy faster than 10 ms).
 
 Rewards: rewards.py.  Scenes: the curriculum (scenes.py; `set_level`) or a fixed list cycled in order
@@ -108,6 +112,7 @@ class GraspEnv(gym.Env):
         self.tol_pos = self.cfg["curriculum"]["tol_pos"][lvl]
         self.tol_rot = np.deg2rad(self.cfg["curriculum"]["tol_rot_deg"][lvl])
         self.close_paid, self.n_close = False, {"good": 0, "bad": 0}
+        self.succeeded = False  # post_success: success paid, the episode going on
         self.ep_terms = dict.fromkeys(TERMS, 0.0)
         self.phi_p, self.phi_c = self._potentials(state)
         return self.ctrl.obs
@@ -158,16 +163,30 @@ class GraspEnv(gym.Env):
             self.n_close["good" if good else "bad"] += 1
         m = self.h.monitor
         outcome = None
-        if m.collisions:
-            outcome = "collision"
-        elif m.t_success is not None:
-            outcome = "success"
-        elif m.dropped:
-            outcome = "dropped"
-        elif state.t >= self.spec.duration - 1e-9:
-            outcome = "timeout"
-        if outcome is not None:
-            r["terminal"] = rc[outcome]
+        end = state.t >= self.spec.duration - 1e-9
+        if self.cfg["env"]["post_success"] and self.succeeded:
+            if m.collisions:
+                outcome = "collision"
+            elif end and not m.held_at_end:
+                outcome = "dropped"
+            elif end:
+                outcome = "success"
+            if outcome is not None and outcome != "success":
+                r["terminal"] = rc[outcome] - rc["success"]
+        else:
+            if m.collisions:
+                outcome = "collision"
+            elif m.t_success is not None:
+                outcome = "success"
+            elif m.dropped:
+                outcome = "dropped"
+            elif end:
+                outcome = "timeout"
+            if outcome == "success" and self.cfg["env"]["post_success"] and not end:
+                self.succeeded, outcome = True, None  # paid now, graded at the end
+                r["terminal"] = rc["success"]
+            elif outcome is not None:
+                r["terminal"] = rc[outcome]
         for k, v in r.items():
             self.ep_terms[k] += v
         info = {"t": state.t, "terms": r}
