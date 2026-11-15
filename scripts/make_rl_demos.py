@@ -3,6 +3,7 @@
 replayed open-loop through GraspEnv (final-level grasp tolerances), which computes the training reward.
 
     python scripts/make_rl_demos.py BC_DATASET.npz --out demos_rl.npz --episodes 6000 --workers 60
+    python scripts/make_rl_demos.py BC_DATASET.npz --out part0.npz --episodes 6000 --part 0 6   # slice 0 of 6
 
 After its last action an episode holds still (same opening) until it ends.  Writes obs, act, rew, next_obs, done
 (1-step, every episode ends with done = 1), ep_start, ep_len, outcome and level per episode, and a summary.
@@ -61,12 +62,15 @@ def main():
     ap.add_argument("--episodes", type=int, default=6000, help="a random subset of this many episodes")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--part", type=int, nargs=2, default=(0, 1), metavar=("K", "N"),
+                    help="only the K-th of N equal slices of the chosen episodes (parallel jobs)")
     args = ap.parse_args()
 
     z = np.load(args.dataset)
     meta = json.loads(str(z["meta"]))["episodes"]
     act, start, length = z["act"], z["ep_start"], z["ep_len"]
     pick = np.sort(np.random.default_rng(args.seed).choice(len(meta), min(args.episodes, len(meta)), replace=False))
+    pick = np.array_split(pick, args.part[1])[args.part[0]]
     t0 = time.time()
     eps = []
     with ProcessPoolExecutor(args.workers) as ex:

@@ -93,7 +93,7 @@ DEFAULTS = {
     },
     "ft": {  # SAC fine-tuning of the BC policy (finetune.py, agent.py, scripts/finetune_rl.py)
         "bc_checkpoint": None,  # directory with the BC actor.npz: the initial actor and the bc_policy_weight reference
-        "demos": None,  # transitions of (C) demonstrations (scripts/make_rl_demos.py), or None
+        "demos": None,  # transitions of (C) demonstrations (scripts/make_rl_demos.py; a file or a list), or None
         "demo_fraction": 0.5,  # of every batch (RLPD); the rest from the online replay buffer
         "n_envs": 56,  # asynchronous environment processes
         "seed": 0,

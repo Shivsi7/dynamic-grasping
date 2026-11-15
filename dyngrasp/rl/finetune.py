@@ -122,9 +122,13 @@ class Buffer:
             self.a[k][: self.size] = z[k]
 
 
-def load_demos(path, n: int, gamma: float) -> dict:
-    z = np.load(path)
-    return nstep_arrays({k: z[k] for k in (*FIELDS, "ep_start", "ep_len") if k != "disc"}, n, gamma)
+def load_demos(paths, n: int, gamma: float) -> dict:
+    """n-step rows of one or several make_rl_demos.py files."""
+    parts = []
+    for path in [paths] if isinstance(paths, str) else paths:
+        z = np.load(path)
+        parts.append(nstep_arrays({k: z[k] for k in (*FIELDS, "ep_start", "ep_len") if k != "disc"}, n, gamma))
+    return {k: np.concatenate([p[k] for p in parts]) for k in FIELDS}
 
 
 # ---- validation ---------------------------------------------------------------------------------------------------
