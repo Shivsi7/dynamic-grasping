@@ -1,12 +1,14 @@
 #!/bin/bash
-# (D) behaviour cloning as one job on mit_preemptable (1 L40S): train_bc.py (with its closed-loop runs on the 50
+# (D) behaviour cloning as one job on mit_preemptable (1 GPU): train_bc.py (with its closed-loop runs on the 50
 # validation scenes), then eval_rl.py on the 30-scene experiment set and compare_rl.py against (A)/(B)/(C).
 #   CODE_DIR=<checkout> sbatch [-J NAME] bc.sbatch RUN_DIR DATASET [KEY=VALUE ...]   (KEY=VALUE: train_bc.py --set)
 # Requeued on preemption; the rerun skips what finished (training: RUN_DIR/run.json, written last; evaluation:
 # RUN_DIR/eval30/compare.txt) and redoes an unfinished step from its start (training is deterministic and short).
 #SBATCH -J bc
 #SBATCH -p mit_preemptable
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --gres=gpu:1
+# B200/B300 nodes excluded: jax's cuBLAS 12.9 warns of silent data corruption on them (needs cuBLAS >= 13.2)
+#SBATCH --exclude=node5500-c1,node5501-c1,node5502-c1,node5600-c1,node5601-c1,node5602-c1,node5700-c1,node5701-c1,node5702-c1,node5800-c1,node5801-c1,node5802-c1,node5900-c1
 #SBATCH -c 32
 #SBATCH --mem-per-cpu=3G
 #SBATCH -t 04:00:00
