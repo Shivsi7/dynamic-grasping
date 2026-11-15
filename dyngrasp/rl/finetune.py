@@ -11,6 +11,9 @@ ft.start_level.  Validation (asynchronous, its own processes): the deterministic
 through the harness (bc.closed_loop's episode, config env latency), at step 0 and every val_every steps; every
 validated actor is kept in vals/<steps>/, the best success rate (ties: fewer collisions) in best/.
 
+Environments: ft.n_envs local processes and up to ft.remote_envs on other machines (scripts/env_workers.py, which
+connect to the address this run writes to workers.addr); the run goes on with whichever are connected.
+
 SIGUSR1 / SIGTERM: checkpoint and return without DONE (run again to resume).  max_steps: checkpoint, DONE.
 
 Run directory: config.yaml, metrics.jsonl (one line per log_seconds), val.jsonl, vals/<steps>/, best/
@@ -237,10 +240,11 @@ def finetune(run_dir, cfg: dict) -> str:
         print(f"start {st['starts']}: {st['steps']} steps, buffer {buf.size}, level {cur.level}, "
               f"device {jax.devices()[0]}", flush=True)
 
-        n = f["n_envs"]
-        envs = AsyncEnvs(cfg, n, f["seed"] * 1000 + st["starts"], cur.level)
+        envs = AsyncEnvs(cfg, f["n_envs"], f["seed"] * 1000 + st["starts"], cur.level, remote=f["remote_envs"],
+                         addr_file=run_dir / "workers.addr")
+        n = envs.n
         validator = Validator(cfg, f["val_workers"])
-        obs = envs.reset()
+        obs = np.zeros((n, OBS_DIM), np.float32)
         nsteps = [NStep(f["n_step"], cfg["gamma"]) for _ in range(n)]
         last_act = np.zeros((n, ACTION_DIM), np.float32)
         key = jax.random.PRNGKey(int(rng.integers(2**31)))
@@ -253,8 +257,6 @@ def finetune(run_dir, cfg: dict) -> str:
             a = agent.act(pad, k)[: len(idx)]
             last_act[idx] = a
             envs.send(idx, a)
-
-        act(np.arange(n))
         B, K = f["batch_size"], f["updates_per_call"]
         n_demo = round(B * f["demo_fraction"]) if demos is not None else 0
         is_demo = np.concatenate([np.zeros(B - n_demo), np.ones(n_demo)]).astype(np.float32)
@@ -281,9 +283,18 @@ def finetune(run_dir, cfg: dict) -> str:
 
         while True:
             results = envs.poll(timeout=0.05)
-            if 0 < len(results) < n // 4:  # gather a few more: one policy call for several environments
+            if 0 < len(results) < envs.live // 4:  # gather a few more: one policy call for several environments
                 results += envs.poll(timeout=0.002)
-            for i, (o_next, r, done, next_obs, ep) in results:
+            ready = []
+            for i, kind, payload in results:
+                if kind != "step":  # an environment (re)started, or its connection dropped: no partial rows
+                    nsteps[i] = NStep(f["n_step"], cfg["gamma"])
+                    if kind == "start":
+                        obs[i] = payload
+                        ready.append(i)
+                    continue
+                o_next, r, done, next_obs, ep = payload
+                ready.append(i)
                 buf.add(nsteps[i].add(obs[i].copy(), last_act[i].copy(), r, next_obs, done))
                 obs[i] = o_next
                 st["steps"] += 1
@@ -293,11 +304,11 @@ def finetune(run_dir, cfg: dict) -> str:
                     if cur.record(ep["level"], ep["outcome"]):
                         envs.set_level(cur.level)
                         print(f"curriculum: level {cur.level} at {st['steps']} steps", flush=True)
-            if results:
-                act(np.array([i for i, _ in results]))
+            if ready:
+                act(np.array(ready))
             # learning: utd updates per collected step, in chunks of K
             if buf.size >= f["learning_starts"]:
-                due += f["utd"] * len(results)
+                due += f["utd"] * sum(kind == "step" for _, kind, _ in results)
                 for _ in range(f["max_chunks_per_poll"]):
                     if due < K:
                         break
@@ -331,7 +342,7 @@ def finetune(run_dir, cfg: dict) -> str:
                 nu = int(agent.state["n_updates"])
                 row = {"steps": st["steps"], "episodes": st["episodes"], "updates": nu, "level": cur.level,
                        "steps_per_s": (st["steps"] - s0) / (now - t0), "updates_per_s": (nu - u0) / (now - t0),
-                       "buffer": buf.size, "hours": (now - t_start) / 3600}
+                       "buffer": buf.size, "envs": envs.live, "hours": (now - t_start) / 3600}
                 if episodes:
                     for o in OUTCOMES:
                         row[o] = float(np.mean([e["outcome"] == o for e in episodes]))

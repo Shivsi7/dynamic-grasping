@@ -96,7 +96,8 @@ DEFAULTS = {
         "bc_checkpoint": None,  # directory with the BC actor.npz: the initial actor and the bc_policy_weight reference
         "demos": None,  # transitions of (C) demonstrations (scripts/make_rl_demos.py; a file or a list), or None
         "demo_fraction": 0.5,  # of every batch (RLPD); the rest from the online replay buffer
-        "n_envs": 56,  # asynchronous environment processes
+        "n_envs": 56,  # asynchronous environment processes on this machine ...
+        "remote_envs": 0,  # ... and slots for environments on others (scripts/env_workers.py; vecenv.py)
         "seed": 0,
         "start_level": 5,  # curriculum level at the start (5: the final mix)
         "max_steps": 20_000_000,  # environment steps
