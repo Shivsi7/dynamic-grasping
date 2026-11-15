@@ -184,6 +184,7 @@ DEFAULTS = {
         "gate_ev": 0.5,  # PPO ramps in once V's explained variance of the returns of new batches is >= this ...
         "gate_batches": 3,  # ... on this many batches in a row ...
         "min_pretrain": 100,  # ... and at least this many batches have passed (BC + DAgger, V learning)
+        "stop_at_gate": False,  # checkpoint and stop (DONE) once the gate opens: runs forked from there (ppo.py)
         "ramp_batches": 300,  # batches over which w 0 -> ppo_weight, lam imit_weight -> 0, label_fraction -> 0
         "label_fraction": 0.25,  # share of episodes followed by a DAgger takeover before the ramp
         "label_max_wall_s": 60.0,  # a takeover is abandoned after this much wall time

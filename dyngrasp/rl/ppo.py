@@ -38,7 +38,9 @@ the episode's executed actions up to a switch time drawn uniformly before its fa
 or end) and (C) from there (demos.run_takeover: (C) plans from the robot's moving state, the simulation paused), and
 sends (C)'s actions on the steps from the switch on if (C) succeeded: the DAgger labels.
 
-SIGUSR1 / SIGTERM: checkpoint and return without DONE (run again to resume).  max_steps: checkpoint, DONE.
+SIGUSR1 / SIGTERM: checkpoint and return without DONE (run again to resume).  max_steps: checkpoint, DONE.  stop_at_gate:
+the same once the gate opens (after that batch's update): copies of the run directory, without DONE and with their own
+config.yaml (window, ...), go on from there as separate runs.
 Run directory: config.yaml, metrics.jsonl (one line per batch), labels.jsonl (every takeover), val.jsonl,
 vals/<batch>/ (EMA actor; raw/: the trained one), best/ (best val50), policy/ (what the workers load), ckpt/.
 """
@@ -565,6 +567,9 @@ def ppo(run_dir, cfg: dict) -> str:
                         print(f"gate open at batch {st['batch']}: V explained variance {rep['v_ev']:.3f} "
                               f"({p['gate_batches']} batches >= {p['gate_ev']}); PPO ramps in from batch {st['ramp_start']}",
                               flush=True)
+                        if p["stop_at_gate"]:
+                            reason = (f"gate open at batch {st['batch']} ({st['steps'] + int(b['ep_len'].sum())} steps): "
+                                      f"stopped before PPO ramps in (ppo.stop_at_gate)")
                 sch = schedule(p, st["batch"], st["ramp_start"])
                 # PPO batch: the latest `window` batches, advantages recomputed with the current V
                 wins = list(window)[-p["window"]:]
