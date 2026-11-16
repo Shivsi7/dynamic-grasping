@@ -100,10 +100,15 @@ def test_phase_0_update_is_imitation_only_and_ppo_moves_the_policy(tmp_path):
     assert np.any(np.asarray(ema_moved) != 0)  # the EMA lags the trained network
     s1 = schedule(cfg["ppo"], cfg["ppo"]["ramp_batches"] // 2, 0)
     assert 0 < s1["w"] < 1 and np.isclose(s1["lam"], 0.5 * cfg["ppo"]["imit_weight"])
-    p, rb, d = cfg["ppo"], cfg["ppo"]["ramp_batches"], cfg["ppo"]["ent_decay_batches"]
-    assert schedule(p, 10**6, 0)["lam"] == 0.0 and np.allclose(schedule(p, rb, 0)["c"], p["ent_coef_final"])
-    assert np.allclose(schedule(p, rb + d // 2, 0)["c"], 0.5 * np.array(p["ent_coef_final"]))
-    assert np.allclose(schedule(p, 10**6, 0)["c"], 0.0)
+    p, rb = cfg["ppo"], cfg["ppo"]["ramp_batches"]
+    assert schedule(p, 10**6, 0)["lam"] == 0.0 and np.allclose(schedule(p, 10**6, 0)["c"], p["ent_coef_final"])
+    assert schedule(p, 10**6, 0)["lr"] == 1.0
+    # the final anneal: c and the learning rates linearly to 0 from anneal_start over anneal_batches
+    pa = {**p, "anneal_start": rb + 100, "anneal_batches": 200}
+    assert np.allclose(schedule(pa, rb + 100, 0)["c"], p["ent_coef_final"]) and schedule(pa, rb + 100, 0)["lr"] == 1.0
+    assert np.allclose(schedule(pa, rb + 200, 0)["c"], 0.5 * np.array(p["ent_coef_final"]))
+    assert np.isclose(schedule(pa, rb + 200, 0)["lr"], 0.5)
+    assert np.allclose(schedule(pa, 10**6, 0)["c"], 0.0) and schedule(pa, 10**6, 0)["lr"] == 0.0
     assert np.allclose(s1["c"], 0.5 * (np.array(cfg["ppo"]["ent_coef"]) + cfg["ppo"]["ent_coef_final"]))
     # PPO alone (lam = 0, a fresh learner): the actions with positive advantages become likelier than the others
     learner = Learner(cfg, dict(np.load(Path(cfg["ppo"]["bc_checkpoint"]) / "actor.npz")))
@@ -117,6 +122,10 @@ def test_phase_0_update_is_imitation_only_and_ppo_moves_the_policy(tmp_path):
     m = learner.update({**batch, "logp": learner.logp(obs, u) - 5.0}, vb, imitation,
                        {**schedule(cfg["ppo"], 10**6, 0), "c": [0.0] * 8}, rng, jax.random.PRNGKey(2))
     assert m["is_capped"] == 1.0 and np.isclose(m["is_mean"], cfg["ppo"]["is_cap"]) and m["approx_kl"] < 1.0
+    # learning-rate factor 0 (the anneal's end): the policy no longer moves
+    before = learner.logp(obs, u)
+    learner.update(batch, vb, imitation, schedule(pa, 10**6, 0), rng, jax.random.PRNGKey(3))
+    assert np.allclose(learner.logp(obs, u), before)
 
 
 def test_value_pretraining_and_initial_dagger_labels(tmp_path):
