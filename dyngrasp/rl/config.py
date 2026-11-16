@@ -180,7 +180,8 @@ DEFAULTS = {
         "log_std_bounds": [[-6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -6.0, -4.0], -1.5],
         "ent_coef": [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.01],  # c_i: the entropy bonus per dimension ...
         "ent_coef_final": [0.002, 0.002, 0.002, 0.002, 0.002, 0.002, 0.002, 0.001],  # ... going to this over the ramp
-        "ent_decay_batches": 500,  # ... then to 0 over this many batches (0: stays at ent_coef_final)
+        "anneal_start": None,  # batch from which c and the actor / log sigma learning rates go linearly to 0 ...
+        "anneal_batches": 500,  # ... over this many batches; the run then ends (None: c stays at ent_coef_final)
         "imit_weight": 0.04,  # lam0 (lam = lam0 until the ramp, then down to 0)
         "ppo_weight": 1.0,  # w at the end of the ramp
         "nll_clip": 3.0,  # the imitation noise likelihood's residuals clipped at this many sigma

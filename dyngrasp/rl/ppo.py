@@ -23,7 +23,8 @@ log_std (initialised at ppo.init_log_std, learned):
           While w = 0, sigma_i settles where E[min(r_i^2 / sigma_i^2, nll_clip^2)] = 1 - c_i / lam: the entropy bonus
           keeps it above the imitation residual.  Over the ramp c_i goes to ent_coef_final: with lam below c the
           entropy bonus alone grew sigma ~0.4% per batch (0.020 -> 0.041 by halfway) as the stochastic success fell;
-          then to 0 over ent_decay_batches (a confident final policy).
+          then, from batch anneal_start, c_i and the actor's and log sigma's learning rates go linearly to 0 over
+          anneal_batches, where the run ends (a settled, confident final policy).
   entropy c_i per dimension (ent_coef: smaller for the gripper).
 V(s): its own network and optimiser, regressed on the GAE returns (TD(lambda) targets) of the latest value_window
 batches.
@@ -250,10 +251,11 @@ class Learner:
             return total, aux
 
         (_, aux), (g_net, g_ls) = jax.value_and_grad(loss, argnums=(0, 1), has_aux=True)(s["net"], s["log_std"])
+        scale = lambda u: jax.tree_util.tree_map(lambda x: coefs["lr"] * x, u)  # Adam: lr x scale
         upd, os_net = self.opt_net.update(g_net, s["os_net"], s["net"])
-        net = optax.apply_updates(s["net"], upd)
+        net = optax.apply_updates(s["net"], scale(upd))
         upd, os_ls = self.opt_ls.update(g_ls, s["os_ls"], s["log_std"])
-        log_std = jnp.clip(optax.apply_updates(s["log_std"], upd), self.lo, self.hi)
+        log_std = jnp.clip(optax.apply_updates(s["log_std"], scale(upd)), self.lo, self.hi)
         d = p["ema"]
         ema = jax.tree_util.tree_map(lambda e, x: d * e + (1.0 - d) * x, s["ema"], net) if d > 0 else net
         aux["grad_norm"] = optax.global_norm(g_net)
@@ -272,7 +274,8 @@ class Learner:
         p = self.p
         n, M = len(ppo_batch["adv"]), p["minibatch"]
         ppo_batch = {**ppo_batch, "logp_prox": self.logp(ppo_batch["obs"], ppo_batch["u"]).astype(np.float32)}
-        jcoefs = {"w": jnp.float32(coefs["w"]), "lam": jnp.float32(coefs["lam"]), "c": jnp.asarray(coefs["c"], jnp.float32)}
+        jcoefs = {"w": jnp.float32(coefs["w"]), "lam": jnp.float32(coefs["lam"]), "c": jnp.asarray(coefs["c"], jnp.float32),
+                  "lr": jnp.float32(coefs.get("lr", 1.0))}
         dev = {k: jnp.asarray(v) for k, v in ppo_batch.items()}
         logs, epochs = [], 0
         for _ in range(p["epochs"]):
@@ -446,14 +449,12 @@ def pretrain_value(learner: Learner, path, gamma: float, epochs: int, rng: np.ra
 
 
 def schedule(p: dict, batch: int, ramp_start: int | None) -> dict:
-    """w, lam, label fraction and ramp progress x at this batch."""
+    """w, lam, label fraction, entropy coefficients c, learning-rate factor lr and ramp progress x at this batch."""
     x = 0.0 if ramp_start is None else float(np.clip((batch - ramp_start) / max(p["ramp_batches"], 1), 0.0, 1.0))
     c = [(1.0 - x) * c0 + x * c1 for c0, c1 in zip(p["ent_coef"], p["ent_coef_final"])]
-    if ramp_start is not None and p["ent_decay_batches"]:  # after the ramp: c -> 0 over ent_decay_batches
-        y = float(np.clip((batch - ramp_start - p["ramp_batches"]) / p["ent_decay_batches"], 0.0, 1.0))
-        c = [(1.0 - y) * ci for ci in c]
+    y = 0.0 if p["anneal_start"] is None else float(np.clip((batch - p["anneal_start"]) / p["anneal_batches"], 0.0, 1.0))
     return {"x": x, "w": x * p["ppo_weight"], "lam": (1.0 - x) * p["imit_weight"],
-            "label_fraction": (1.0 - x) * p["label_fraction"], "c": c}
+            "label_fraction": (1.0 - x) * p["label_fraction"], "c": [(1.0 - y) * ci for ci in c], "lr": 1.0 - y}
 
 
 def assemble(episodes: list[dict]) -> dict:
@@ -625,7 +626,7 @@ def ppo(run_dir, cfg: dict) -> str:
                        "batch_episodes": len(b["ep_len"]), "batch_success": float(b["success"].mean()),
                        "version_lag": float(np.mean(st["version"] - 1 - b["version"])), "ratio0_mean": float(np.exp(lr0).mean()),
                        "logratio0_std": float(lr0.std()),
-                       "ramp_x": sch["x"], "w": sch["w"], "lam": sch["lam"], "label_fraction": sch["label_fraction"],
+                       "ramp_x": sch["x"], "w": sch["w"], "lr_factor": sch["lr"], "ent_c": sch["c"][0], "lam": sch["lam"], "label_fraction": sch["label_fraction"],
                        "gate_run": st["gate_run"], "takeovers": st["takeovers"], "dagger_labels": imitation.n_dagger,
                        "log_std": np.asarray(learner.s["log_std"]).round(3).tolist(), **rep, **m}
                 for o in OUTCOMES:
@@ -659,6 +660,8 @@ def ppo(run_dir, cfg: dict) -> str:
             now = time.time()
             if st["steps"] >= p["max_steps"]:
                 reason = f"max_steps ({p['max_steps']}) reached"
+            if p["anneal_start"] is not None and st["batch"] >= p["anneal_start"] + p["anneal_batches"]:
+                reason = f"annealed to lr 0 at batch {st['batch']}"
             if reason or signals or now - t_ckpt >= 60 * p["checkpoint_minutes"]:
                 checkpoint()
                 t_ckpt = time.time()
