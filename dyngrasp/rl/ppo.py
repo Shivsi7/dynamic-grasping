@@ -22,7 +22,8 @@ log_std (initialised at ppo.init_log_std, learned):
           steps where the expert has closed and the policy not yet do not set its noise): the noise's own likelihood.
           While w = 0, sigma_i settles where E[min(r_i^2 / sigma_i^2, nll_clip^2)] = 1 - c_i / lam: the entropy bonus
           keeps it above the imitation residual.  Over the ramp c_i goes to ent_coef_final: with lam below c the
-          entropy bonus alone grew sigma ~0.4% per batch (0.020 -> 0.041 by halfway) as the stochastic success fell.
+          entropy bonus alone grew sigma ~0.4% per batch (0.020 -> 0.041 by halfway) as the stochastic success fell;
+          then to 0 over ent_decay_batches (a confident final policy).
   entropy c_i per dimension (ent_coef: smaller for the gripper).
 V(s): its own network and optimiser, regressed on the GAE returns (TD(lambda) targets) of the latest value_window
 batches.
@@ -448,6 +449,9 @@ def schedule(p: dict, batch: int, ramp_start: int | None) -> dict:
     """w, lam, label fraction and ramp progress x at this batch."""
     x = 0.0 if ramp_start is None else float(np.clip((batch - ramp_start) / max(p["ramp_batches"], 1), 0.0, 1.0))
     c = [(1.0 - x) * c0 + x * c1 for c0, c1 in zip(p["ent_coef"], p["ent_coef_final"])]
+    if ramp_start is not None and p["ent_decay_batches"]:  # after the ramp: c -> 0 over ent_decay_batches
+        y = float(np.clip((batch - ramp_start - p["ramp_batches"]) / p["ent_decay_batches"], 0.0, 1.0))
+        c = [(1.0 - y) * ci for ci in c]
     return {"x": x, "w": x * p["ppo_weight"], "lam": (1.0 - x) * p["imit_weight"],
             "label_fraction": (1.0 - x) * p["label_fraction"], "c": c}
 
