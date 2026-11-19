@@ -39,20 +39,30 @@
 
 \section{Pipeline}
 
-\textbf{Policy.} MLP, 84 inputs $\to$ 3$\times$512 ReLU $\to$ 8 means $\mu$, every 0.1\,s, on the perfect state
-(joints, gripper, grasp-pose error, object velocity and width, the 4 nearest obstacles' position, velocity, size and
-distance, time until the object enters and leaves reach).
+\textbf{Policy:} MLP, 3$\times$512 ReLU, run every 0.1\,s.
+
+\textbf{Inputs} (84, perfect state, fixed scaling):
 \begin{itemize}
-  \item Joints: $u_{1:7}\sim\mathcal N(\mu_{1:7},\sigma^2)$, $a=\tanh u$; $a\,v_{\max}$ is the target joint velocity,
-    reached by a ramp clipped at 0.6$\times$ the reference accelerations, sent as positions every 10\,ms.
-  \item Gripper: $u_8\sim\mathcal N(\tanh\mu_8,\sigma_8^2)$ in action units, clipped to $[-1,1]$, mapped linearly to the
-    width.
-  \item $\sigma$: learned, state-independent, per dimension. Test time: $a=\tanh\mu$.
+  \item Joint positions (7) and commanded joint velocities (7).
+  \item Gripper: commanded and measured opening (2); pose (9: position and two rotation columns).
+  \item Grasp-pose error in the gripper frame (9: position, coarse and fine, and rotation).
+  \item Object: velocity (3) and width (1).
+  \item 4 nearest obstacles, 11 each (44): position relative to the gripper, velocity, half extents, distance to the
+    robot, present flag.
+  \item Timing (2): time until the object enters and leaves reach.
 \end{itemize}
-\textbf{Scenes:} level L5 only, no curriculum: 60\% like the held-out generator (0--4 obstacles, a quarter
+\textbf{Outputs:} 8 means $\mu$. The noise $\sigma$ is a learned, state-independent parameter per dimension (not a
+network output); at test time $u=\mu$.
+\begin{itemize}
+  \item Joints (7): $u_{1:7}\sim\mathcal N(\mu_{1:7},\sigma^2)$, $a=\tanh u$; $a\,v_{\max}$ is the target joint velocity,
+    reached by a ramp clipped at 0.6$\times$ the reference accelerations, sent as positions every 10\,ms.
+  \item Gripper (1): $u_8\sim\mathcal N(\tanh\mu_8,\sigma_8^2)$ in action units, clipped to $[-1,1]$, mapped linearly to
+    the width ($-1$ closed, $+1$ open).
+\end{itemize}
+\textbf{Scenes:} one training mix, no curriculum: 60\% like the held-out generator (0--4 obstacles, a quarter
 free-flying), 40\% blockers (post, plank, pillar); fresh seeds, never one of the 214 test scenes.
 
-\textbf{1. BC} on 34{,}981 successful (C) episodes (4.4M pairs; levels L0--L5, no compute latency), $s'=s+0.02\,\epsilon$:
+\textbf{1. BC} on 34{,}981 successful (C) episodes (4.4M pairs; scenes from no obstacles up to the training mix, no compute latency), $s'=s+0.02\,\epsilon$:
 \[
   L_{\text{BC}}=\tfrac18\textstyle\sum_i\big(\tanh\mu_i(s')-a^*_i\big)^2
   +\tfrac18\sum_i\Big[\tfrac{(\operatorname{atanh}a^*_i-\sg\mu_i)^2}{2\sigma_i(s)^2}+\log\sigma_i(s)\Big].
@@ -92,7 +102,7 @@ minibatch of 4096 PPO rows and 4096 imitation rows (half (C) demos, half DAgger 
   \item Ramp over 300 batches, $x:0\to1$: $w=x$, $\lambda=0.04(1-x)$, $p_{\text{lab}}=0.25(1-x)$, $c_i:0.02\to0.002$
     (gripper $0.01\to0.001$).
   \item Final anneal, $b=1100\to1800$: $c_i$ and the actor and $\log\sigma$ learning rates linearly to 0.
-  \item Picked: $b=1300$ (42.7M steps, 3.9\,h), the best success on 500 fresh L5 scenes (L5-500).
+  \item Picked: $b=1300$ (42.7M steps, 3.9\,h), the best success on 500 fresh training-mix scenes (Train-500).
 \end{itemize}
 \textbf{Rewards:} $r_t=0.937\,\Delta\Phi_p+\Delta\Phi_c+\Delta\Phi_e+r_{\text{close}}+r_{\text{end}}$,
 $\Delta\Phi=\gamma\Phi(s_{t+1})-\Phi(s_t)$, $h(d,m)=\max(0,m-d)/m$.
@@ -107,27 +117,27 @@ $\Delta\Phi=\gamma\Phi(s_{t+1})-\Phi(s_t)$, $h(d,m)=\max(0,m-d)/m$.
 \section{Results}
 
 \begin{center}
-\begin{tabular}{@{}lccccccc@{}}
+{\setlength{\tabcolsep}{5pt}\begin{tabular}{@{}lccccccc@{}}
   \toprule
-  & dev & grids & held-out & all & coll.\,/\,timeout\,/\,drop & compute (ms) & L5-500 \\
+  & dev & grids & held-out & all & coll.\,/\,timeout\,/\,drop & compute (ms) & Train-500 \\
   \midrule
   (A) reactive QP     & 11 & 69  & 52 & 132 & 6 / 71 / 5  & 2.2  & -- \\
   (B) RRT             & 15 & 95  & 63 & 173 & 0 / 41 / 0  & 862  & -- \\
-  (C) traj.\ opt.     & 17 & 106 & 72 & \textbf{195} & 9 / 10 / 0  & 1492 & -- \\
+  (C) traj.\ opt.     & 17 & 106 & \textbf{72} & \textbf{195} & 9 / 10 / 0  & 1492 & -- \\
   \midrule
   BC                  & 10 & 104 & 37 & 151 & 58 / 2 / 3  & 0.88 & 66.2\% \\
   BC + DAgger ($b=100$) & 11 & 106 & 38 & 155 & 57 / 2 / 0 & 1.42 & 66.8\% \\
   PPO ($b=1300$)      & \textbf{18} & \textbf{113} & 62 & 193 & 17 / 1 / 3 & 1.24 & \textbf{90.2\%} \\
   \bottomrule
-\end{tabular}
+\end{tabular}}
 
 \smallskip
 {\small Successes of 20 / 114 / 80 / 214 scenes; measured latency, non-successes rerun alone. Compute: median per
-decision (policy) or per plan (A--C). L5-500: success on 500 fresh L5 training scenes.}
+decision (policy) or per plan (A--C). Train-500: success on 500 fresh training-mix scenes.}
 \end{center}
 
 PPO matches (C) (193 vs.\ 195) at 1/1200 of its compute. It is best on the grids, but behind (C) and (B) on held-out,
-where 15 of its 18 failures are collisions. BC $\to$ PPO: collisions 58 $\to$ 17, L5-500 66\% $\to$ 90\%; BC + DAgger
+where 15 of its 18 failures are collisions. BC $\to$ PPO: collisions 58 $\to$ 17, Train-500 66\% $\to$ 90\%; BC + DAgger
 alone barely moved it (151 $\to$ 155).
 
 \section{Examples}
@@ -139,16 +149,18 @@ through the start pose. PPO pulls the arm back and grasps at 5.7\,s; (C) never s
 (frames at 2.3\,s). \vid{pillar_and_blocker_v0.15_o0.40_p0.05_off0.12}
 \strip{pillar_and_blocker_v0.15_o0.40_p0.05_off0.12}
 
+\noindent\begin{minipage}{\textwidth}
 \textbf{(C) succeeds, PPO fails} (held-out \texttt{mix\_0024}): a passing box hits PPO's arm as it reaches for the sugar
 box (3.9\,s); (C) lifts the arm over the box and grasps at 5.3\,s (frames at 4.0\,s).
 \vid{mix_0024}
 \strip{mix_0024}
+\end{minipage}
 
 \section{Future work}
 
 \begin{itemize}
   \item Off-policy fine-tuning (TD3), for sample efficiency.
-  \item Perception: the policy now gets the perfect state.
+  \item Perception: the policy now gets the perfect state; it could get camera images instead, and would have to reconstruct the state from them.
 \end{itemize}
 
 \end{document}
