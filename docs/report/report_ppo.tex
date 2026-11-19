@@ -1,0 +1,154 @@
+\documentclass[11pt]{article}
+\usepackage[letterpaper,margin=2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage[compact]{titlesec}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage[colorlinks,urlcolor=blue!60!black,linkcolor=black]{hyperref}
+
+\titlespacing*{\section}{0pt}{1.6ex}{0.6ex}
+\setlist{nosep,leftmargin=*}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6ex}
+
+% Branch the links point to.
+\newcommand{\branch}{rl}
+\newcommand{\repo}{https://github.com/Shivsi7/dynamic-grasping/blob/\branch}
+% Where the example videos live.
+\newcommand{\videos}{\repo/docs/report/videos}
+% Example video: GitHub link.
+\newcommand{\vid}[1]{\href{\videos/#1.mp4}{Video}.}
+
+% Strip of three frames for one example (frames/<scene>_0..2.jpg): the scene at t = 0, then PPO, (C).
+\newcommand{\fr}[1]{\includegraphics[width=0.28\textwidth]{frames/#1.jpg}}
+\newcommand{\strip}[1]{\par\noindent\fr{#1_0}\hfill\fr{#1_1}\hfill\fr{#1_2}\par\medskip}
+
+\newcommand{\sg}{\operatorname{sg}}
+
+\begin{document}
+
+\begin{center}
+  {\Large\bfseries Dynamic grasping: a learned policy (BC $\to$ DAgger $\to$ PPO)}\\[0.6ex]
+  Victor Conchello Vendrell, Shivam Singhal, Eli Olcott \quad$\cdot$\quad 6.4212, Fall 2026 \quad$\cdot$\quad \today
+\end{center}
+
+\section{Pipeline}
+
+\textbf{Policy.} MLP, 84 inputs $\to$ 3$\times$512 ReLU $\to$ 8 means $\mu$, every 0.1\,s, on the perfect state
+(joints, gripper, grasp-pose error, object velocity and width, the 4 nearest obstacles' position, velocity, size and
+distance, time until the object enters and leaves reach).
+\begin{itemize}
+  \item Joints: $u_{1:7}\sim\mathcal N(\mu_{1:7},\sigma^2)$, $a=\tanh u$; $a\,v_{\max}$ is the target joint velocity,
+    reached by a ramp clipped at 0.6$\times$ the reference accelerations, sent as positions every 10\,ms.
+  \item Gripper: $u_8\sim\mathcal N(\tanh\mu_8,\sigma_8^2)$ in action units, clipped to $[-1,1]$, mapped linearly to the
+    width.
+  \item $\sigma$: learned, state-independent, per dimension. Test time: $a=\tanh\mu$.
+\end{itemize}
+\textbf{Scenes:} level L5 only, no curriculum: 60\% like the held-out generator (0--4 obstacles, a quarter
+free-flying), 40\% blockers (post, plank, pillar); fresh seeds, never one of the 214 test scenes.
+
+\textbf{1. BC} on 34{,}981 successful (C) episodes (4.4M pairs; levels L0--L5, no compute latency), $s'=s+0.02\,\epsilon$:
+\[
+  L_{\text{BC}}=\tfrac18\textstyle\sum_i\big(\tanh\mu_i(s')-a^*_i\big)^2
+  +\tfrac18\sum_i\Big[\tfrac{(\operatorname{atanh}a^*_i-\sg\mu_i)^2}{2\sigma_i(s)^2}+\log\sigma_i(s)\Big].
+\]
+Adam $3\cdot10^{-4}$, batch 512, 40 epochs; policy = EMA (0.999 per step) of the weights. The $\sigma(s)$ head sits on
+detached features; PPO replaces it by a constant per dimension.
+
+\textbf{2. DAgger.} With probability $p_{\text{lab}}$ after a (noisy) policy episode: replay its actions up to
+$t_{\text{sw}}\sim U[0,t_{\text{fail}}-0.2\,\text{s}]$ ($t_{\text{fail}}$: first collision, else grasp, else end); (C)
+then plans from the robot's moving $(q,v)$, simulation paused, $\le10$\,s wall time per plan. If (C) succeeds, its
+actions from $t_{\text{sw}}$ on are labels: 3.3M from 40k BC rollouts before PPO, 5.0M in all.
+
+\textbf{3. PPO + imitation.} One actor loss, $L=w\,L_{\text{PPO}}+\lambda\,(L_\mu+L_\sigma)-\sum_i c_i\log\sigma_i$, per
+minibatch of 4096 PPO rows and 4096 imitation rows (half (C) demos, half DAgger labels):
+\[
+  L_{\text{PPO}}=-\hat{\mathbb E}\big[\omega\min\!\big(r\hat A,\operatorname{clip}(r,0.8,1.2)\hat A\big)\big],\ \
+  L_\mu=\hat{\mathbb E}\tfrac{\sum_i(\tanh\mu_i(s')-a^*_i)^2}{2\bar\sigma^2},\ \
+  L_\sigma=\hat{\mathbb E}\textstyle\sum_i\Big[\tfrac{\min(\rho_i^2,9\sigma_i^2)}{2\sigma_i^2}+\log\sigma_i\Big].
+\]
+\begin{itemize}
+  \item Decoupled PPO (Hilton et al.\ 2021): $r=\pi_\theta/\pi_{\text{prox}}$,
+    $\omega=\min(\pi_{\text{prox}}/\pi_{\text{beh}},2)$; $\pi_{\text{prox}}$ is the policy at the update's start,
+    $\pi_{\text{beh}}$ the older one the workers acted with. $\hat A$: GAE ($\gamma=0.99$, 0.95),
+    normalised. 4 epochs per batch of 32{,}768 steps, stopped once the KL exceeds 0.03.
+  \item $L_\mu$: the expert's likelihood at the policy's noise, $\bar\sigma^2=\sg(\text{mean joint }\sigma_i^2)$.
+    $L_\sigma$: the expert residual $\rho_i=\operatorname{atanh}a^*_i-\sg\mu_i$ (gripper $a^*_8-\tanh\sg\mu_8$) sets
+    $\sigma$; gripper $\sigma_8\ge0.018$.
+  \item Critic: own 3$\times$512 LayerNorm MLP, $(V_\phi(s)-\hat R)^2$ on the GAE returns of the last 2 batches,
+    pretrained on the 40k BC rollouts.
+  \item Adam: actor $5\cdot10^{-5}$ (halved from batch 747), $\log\sigma$ $10^{-3}$, $V$ $3\cdot10^{-4}$. Exported
+    policy: EMA (0.999). $\sim$400 CPU workers (simulation, (C) takeovers) feed one GPU learner asynchronously.
+\end{itemize}
+\textbf{Schedule} (batch $b$):
+\begin{itemize}
+  \item BC + DAgger only ($w=0$, $\lambda=0.04$, $p_{\text{lab}}=0.25$) until $V$'s explained variance on new batches
+    is $\ge0.5$ three times in a row, after at least 100 batches: after $b=100$.
+  \item Ramp over 300 batches, $x:0\to1$: $w=x$, $\lambda=0.04(1-x)$, $p_{\text{lab}}=0.25(1-x)$, $c_i:0.02\to0.002$
+    (gripper $0.01\to0.001$).
+  \item Final anneal, $b=1100\to1800$: $c_i$ and the actor and $\log\sigma$ learning rates linearly to 0.
+  \item Picked: $b=1300$ (42.7M steps, 3.9\,h), the best success on 500 fresh L5 scenes (L5-500).
+\end{itemize}
+\textbf{Rewards:} $r_t=0.937\,\Delta\Phi_p+\Delta\Phi_c+\Delta\Phi_e+r_{\text{close}}+r_{\text{end}}$,
+$\Delta\Phi=\gamma\Phi(s_{t+1})-\Phi(s_t)$, $h(d,m)=\max(0,m-d)/m$.
+\begin{itemize}
+  \item Progress $\Phi_p=-(\lVert p_G-p_{\text{grasp}}\rVert+0.1\,\theta_{\text{err}})$, 0 once in hand
+    ($0.937=1/$mean start distance). Clearance $\Phi_c=-0.5\,h(d_{\text{obst}},4\,\text{cm})$; cart and floor
+    $\Phi_e=-0.25\max\!\big(h(d_{\text{arm}},2\,\text{cm}),h(d_{\text{hand}},5\,\text{mm})\big)$.
+  \item Close: the first close within 1\,cm and 10$^\circ$ of the grasp pose pays $0.5\,e^{-|v_G-v_{\text{obj}}|/0.05}$,
+    a close outside them $-0.1$. End: success $+1$, collision $-1$, drop $-1$, timeout 0; a failure after success pays $-2$.
+\end{itemize}
+
+\section{Results}
+
+\begin{center}
+\begin{tabular}{@{}lccccccc@{}}
+  \toprule
+  & dev & grids & held-out & all & coll.\,/\,timeout\,/\,drop & compute (ms) & L5-500 \\
+  \midrule
+  (A) reactive QP     & 11 & 69  & 52 & 132 & 6 / 71 / 5  & 2.2  & -- \\
+  (B) RRT             & 15 & 95  & 63 & 173 & 0 / 41 / 0  & 862  & -- \\
+  (C) traj.\ opt.     & 17 & 106 & 72 & \textbf{195} & 9 / 10 / 0  & 1492 & -- \\
+  \midrule
+  BC                  & 10 & 104 & 37 & 151 & 58 / 2 / 3  & 0.88 & 66.2\% \\
+  BC + DAgger ($b=100$) & 11 & 106 & 38 & 155 & 57 / 2 / 0 & 1.42 & 66.8\% \\
+  PPO ($b=1300$)      & \textbf{18} & \textbf{113} & 62 & 193 & 17 / 1 / 3 & 1.24 & \textbf{90.2\%} \\
+  \bottomrule
+\end{tabular}
+
+\smallskip
+{\small Successes of 20 / 114 / 80 / 214 scenes; measured latency, non-successes rerun alone. Compute: median per
+decision (policy) or per plan (A--C). L5-500: success on 500 fresh L5 training scenes.}
+\end{center}
+
+PPO matches (C) (193 vs.\ 195) at 1/1200 of its compute. It is best on the grids, but behind (C) and (B) on held-out,
+where 15 of its 18 failures are collisions. BC $\to$ PPO: collisions 58 $\to$ 17, L5-500 66\% $\to$ 90\%; BC + DAgger
+alone barely moved it (151 $\to$ 155).
+
+\section{Examples}
+
+Frames: the scene at $t=0$, then PPO and (C). Videos also in \texttt{docs/report/videos/}.
+
+\textbf{PPO succeeds, (C) fails} (grid \texttt{pillar\_and\_blocker\_v0.15\_o0.40\_p0.05\_off0.12}): a pillar sweeps
+through the start pose. PPO pulls the arm back and grasps at 5.7\,s; (C) never starts its dodge and is hit at 2.2\,s
+(frames at 2.3\,s). \vid{pillar_and_blocker_v0.15_o0.40_p0.05_off0.12}
+\strip{pillar_and_blocker_v0.15_o0.40_p0.05_off0.12}
+
+\textbf{(C) succeeds, PPO fails} (held-out \texttt{mix\_0024}): a passing box hits PPO's arm as it reaches for the sugar
+box (3.9\,s); (C) lifts the arm over the box and grasps at 5.3\,s (frames at 4.0\,s).
+\vid{mix_0024}
+\strip{mix_0024}
+
+\section{Future work}
+
+\begin{itemize}
+  \item Off-policy fine-tuning (TD3), for sample efficiency.
+  \item Perception: the policy now gets the perfect state.
+\end{itemize}
+
+\end{document}
