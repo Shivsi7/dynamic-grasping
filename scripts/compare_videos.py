@@ -187,8 +187,9 @@ def write_frames(spec, per, t: float, fps: float, size, out: Path) -> None:
     d = ImageDraw.Draw(first)
     d.rectangle([0, 0, size[0], 65], fill=(25, 25, 30))
     d.text((8, 5), "scene, t = 0.0 s", fill=WHITE, font=_font(17))
-    d.text((8, 30), f"{spec.name}   object: {spec.target.object}   cart {spec.cart.speed:.2f} m/s   "
-                    f"{len(spec.obstacles)} obstacle(s)", fill=(200, 200, 200), font=_font(13))
+    d.text((8, 30), spec.name, fill=(200, 200, 200), font=_font(13))
+    d.text((8, 48), f"object: {spec.target.object}   cart {spec.cart.speed:.2f} m/s   {len(spec.obstacles)} obstacle(s)",
+           fill=(200, 200, 200), font=_font(13))
     first.save(out / f"{spec.name}_0.jpg")
     for k, f in enumerate(per, 1):
         f[min(round(t * fps), len(f) - 1)].crop(box).save(out / f"{spec.name}_{k}.jpg")
