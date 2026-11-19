@@ -12,6 +12,13 @@ SUCCESS.  Episodes keep running after a collision, so you can see what happens.
 
 Writes <out>/<scenario>.mp4 (H.264) and <scenario>_final.png (last frame).
 
+    # a (D) policy next to (C), and the report's frame strip at t = 6 s
+    python scripts/compare_videos.py --scenarios scenarios/preset_grids.yaml --names NAME \\
+        --controllers rl:runs/ppo/best hybrid --views front34 top --frames 6.0 --frames-out docs/report/frames
+
+`rl:<dir>` is a (D) checkpoint (RLController).  --frames T also writes <frames-out>/<scenario>_0.jpg (the scene at
+t = 0) and <scenario>_<k>.jpg (panel k's first view at t = T).
+
     # one video per scene that (B) did not grasp, next to the certification evidence
     python scripts/compare_videos.py --certify results/certify_v12/certify.csv \
         --scenarios results/stress_v3_heldout/scenarios.yaml --jobs 5 --out results/videos_certify
@@ -35,9 +42,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 from dyngrasp import scenario as S
 from dyngrasp.baselines import HoldController, NaiveInterceptController
-from dyngrasp.harness import advance, build_episode
+from dyngrasp.harness import advance, build_episode, summarize
+from dyngrasp.hybrid import HybridController
 from dyngrasp.planning.controller import SpaceTimeRRTController
 from dyngrasp.planning.variants import VARIANTS, Variant
+from dyngrasp.reactive import ReactiveQPController
+from dyngrasp.rl.controller import RLController
 from dyngrasp.scene import look_at_camera
 
 VIEWS = {
@@ -60,6 +70,8 @@ def _oracle(scale: float, accel_limits: bool = True):
 CONTROLLERS = {
     "hold": Variant("hold (parked)", HoldController),
     "naive": Variant("naive: no avoidance", NaiveInterceptController),
+    "reactive": Variant("(A) reactive QP", ReactiveQPController),
+    "hybrid": Variant("(C) hybrid trajopt", HybridController),
     **VARIANTS,
     **{f"oracle_{s}": Variant(f"oracle @ {s} x ref. accel. (20x compute)", _oracle(s), {"latency": "none"})
        for s in (0.6, 0.8, 1.0, 1.5)},
@@ -92,8 +104,14 @@ def _grasp_name(controller, h) -> str:
     return p.goal.grasp_name if p.goal is not None else p.mode
 
 
+def _variant(cname: str) -> Variant:
+    if cname.startswith("rl:"):
+        return Variant("(D) PPO policy", lambda: RLController(cname[3:]))
+    return CONTROLLERS[cname]
+
+
 def render_episode(spec, cname: str, views: list[str], fps: float, size, latency):
-    variant = CONTROLLERS[cname]
+    variant = _variant(cname)
     label, controller = variant.label, variant.factory()
     cams = {v: look_at_camera(v, *VIEWS[v], size[0], size[1]) for v in views}
     h = build_episode(spec, controller, cameras=cams, stop_on_collision=False,
@@ -154,11 +172,33 @@ def render_episode(spec, cname: str, views: list[str], fps: float, size, latency
         d.text((8, 48), f"joint accel peak {acc_peak:6.1f} rad/s2   object speed {v_obj:4.2f} (peak {obj_peak:4.2f}) m/s",
                fill=warn, font=f_small)
         frames.append(panel)
+    r = summarize(spec, controller, h, h.simulator.get_context().get_time(), 0.0, False)
+    controller.close()
+    print(f"{spec.name} {label}: {r.outcome} (grasp {r.t_grasp}, collision {r.t_first_collision} {r.collision_with})",
+          flush=True)
     return frames
 
 
-def write_video(spec, cnames, views, out: Path, fps=15, size=(480, 360), latency="measured", note=""):
+def write_frames(spec, per, t: float, fps: float, size, out: Path) -> None:
+    """<scenario>_0.jpg: the scene at t = 0 (panel 0's first view); <scenario>_<k>.jpg: panel k's at time t."""
+    out.mkdir(parents=True, exist_ok=True)
+    box = (0, 0, size[0], 66 + size[1])
+    first = per[0][0].crop(box)
+    d = ImageDraw.Draw(first)
+    d.rectangle([0, 0, size[0], 65], fill=(25, 25, 30))
+    d.text((8, 5), "scene, t = 0.0 s", fill=WHITE, font=_font(17))
+    d.text((8, 30), f"{spec.name}   object: {spec.target.object}   cart {spec.cart.speed:.2f} m/s   "
+                    f"{len(spec.obstacles)} obstacle(s)", fill=(200, 200, 200), font=_font(13))
+    first.save(out / f"{spec.name}_0.jpg")
+    for k, f in enumerate(per, 1):
+        f[min(round(t * fps), len(f) - 1)].crop(box).save(out / f"{spec.name}_{k}.jpg")
+
+
+def write_video(spec, cnames, views, out: Path, fps=15, size=(480, 360), latency="measured", note="",
+                frames_t=None, frames_out=None):
     per = [render_episode(spec, c, views, fps, size, latency) for c in cnames]
+    if frames_t is not None:
+        write_frames(spec, per, frames_t, fps, size, Path(frames_out or out))
     n = min(len(f) for f in per)
     W = sum(f[0].size[0] for f in per) + 6 * (len(per) - 1)
     H = per[0][0].size[1] + 30
@@ -195,7 +235,8 @@ def main():
     ap.add_argument("--preset", nargs="*", default=[], choices=sorted(PRESETS))
     ap.add_argument("--scenarios", help="YAML scenario set")
     ap.add_argument("--names", nargs="*", default=[], help="scenario names from --scenarios")
-    ap.add_argument("--controllers", nargs="+", default=["naive", "st_rrt_nominal", "st_rrt"], choices=sorted(CONTROLLERS))
+    ap.add_argument("--controllers", nargs="+", default=["naive", "st_rrt_nominal", "st_rrt"],
+                    help=f"{', '.join(sorted(CONTROLLERS))} or rl:<checkpoint dir>")
     ap.add_argument("--views", nargs="+", default=["front34"], choices=sorted(VIEWS))
     ap.add_argument("--fps", type=float, default=15)
     ap.add_argument("--width", type=int, default=480)
@@ -203,6 +244,8 @@ def main():
     ap.add_argument("--out", default="results/videos")
     ap.add_argument("--certify", help="certify.csv: one video per scene, (B) now vs. the certification evidence")
     ap.add_argument("--jobs", type=int, default=1, help="render scenes in parallel processes")
+    ap.add_argument("--frames", type=float, help="also write the report's frames at this time (s)")
+    ap.add_argument("--frames-out", help="where (default --out)")
     args = ap.parse_args()
     latency = args.latency if args.latency in ("measured", "none") else float(args.latency)
     size = (args.width, int(args.width * 3 / 4))
@@ -229,13 +272,14 @@ def main():
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
         with ProcessPoolExecutor(args.jobs) as ex:
-            futs = [ex.submit(write_video, spec, cn, args.views, Path(args.out), args.fps, size, latency, note)
-                    for spec, cn, note in jobs]
+            futs = [ex.submit(write_video, spec, cn, args.views, Path(args.out), args.fps, size, latency, note,
+                              args.frames, args.frames_out) for spec, cn, note in jobs]
             for f in as_completed(futs):
                 print("wrote", f.result(), flush=True)
     else:
         for spec, cn, note in jobs:
-            print("wrote", write_video(spec, cn, args.views, Path(args.out), args.fps, size, latency, note), flush=True)
+            print("wrote", write_video(spec, cn, args.views, Path(args.out), args.fps, size, latency, note,
+                                       args.frames, args.frames_out), flush=True)
 
 
 if __name__ == "__main__":
