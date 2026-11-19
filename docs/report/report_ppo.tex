@@ -105,11 +105,11 @@ minibatch of 4096 PPO rows and 4096 imitation rows (half (C) demos, half DAgger 
   \item Picked: $b=1300$ (42.7M steps, 3.9\,h), the best success on 500 fresh training-mix scenes (Train-500).
 \end{itemize}
 \textbf{Rewards:} $r_t=0.937\,\Delta\Phi_p+\Delta\Phi_c+\Delta\Phi_e+r_{\text{close}}+r_{\text{end}}$,
-$\Delta\Phi=\gamma\Phi(s_{t+1})-\Phi(s_t)$, $h(d,m)=\max(0,m-d)/m$.
+$\Delta\Phi=\gamma\Phi(s_{t+1})-\Phi(s_t)$.
 \begin{itemize}
   \item Progress $\Phi_p=-(\lVert p_G-p_{\text{grasp}}\rVert+0.1\,\theta_{\text{err}})$, 0 once in hand
-    ($0.937=1/$mean start distance). Clearance $\Phi_c=-0.5\,h(d_{\text{obst}},4\,\text{cm})$; cart and floor
-    $\Phi_e=-0.25\max\!\big(h(d_{\text{arm}},2\,\text{cm}),h(d_{\text{hand}},5\,\text{mm})\big)$.
+    ($0.937=1/$mean start distance). Clearance $\Phi_c=-0.5\max(0,1-d_{\text{obst}}/4\,\text{cm})$; cart and floor
+    $\Phi_e=-0.25\max(0,1-d_{\text{arm}}/2\,\text{cm},1-d_{\text{hand}}/5\,\text{mm})$.
   \item Close: the first close within 1\,cm and 10$^\circ$ of the grasp pose pays $0.5\,e^{-|v_G-v_{\text{obj}}|/0.05}$,
     a close outside them $-0.1$. End: success $+1$, collision $-1$, drop $-1$, timeout 0; a failure after success pays $-2$.
 \end{itemize}
