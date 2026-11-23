@@ -1,0 +1,759 @@
+\documentclass[conference]{IEEEtran}
+% Draft v0 (Nov 22, 2026). Built from docs/report/report.tex, docs/report/report_ppo.tex and
+% docs/planner_{A,B,C}.md on origin/main. Red \todo{} notes mark what the team still has to decide or check.
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,patterns}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\repo}{https://github.com/Shivsi7/dynamic-grasping/blob/main}
+\newcommand{\vid}[1]{\href{\repo/docs/report/videos/#1.mp4}{video}}
+\newcommand{\sg}{\operatorname{sg}}
+
+\begin{document}
+
+\title{Teaching A Robot Arm To Pick Up And Dodge}
+
+\author{\IEEEauthorblockN{Eli Olcott, Victor Conchello Vendrell, Shivam Singhal}
+\IEEEauthorblockA{6.4212 Robotic Manipulation, Fall 2026}}
+
+\maketitle
+
+% ---------------------------------------------------------------------------------------------------
+\begin{abstract}
+Picking an object off a moving conveyor is routine when the workspace is empty, but robots increasingly
+share their workspace with other moving things: people, objects, and other robots. So, the arm must be able to reach a moving target while
+staying clear of obstacles that are themselves in motion. We study this problem in simulation with a
+7-DoF KUKA iiwa and a WSG gripper that must grasp a YCB object from a moving cart while up to four
+obstacles cross the workspace. We implement four controllers on a shared harness: a reactive QP with
+velocity dampers, a space-time RRT-Connect planner, a space-time kinematic trajectory optimizer, and a
+neural policy trained by behavior cloning, DAgger and PPO from the optimizer's demonstrations. All are
+evaluated on 214 scenes under a protocol in which computation time costs simulated time and an episode
+only counts as a success if the object is still held when the scene ends. Trajectory optimization
+succeeds in 91\% of scenes, the learned policy in 90\% at about 1/1200 of the optimizer's compute, the
+space-time planner in 81\% with no collisions, and the reactive controller in 62\%. The results show a
+trade-off between safety, success and compute: deliberative planning is safest, optimization reaches
+the most grasps, and a distilled policy recovers most of the optimizer's success in real time but
+collides more often in unseen scenes.
+\end{abstract}
+
+% ---------------------------------------------------------------------------------------------------
+\section{Introduction}
+
+Robots that pick from conveyors, hand over objects to people, or work beside other machines must grasp
+objects that are moving, in workspaces where other things are moving too. Both motions constrain the
+arm at once: it has to arrive at the object at the right place \emph{and} time, and it must not be
+anywhere an obstacle will be at the time it is there. A static plan computed for a frozen snapshot of
+the scene is not enough, and neither is a plan that ignores how long it took to compute it, since the
+scene keeps moving during that time.
+
+We consider the following task (Fig.~\ref{fig:teaser}). A KUKA iiwa with a Schunk WSG gripper must
+pick one of six YCB objects~\cite{calli2015ycb} off a carrier riding a conveyor at
+0.05--0.3\,m/s, while zero to four obstacles (spheres and boxes on wheeled rigs, or free-flying lobbed
+shapes) cross the workspace at up to 0.5\,m/s. The motion of the cart and obstacles is known in
+advance; we discuss relaxing this with perception in Section~\ref{sec:conclusion}.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.245\textwidth]{frames/mix_0074_0.jpg}\hfill
+  \includegraphics[width=0.245\textwidth]{frames/mix_0074_1.jpg}\hfill
+  \includegraphics[width=0.245\textwidth]{frames/mix_0074_2.jpg}\hfill
+  \includegraphics[width=0.245\textwidth]{frames/mix_0074_3.jpg}
+  \caption{The task. A cracker box rides a moving carrier past the iiwa while four obstacles on wheeled
+  rigs cross the workspace (left, $t=0$). The other panels show the reactive controller (A), the
+  space-time planner (B) and the trajectory optimizer (C) each grasping the box in held-out scene
+  \texttt{mix\_0074}, 1.0 to 1.7\,s after it comes into reach (\vid{mix_0074}).}
+  \label{fig:teaser}
+\end{figure*}
+
+\textbf{Design goals.} A controller for this task should
+(G1) grasp and lift the object and still hold it when the scene ends;
+(G2) never touch an obstacle, the cart or the floor;
+(G3) command motion the real arm could execute, within its velocity, acceleration and torque limits; and
+(G4) do so in real time, with its own computation counted against the clock.
+\todo{agree on concrete target values for G1--G4, e.g.\ $\ge 85\%$ success, zero collisions, peak torque below the limit, $\le 100$\,ms per decision.}
+
+\textbf{Approach.} These goals pull in different directions, and the classic families of methods resolve
+them differently. We therefore implement four controllers on one shared harness and compare them on the
+same 214 scenes: (A) a reactive QP controller that never plans; (B) a space-time RRT-Connect planner that
+replans every 0.5\,s; (C) a space-time trajectory optimizer that plans the whole grasp; and (D) a neural
+policy distilled from (C) and fine-tuned with reinforcement learning. A naive controller that ignores the
+obstacles serves as a baseline.
+
+\textbf{Contributions.}
+\begin{itemize}
+  \item A benchmark for dynamic grasping among moving obstacles in Drake: a seeded scene generator, three
+    preset grids that block the direct grasp, and an evaluation protocol in which compute time costs
+    simulated time and success requires holding the object to the end of the scene.
+  \item Four controllers built on the same world model and harness: a velocity-damper QP, a space-time
+    RRT-Connect planner with acceleration-aware extensions and escape moves, an IK-seeded space-time
+    trajectory optimizer, and a BC$\to$DAgger$\to$PPO policy.
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------------
+\section{Related Work}
+
+\textbf{Dynamic grasping.} Early work tracked and grasped a moving object with a visual servoing loop
+on a hand-eye system~\cite{allen1993tracking}. Marturi et al.~\cite{marturi2019dynamic} plan grasps and
+trajectories for objects moving along unknown paths, and Akinola et al.~\cite{akinola2021dynamic}
+choose grasps by reachability and the object's motion, replanning as the object moves. These works
+focus on the target and assume a free workspace. We add obstacles that move as well, which makes
+\emph{when} the arm is somewhere as important as where.
+
+\textbf{Planning among moving obstacles.} Velocity obstacles~\cite{fiorini1998velocity} reason about
+collisions in velocity space for agents with simple shapes. Sampling-based planners handle
+high-dimensional arms; RRT-Connect~\cite{kuffner2000rrtconnect} grows two trees toward each other in
+configuration space, and ST-RRT*~\cite{grothe2022strrt} extends bidirectional search to space-time,
+with time as an unbounded dimension, velocity-bounded edges and sampling restricted to the states
+reachable in time. Planner (B) follows ST-RRT*'s formulation but searches for the first feasible path
+to one of many timed goals, replans continuously, and adds acceleration constraints so that the result
+is executable. VAMP~\cite{thomason2024vamp} shows that vectorized collision checking can make sampling
+planners run in microseconds, which would let a planner like (B) replan at control rates; we did not
+adopt it, and collision checking remains (B)'s bottleneck.
+
+\textbf{Reactive control.} Potential fields~\cite{khatib1986realtime} and velocity
+dampers~\cite{faverjon1987local} keep a manipulator away from obstacles inside the control loop.
+NEO~\cite{haviland2021neo} combines velocity dampers with a differential-IK quadratic program for
+reactive manipulation among obstacles. These methods run at kilohertz rates but are local: they can
+stall behind an obstacle that must be gone around. Controller (A) is in this family, with dampers
+against the obstacles' predicted swept volume.
+
+\textbf{Trajectory optimization.} CHOMP~\cite{ratliff2009chomp} and TrajOpt~\cite{schulman2014trajopt}
+optimize whole trajectories against collision costs or constraints, and Drake's kinematic trajectory
+optimization~\cite{tedrake2019drake,tedrake2024manipulation} optimizes B-spline trajectories with free
+duration under general constraints, solved with SNOPT~\cite{gill2005snopt}. Such methods produce smooth,
+time-optimal motion but are sensitive to their initial guess and give no guarantee on solve time.
+Controller (C) seeds the optimizer with collision-aware IK and evaluates collision constraints at the
+time the trajectory reaches each point.
+
+\textbf{Learning motion from planners.} Motion Policy Networks~\cite{fishman2022mpinets} train a neural
+policy on millions of trajectories from a global planner and run faster than the planners they imitate.
+DAgger~\cite{ross2011dagger} corrects the distribution shift of behavior cloning by labeling the
+learner's own states with an expert, and PPO~\cite{schulman2017ppo} with generalized advantage
+estimation~\cite{schulman2016gae} fine-tunes a policy on its own reward. Policy (D) combines all three,
+with (C) as the expert.
+
+Taken together, these families trade completeness, speed and smoothness differently, and none of the
+works above compares them on the same dynamic grasping task under the same compute budget. That is the
+gap this project fills.
+
+% ---------------------------------------------------------------------------------------------------
+\section{Problem Formulation}
+\label{sec:problem}
+
+\textbf{Scene.} The world frame has the iiwa base at the origin. A conveyor runs along $y$ at
+$x\approx0.63$\,m; its carrier (top at $z=0.20$\,m) moves at a constant speed in $[0.05, 0.30]$\,m/s,
+enters the robot's reach ($|y|<0.5$\,m) at $t=3$\,s and stays in reach for $1/\text{speed}$ seconds.
+The target is one of six YCB objects (soup can, sugar box, gelatin box, potted meat can, cracker box,
+mustard bottle), standing free on the carrier. Obstacles are spheres (radius 5--10\,cm) or boxes
+(10--20\,cm) on masts of wheeled rigs moving at 0.1--0.5\,m/s through the corridor between the robot
+and the conveyor or beside the robot, or free-flying shapes on ballistic paths. Obstacle paths are timed
+to cross while the target is reachable, but never hit the conveyor, the robot's base or each other, so
+every scene can be solved by getting out of the way. Obstacles are dynamic bodies driven by stiff
+PD joints, so collisions are physical.
+
+\textbf{Information.} A controller sees the robot's measured state $(q, \dot q)$ and gripper width,
+and a \emph{world model} that predicts the pose and velocity of the target, the cart and every
+obstacle at any time $t$. In this work the prediction is exact.
+
+\textbf{Commands.} A controller runs every 10\,ms (every 0.1\,s for (D)) and returns joint positions,
+joint velocities or a time-indexed joint trajectory, plus a gripper opening.
+
+\textbf{Computation costs time.} The simulator waits for the controller, so by default a slow
+controller would look instantaneous. Instead, a command computed in $w$ seconds of wall time takes
+effect $w$ seconds of simulated time later; the previous command keeps executing meanwhile. A
+trajectory that would make the arm jump when it takes effect (more than 0.02\,rad from the executing
+one) is rejected. This \emph{measured latency} makes compute speed part of the result.
+
+\textbf{Outcomes.} An episode ends in one of four outcomes. A \emph{collision} is any contact between
+a robot link and an obstacle, the cart, the floor or the target (other than the gripper touching the
+target); it takes precedence. \emph{Success} requires the object to be in hand and at least 5\,cm above
+its rest height for 0.5\,s, and still in hand and lifted when the scene ends: episodes are simulated
+to the end of the scene, so a controller that grasps and then flings or drops the object does not
+score. Otherwise the outcome is \emph{dropped} (lifted, then lost) or \emph{timeout}.
+
+\textbf{Assumptions.} Perfect state and perfect prediction of all motion; known object identity and
+geometry; a position-controlled arm as in the course's hardware station~\cite{tedrake2024manipulation};
+simulation only.
+
+% ---------------------------------------------------------------------------------------------------
+\section{Approach}
+\label{sec:approach}
+
+Fig.~\ref{fig:architecture} shows the shared system. All four controllers plug into the same
+\texttt{Controller} interface, read the same world model, and query the same collision geometry: a
+kinematic copy of the Drake scene in which every obstacle, the cart and the target are placed at their
+predicted poses at a queried time $t$, so that signed distances between the robot at $q$ and the world
+at $t$ are available for any $(q, t)$.
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+      font=\footnotesize, node distance=6mm and 8mm,
+      box/.style={draw, rounded corners=2pt, align=center, text width=3.1cm, minimum height=9mm, inner sep=2pt, fill=gray!8},
+      arr/.style={-{Stealth[length=2mm]}, thick}]
+    \node[box] (gen) {Scene generator\\{\scriptsize seeded set or preset grid}};
+    \node[box, right=of gen] (sim) {Drake simulation\\{\scriptsize iiwa + WSG, cart, obstacles}};
+    \node[box, below=of gen] (wm) {World model\\{\scriptsize predicted poses at any $t$}};
+    \node[box, below=of sim, fill=blue!8] (ctrl) {Controller (A)--(D)\\{\scriptsize QP, ST-RRT, TrajOpt, policy}};
+    \node[box, below=of wm] (mon) {Episode monitor\\{\scriptsize success, collision, drop, timeout}};
+    \node[box, below=of ctrl] (lat) {Latency model\\{\scriptsize applied $w$\,s after it is computed}};
+    \draw[arr] (gen) -- (sim);
+    \draw[arr] (gen) -- (wm);
+    \draw[arr] (wm) -- (ctrl);
+    \draw[arr] (sim) -- node[right, font=\scriptsize]{state} (ctrl);
+    \draw[arr] (ctrl) -- node[right, font=\scriptsize]{command} (lat);
+    \draw[arr] (lat.east) -- ++(2.5mm,0) |- (sim.east);
+    \draw[arr] (sim.north) -- ++(0,2.5mm) -| ([xshift=-3mm]gen.west) |- (mon.west);
+  \end{tikzpicture}
+  \caption{Shared evaluation system. Every controller reads the robot's state and the world model's
+  predictions; its command reaches the simulated arm only after the wall time it took to compute, and a
+  monitor scores each episode to the end of the scene.}
+  \label{fig:architecture}
+\end{figure}
+
+\subsection{(A) Reactive QP with velocity dampers}
+
+(A) never plans. Every 10\,ms it solves one quadratic program for the joint velocities $\dot q$ that
+make the gripper track a target twist $V$, a proportional pull toward the current phase's target pose
+plus the cart's velocity as feedforward. The phases are wait, approach (10\,cm above the grasp), descend,
+close and lift. For every robot--world pair $i$ closer than 25\,cm, with signed distance $\phi_i$, unit
+normal $n_i$ and witness-point Jacobian $J_{r,i}$, a velocity damper~\cite{faverjon1987local,haviland2021neo}
+limits how fast the pair may close:
+\begin{equation}
+\begin{aligned}
+\min_{\dot q,\, s\ge0}\ & \lVert W(J\dot q - V)\rVert^2 + \lambda\lVert\dot q\rVert^2 + \mu\lVert\dot q-\dot q_{\text{prev}}\rVert^2\\
+& + 100\textstyle\sum_i s_i + 1000\lVert s\rVert^2\\
+\text{s.t.}\ & n_i^\top J_{r,i}\,\dot q + s_i \ \ge\ -\xi(\phi_i - d_i) + n_i^\top v_{w,i},
+\end{aligned}
+\label{eq:qp}
+\end{equation}
+together with joint position and velocity limits. Here $v_{w,i}$ is the predicted velocity of the world
+witness point, $d_i$ is 4\,cm for obstacles and 5\,mm for the cart and floor, and $\xi=2\,\text{s}^{-1}$.
+The pairs are evaluated against the world predicted at $t$, $t+0.1$ and $t+0.2$\,s, so the arm keeps out
+of each obstacle's swept volume over the next 0.2\,s. Slacks $s$ keep the QP feasible when dampers
+conflict. The QP is built with Drake and solved with OSQP~\cite{stellato2020osqp} in about 2\,ms.
+\emph{Trade-off:} (A) is fast and reacts immediately, but it is local and has no acceleration limits.
+
+\subsection{(B) Space-time RRT-Connect}
+
+(B) searches the space of states $(q, t)$ (Fig.~\ref{fig:spacetime}). A \emph{goal} is a pre-grasp
+configuration $q_g$, with the gripper 8\,cm back along the approach direction, reached at an intercept
+time $T$; from there a fixed \emph{grasp tail} rides along with the object, descends, closes, and lifts
+it with minimum-jerk profiles.
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[font=\footnotesize, x=7mm, y=7mm]
+    \draw[-{Stealth[length=2mm]}] (0,0) -- (10.3,0) node[below left]{$t$};
+    \draw[-{Stealth[length=2mm]}] (0,0) -- (0,5.3) node[left]{$q$};
+    % moving obstacle in (q,t)
+    \fill[red!25] (3.0,4.6) -- (4.4,4.6) -- (6.8,1.0) -- (5.4,1.0) -- cycle;
+    \node[red!70!black, align=center] at (6.9,3.5) {obstacle\\[-2pt]over time};
+    % reachable cone from start
+    \draw[gray, dashed] (0.6,2.2) -- (5.0,5.0);
+    \draw[gray, dashed] (0.6,2.2) -- (4.0,0.0);
+    % goals
+    \foreach \x/\y in {7.8/3.9, 8.6/3.2, 9.4/2.6} { \fill[blue!70!black] (\x,\y) circle (2.2pt); }
+    \node[blue!70!black, right] at (9.5,3.3) {$(q_g, T_k)$};
+    % start tree and goal tree
+    \draw[thin, green!45!black] (0.6,2.2) -- (1.6,3.0) -- (2.4,3.9) (1.6,3.0) -- (2.6,2.6) (0.6,2.2) -- (1.7,1.5) -- (2.9,0.9) (1.7,1.5) -- (2.5,1.9);
+    \draw[thin, blue!60] (7.8,3.9) -- (7.0,4.4) (8.6,3.2) -- (7.4,2.5) -- (6.6,3.2) (9.4,2.6) -- (8.3,1.9) -- (7.2,1.1);
+    % solution path
+    \draw[very thick, black] (0.6,2.2) -- (1.7,1.5) -- (2.9,0.9) -- (5.0,0.6) -- (7.2,1.1) -- (8.3,1.9) -- (9.4,2.6);
+    \fill (0.6,2.2) circle (2.2pt) node[left]{$(q_s,t_s)$};
+  \end{tikzpicture}
+  \caption{Planning in space-time (schematic, one joint). A moving obstacle occupies a slanted region of
+  $(q,t)$. The start tree (green) grows forward in time from the arm's future state; the goal tree
+  (blue) grows backward from several timed pre-grasp goals. Edges may not exceed the joint velocity
+  limits (dashed cone) and must move forward in time. The black path passes under the obstacle after it
+  has gone.}
+  \label{fig:spacetime}
+\end{figure}
+
+\textbf{Search.} An edge $(q_a,t_a)\to(q_b,t_b)$ is admissible if $t_b>t_a$, $|q_{b,j}-q_{a,j}| \le
+v_{\max,j}(t_b-t_a)$ for every joint $j$, and the robot is collision-free along it with the world at the
+matching times. As in ST-RRT*~\cite{grothe2022strrt}, samples are drawn only from the space-time
+``double cone'' of states reachable from the start in time and from which some goal is still reachable.
+Unlike ST-RRT*, the goal tree is rooted at \emph{many} goals (one per intercept time and arm posture), so
+one search considers all of them, and the planner stops at the first connection. A shortcutting pass
+replaces sub-paths with straight edges while keeping the knot times, so that the arrival time does not
+change.
+
+\textbf{Goals.} Intercept times span the window in which the object is reachable and the tail still fits
+in the episode. IK families are seeded with their own solution at the previous $T$, so each family is a
+consistent arm posture. When a pre-grasp or tail collides, the planner searches the elbow's self-motion
+(the one-dimensional null space of the gripper pose), since obstacles mostly meet the elbow rather than
+the hand. Grasp candidates are top-down along both horizontal axes and tilted by $\pm35^\circ$.
+
+\textbf{Executable motion.} Space-time plans cannot be retimed afterwards (for example by
+TOPP-RA~\cite{pham2018toppra}), since their timing is what avoids the obstacles. The executed motion is a
+$C^1$ cubic Hermite curve through the knots at their times. To keep its acceleration within per-joint
+limits $a_{\max}$ (fractions of the reference limits used for the iiwa in~\cite{kiemel2024jerk}), every
+knot must satisfy $|v_{\text{out}}-v_{\text{in}}|_j \le a_{\max,j}\min(h_{\text{in}},h_{\text{out}})/6$.
+Extensions project their velocity into this window instead of rejecting samples, and the trees are joined
+by exact single-edge shots that satisfy it at both ends. Before use, every plan is checked for joint
+limits, 95\% of the velocity limits, the acceleration limits, joint torques by inverse dynamics (within
+90\% of the datasheet), and collisions.
+
+\textbf{Collision checking.} Signed-distance queries keep 3\,cm from obstacles and 5\,mm from the cart
+and floor, sampling edges at least every 0.03\,rad and 0.04\,s. From the moment the gripper closes, the
+held object moves with the gripper and must clear the obstacles too.
+
+\textbf{Replanning and safety.} (B) replans every 0.5\,s from the state the arm will be in when planning
+ends, keeping the executing trajectory as a prefix. Its budget is 0.25\,s (1.5\,s for the first plan),
+and is raised when a collision is predicted. If the executing plan becomes unsafe, it tries cheap
+\emph{escape primitives} (brake, go home, swing a joint, fold the arm), then a random-tree escape. After
+the grasp, the arm must end somewhere it can stay safely, or the planner appends a gentle retreat with
+the object in hand. \emph{Trade-off:} (B) is safe and executable by construction, but each plan takes
+hundreds of milliseconds, and it only grasps when a goal is reachable within its limits.
+
+\subsection{(C) Space-time trajectory optimization seeded by IK}
+
+(C) plans the whole grasp as two problems in Drake's \texttt{KinematicTrajectoryOptimization}: a clamped
+cubic B-spline $q(s)=\sum_j b_j(s)P_j$ executed at $t=t_0+sT$. The \textbf{approach} problem is
+\begin{equation}
+\begin{aligned}
+\min_{P,\,T}\ & T + 0.1\textstyle\sum_j \lVert P_{j+1}-P_j\rVert^2\\
+\text{s.t.}\ & q(0)=q_0,\ \dot q(0)=v_0,\ |\ddot q|\le 4\,\text{rad/s}^2,\\
+& \text{joint and velocity limits},\\
+& \text{grasp pose of time } t_0+T \text{ at } s=1, \text{ moving with it},\\
+& \text{hover 10\,cm above it at } s_d, \text{ straight descent},\\
+& d_O(q(s_k), t_0+s_kT)\ge 4\,\text{cm},\ d_{\text{env}}\ge 5\,\text{mm},\\
+& s_k = k/30,\ k=1,\dots,30,
+\end{aligned}
+\label{eq:kto}
+\end{equation}
+where $d_O$ is the minimum signed distance to the obstacles posed where they will be at that time. The
+duration $T$ is free, so the world's configuration enters the constraints as a function of $T$ and its
+gradient includes the obstacles' motion. A second \textbf{hold} problem, of fixed duration to the end of
+the scene, closes the gripper while moving with the object, lifts it 10\,cm and keeps clear of the
+obstacles.
+
+\textbf{Seeding.} Collision-aware IK finds a grasp and hover pose at candidate grasp times, starting
+from when the object passes closest to the robot, plus the earliest feasible one. Initial guesses are
+straight joint-space lines to these poses, the same through collision-free halfway configurations, and
+lines to later grasp times. Four worker processes solve the guesses in parallel with SNOPT at a loose
+tolerance, then refine them while time remains, and (C) keeps the lowest-cost plan.
+
+\textbf{Timing.} Planning starts 2\,s before $t_0$ and the arm holds still meanwhile. A plan that arrives
+late is rejected and redone with 1.5$\times$ the time it took. Without a plan, (C) replans at every update
+until the object leaves reach. If an obstacle would hit the parked arm first, a small \emph{dodge}
+optimization moves it out of the way. \emph{Trade-off:} (C) finds the fastest grasps, but solve times are
+unbounded and the arm cannot react while it computes.
+
+\subsection{(D) Learned policy: BC $\to$ DAgger $\to$ PPO}
+
+\textbf{Policy.} A $3\times512$ ReLU MLP runs every 0.1\,s. Its 84 inputs are the exact state: joint
+positions and commanded velocities, gripper opening and pose, the grasp-pose error in the gripper frame,
+the object's velocity and width, the four nearest obstacles (relative position, velocity, half extents,
+distance to the robot, presence flag), and the times until the object enters and leaves reach. It outputs
+the means of eight Gaussian actions: seven joint target velocities (through $\tanh$, reached by an
+acceleration-limited ramp) and the gripper width, with learned, state-independent noise.
+
+\textbf{Training.} Training uses a mix of fresh scenes (60\% like the held-out generator, 40\% blockers)
+that never includes a test scene.
+\begin{enumerate}
+  \item \emph{Behavior cloning} on 34{,}981 successful episodes of (C) (4.4M state-action pairs), with
+    small state noise.
+  \item \emph{DAgger}~\cite{ross2011dagger}: after some policy episodes, the policy's actions are replayed
+    up to a random time before failure, (C) plans from the moving robot with the simulation paused, and,
+    if (C) succeeds, its actions become labels (5.0M in all).
+  \item \emph{PPO}~\cite{schulman2017ppo} with GAE ($\gamma=0.99$, $\lambda=0.95$)~\cite{schulman2016gae},
+    in its decoupled form for asynchronous workers~\cite{hilton2022batch}, with an imitation loss on
+    (C)'s demonstrations and DAgger labels whose weight is ramped down as the PPO weight ramps up.
+\end{enumerate}
+The reward combines potential-based shaping terms~\cite{ng1999shaping} for progress toward the grasp pose
+and for clearance from obstacles, the cart and the floor, a bonus for closing at the grasp pose at the
+object's velocity, and terminal rewards ($+1$ success, $-1$ collision or drop, $-2$ for a failure after
+success). Training runs on about 400 CPU workers feeding one GPU learner, and the selected checkpoint
+(42.7M steps, 3.9\,h) is the best on 500 fresh training scenes (Train-500). Table~\ref{tab:rl} in the
+appendix lists the full schedule and hyperparameters. \emph{Trade-off:} (D) decides in about a
+millisecond, but it has no collision guarantee and depends on its training distribution.
+
+% ---------------------------------------------------------------------------------------------------
+\section{Experimental Setup}
+\label{sec:setup}
+
+\textbf{Scene sets.} We evaluate on 214 fixed scenes:
+\begin{itemize}
+  \item \emph{dev} (20): generated scenes used during development;
+  \item \emph{preset grids} (114): a 0.4\,m post (48) or a thin plank (48) that crosses the straight line
+    from the base to the object exactly when a direct grasp would happen, gridded over target speed,
+    obstacle speed and crossing time, and a 1.6\,m pillar that can only be passed on one side, combined with a
+    faster post (18);
+  \item \emph{held-out} (80): generated from a separate seed and not used for tuning, although some of its
+    failures were inspected during development.
+\end{itemize}
+
+\textbf{Protocol.} All runs use measured latency (Section~\ref{sec:problem}) on Apple-silicon laptops,
+with at most eight episodes in parallel; every non-success is rerun alone and that result counts, so
+that contention between parallel episodes does not cause failures. \todo{confirm the machine and
+protocol for each controller's final numbers; run-to-run variation is about $\pm2$ scenes for (B).}
+
+\textbf{Metrics.} Each metric maps to a design goal: success and the failure mode (G1, G2); time from
+the object entering reach to the grasp (G1); minimum obstacle clearance (G2); peak commanded joint speed
+and peak joint torque from inverse dynamics, as fractions of the limits (G3); and compute per plan or per
+decision, including failed attempts (G4).
+
+% ---------------------------------------------------------------------------------------------------
+\section{Results and Discussion}
+\label{sec:results}
+
+\begin{table}[t]
+  \centering
+  \caption{Successes per scene set (measured latency, scored to the end of each scene). Bold: best.}
+  \label{tab:success}
+  \setlength{\tabcolsep}{3pt}\small
+  \begin{tabular}{@{}lccccc@{}}
+    \toprule
+    & dev & grids & held-out & all & coll./t.o./drop \\
+    & (20) & (114) & (80) & (214) & \\
+    \midrule
+    Naive$^\dagger$ & -- & -- & 35 & -- & 40 collisions \\
+    (A) reactive QP     & 11 & 69  & 52 & 132 & 6 / 71 / 5 \\
+    (B) ST-RRT  & 15 & 95  & 63 & 173 & \textbf{0} / 41 / \textbf{0} \\
+    (C) traj.\ opt. & 17 & 106 & \textbf{72} & \textbf{195} & 9 / 10 / \textbf{0} \\
+    \midrule
+    (D) BC              & 10 & 104 & 37 & 151 & 58 / 2 / 3 \\
+    (D) BC + DAgger     & 11 & 106 & 38 & 155 & 57 / 2 / \textbf{0} \\
+    (D) PPO             & \textbf{18} & \textbf{113} & 62 & 193 & 17 / 1 / 3 \\
+    \bottomrule
+  \end{tabular}\\[2pt]
+  {\footnotesize $^\dagger$No obstacle avoidance; held-out set only, counted at the first success, before end-of-scene scoring.}
+\end{table}
+
+\begin{table}[t]
+  \centering
+  \caption{Quality of the motion over all 214 scenes (medians over episodes).}
+  \label{tab:quality}
+  \setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & (A) & (B) & (C) & (D) PPO \\
+    \midrule
+    Time to grasp after object in reach (s)  & 2.21 & 2.66 & \textbf{1.60} & \todo{} \\
+    Min.\ obstacle clearance (cm)            & 5.3  & \textbf{5.5} & 4.1 & \todo{} \\
+    Peak torque (fraction of limit)          & 2.20 & \textbf{0.34} & 0.44 & \todo{} \\
+    Peak joint speed (fraction of limit)     & 0.60 & \textbf{0.44} & 0.59 & \todo{} \\
+    Compute per plan / decision (ms)         & 2.2  & 862  & 1492 & \textbf{1.24} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+        xbar stacked, width=0.78\columnwidth, height=5.2cm, bar width=7pt,
+        xmin=0, xmax=214, xlabel={scenes (of 214)},
+        ytick={1,...,6}, yticklabels={(D) PPO,(D) BC+DAgger,(D) BC,(C),(B),(A)},
+        legend style={at={(0.5,1.02)}, anchor=south, legend columns=4, font=\footnotesize, draw=none},
+        tick label style={font=\footnotesize}, label style={font=\footnotesize}, enlarge y limits=0.12]
+      \addplot[fill=green!55!black, draw=none] coordinates {(132,6) (173,5) (195,4) (151,3) (155,2) (193,1)};
+      \addplot[fill=red!70, draw=none] coordinates {(6,6) (0,5) (9,4) (58,3) (57,2) (17,1)};
+      \addplot[fill=gray!55, draw=none] coordinates {(71,6) (41,5) (10,4) (2,3) (2,2) (1,1)};
+      \addplot[fill=orange!80, draw=none] coordinates {(5,6) (0,5) (0,4) (3,3) (0,2) (3,1)};
+      \legend{success, collision, timeout, dropped}
+    \end{axis}
+  \end{tikzpicture}
+  \caption{Outcomes on all 214 scenes. The planners differ mainly in how they fail: (A) and (B) time out
+  when they cannot get past an obstacle, while the learned policy almost never times out but collides
+  more often.}
+  \label{fig:outcomes}
+\end{figure}
+
+Table~\ref{tab:success} and Fig.~\ref{fig:outcomes} summarize the outcomes, and
+Table~\ref{tab:quality} the quality of the motion.
+
+\textbf{Safety vs.\ success.} (B) is the only method with no collisions and no drops in all 214 scenes
+(G2), and its motion stays at 34\% of the torque limits (G3). Its 41 failures are all timeouts: it
+abstains rather than risk a collision. (C) grasps the most (195) and fastest (median 1.60\,s after the
+object comes into reach), with lower clearance (4.1\,cm) and 9 collisions. (A) times out in 71 scenes,
+mostly behind obstacles that must be gone around: it grasps 2 of the 18 pillar scenes, against 6 for (B)
+and 10 for (C). Its velocity steps between phases also exceed the torque limits (median peak 2.2$\times$),
+so (A) fails G3 even when it succeeds.
+
+\textbf{Are (B)'s abstentions correct?} To tell whether (B) missed grasps that were possible, we certified
+each held-out scene it did not grasp, with an exhaustive goal search, a time-optimal bound and an oracle
+(the same planner with 20$\times$ the compute and free planning) at several acceleration limits.
+Table~\ref{tab:cert} shows the result: in 6 scenes no grasp is feasible at any acceleration, in 5 grasps
+exist but even the oracle finds no plan, and 6 are possible only with more acceleration. So at most 69 of
+the 80 held-out scenes can be solved within (B)'s grasp model (its grasp candidates and fixed grasp tail)
+and acceleration limits, and (B) grasps 63: its search is not the bottleneck. These verdicts are relative
+to (B)'s goals, not absolute: (C) grasps several of these scenes (e.g.\ \texttt{mix\_0028},
+\texttt{mix\_0043}) with its own grasp poses, so (B)'s gap to (C) on the held-out set (63 vs.\ 72) is mainly
+one of goal coverage. \todo{list which certified scenes (C) and (D) grasp.}
+
+\begin{table}[t]
+  \centering
+  \caption{Certification of the 17 held-out scenes (B) does not grasp.}
+  \label{tab:cert}
+  \begin{tabular}{@{}lc@{}}
+    \toprule
+    Verdict & scenes \\
+    \midrule
+    No feasible grasp at any acceleration                     & 6 \\
+    Grasps exist, no plan even for the oracle                 & 5 \\
+    Possible only with more acceleration (one oracle success) & 6 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Compute.} (B) needs 862\,ms and (C) 1.5\,s per plan, while (A) and (D) decide in about a
+millisecond (G4). Because compute costs time, slow plans fail in a specific way: 7 of (C)'s 9 collisions
+are pillar scenes where the dodge takes 1.4--20\,s to compute, and in the other two the arm is hit while
+parked as a late first plan arrives. The policy (D) avoids this entirely: it recovers 193 of (C)'s 195
+successes at about 1/1200 of its compute.
+
+\textbf{Learning.} BC alone reaches 151 successes, but with 58 collisions, the classic symptom of
+compounding errors away from the expert's states. DAgger barely helps (155), while PPO fine-tuning cuts
+collisions from 58 to 17 and raises Train-500 success from 66\% to 90\%. The policy is best on the preset
+grids (113 of 114), which resemble its training blockers, but falls behind (B) and (C) on the held-out
+set (62), where 15 of its 18 failures are collisions: it generalizes less well to unseen obstacle
+configurations than the planners, which check every motion against the predicted obstacles.
+
+\textbf{Examples.} Fig.~\ref{fig:examples} shows held-out scenes in which the methods differ, and
+Fig.~\ref{fig:ppo} a scene in which only the policy succeeds. Together they illustrate the failure modes
+above: drops caused by (A)'s abrupt motion, (B) waiting in an escape pose, and (C)'s late plans.
+
+\begin{figure*}[t]
+  \centering
+  \setlength{\tabcolsep}{1pt}
+  \begin{tabular}{@{}cccc@{}}
+    scene, $t=0$ & (A) reactive & (B) space-time RRT & (C) trajectory opt. \\
+    \includegraphics[width=0.24\textwidth]{frames/mix_0036_0.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0036_1.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0036_2.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0036_3.jpg} \\
+    \includegraphics[width=0.24\textwidth]{frames/mix_0043_0.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0043_1.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0043_2.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0043_3.jpg} \\
+    \includegraphics[width=0.24\textwidth]{frames/mix_0079_0.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0079_1.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0079_2.jpg} &
+    \includegraphics[width=0.24\textwidth]{frames/mix_0079_3.jpg} \\
+  \end{tabular}
+  \caption{Held-out examples. \emph{Top} (\texttt{mix\_0036}, \vid{mix_0036}): all three grasp the mustard
+  bottle, but it slips out of (A)'s gripper right after the lift. \emph{Middle} (\texttt{mix\_0043},
+  \vid{mix_0043}): two boxes and a sphere pass the arm; (A) grasps late and flings the bottle away while
+  swerving around the sphere, (B) never leaves its escape pose, and only (C) holds the object.
+  \emph{Bottom} (\texttt{mix\_0079}, \vid{mix_0079}): three boxes and a sphere crowd the arm; (A) cannot
+  get past them, (B) escapes and times out, and (C)'s plan arrives too late, so a box hits the parked arm.
+  This scene is one of the five that even (B)'s oracle cannot solve.}
+  \label{fig:examples}
+\end{figure*}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.325\columnwidth]{frames/pillar_and_blocker_v0.15_o0.40_p0.05_off0.12_0.jpg}\hfill
+  \includegraphics[width=0.325\columnwidth]{frames/pillar_and_blocker_v0.15_o0.40_p0.05_off0.12_1.jpg}\hfill
+  \includegraphics[width=0.325\columnwidth]{frames/pillar_and_blocker_v0.15_o0.40_p0.05_off0.12_2.jpg}
+  \caption{A pillar sweeps through the start pose (left, $t=0$). The policy (D, middle) pulls the arm
+  back and grasps at 5.7\,s; (C, right) is still computing its dodge when the pillar hits it at 2.2\,s
+  (frames at 2.3\,s; \vid{pillar_and_blocker_v0.15_o0.40_p0.05_off0.12}).}
+  \label{fig:ppo}
+\end{figure}
+
+\textbf{Back to the design goals.} No method meets all four goals. (B) is the only one that meets G2 and
+G3 throughout, at the cost of G1 and G4. (C) comes closest to G1 but violates G2 when its computation
+runs late. (D) meets G4 and nearly matches (C) on G1, but not G2 on unseen scenes. (A) meets G4 only.
+This suggests combining the methods: a fast policy or reactive layer for real-time response, with a
+planner's collision check as a safety filter, or a planner warm-started by the policy.
+
+% ---------------------------------------------------------------------------------------------------
+\section{Limitations and Conclusion}
+\label{sec:conclusion}
+
+\textbf{Limitations.}
+(i) \emph{Exact prediction.} Every controller is given the true future motion of the scene. With perfect
+prediction, a valid plan never goes stale, which favors the deliberative methods.
+(ii) \emph{No perception.} The object's pose, identity and geometry are known.
+(iii) \emph{Simulation only}, with a rigid model of the held object (no slip in (B)'s checks).
+(iv) \emph{Goal coverage.} Most of (B)'s misses have no feasible goal at all; more grasp types and a
+shorter grasp tail at high cart speeds would help.
+(v) \emph{Compute.} (B) spends about 70\,$\mu$s per state check; a vectorized checker such as
+VAMP~\cite{thomason2024vamp} would allow more replans and larger trees.
+(vi) \emph{Evaluation.} Measured latency depends on the machine, and some held-out failures were inspected
+during development.
+
+\textbf{Conclusion.} We compared four ways to grasp a moving object among moving obstacles on a shared
+benchmark that charges computation against the clock and scores to the end of the scene. Deliberative
+space-time planning gives the safest, most executable motion, trajectory optimization reaches the most
+grasps, and a policy distilled from the optimizer and fine-tuned with PPO recovers nearly all of its
+successes at a millisecond per decision, but collides more in scenes unlike its training data.
+
+\textbf{Next: perception.} Our next step is to remove the most unrealistic assumption, that the scene is
+known exactly. The simulated station already has cameras; we plan to estimate the object's pose from
+point clouds \todo{method: e.g.\ geometric registration against the known model, or a learned grasp
+detector~\cite{sundermeyer2021contactgraspnet,zhai2023monograspnet}}, track the obstacles and predict their
+motion from noisy observations, and measure how each controller degrades as prediction error grows.
+Replanning methods such as (B) should then gain on methods that commit to one plan.
+\todo{scope of the perception extension and who owns it.}
+
+% ---------------------------------------------------------------------------------------------------
+\section*{Acknowledgments}
+
+We thank the 6.4212 course staff, in particular Guillermo Mendoza Contreras, for feedback on the project
+scope. \textbf{AI use.} Implementations of the experiments used AI after the initial experiments were designed and the scenes were implemented. Additionally, Claude and ChatGPT were used to help structure this report before being revised by the authors.
+
+\begin{thebibliography}{99}
+
+\bibitem{allen1993tracking}
+P.~K. Allen, A.~Timcenko, B.~Yoshimi, and P.~Michelman, ``Automated tracking and grasping of a moving
+object with a robotic hand-eye system,'' \emph{IEEE Trans. Robot. Autom.}, vol.~9, no.~2, pp.~152--165,
+1993.
+
+\bibitem{marturi2019dynamic}
+N.~Marturi, M.~Kopicki, A.~Rastegarpanah, V.~Rajasekaran, M.~Adjigble, R.~Stolkin, A.~Leonardis, and
+Y.~Bekiroglu, ``Dynamic grasp and trajectory planning for moving objects,'' \emph{Auton. Robots},
+vol.~43, no.~5, pp.~1241--1256, 2019.
+
+\bibitem{akinola2021dynamic}
+I.~Akinola, J.~Xu, S.~Song, and P.~K. Allen, ``Dynamic grasping with reachability and motion
+awareness,'' in \emph{Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS)}, 2021.
+
+\bibitem{fiorini1998velocity}
+P.~Fiorini and Z.~Shiller, ``Motion planning in dynamic environments using velocity obstacles,''
+\emph{Int. J. Robot. Res.}, vol.~17, no.~7, pp.~760--772, 1998.
+
+\bibitem{kuffner2000rrtconnect}
+J.~J. Kuffner and S.~M. LaValle, ``RRT-Connect: An efficient approach to single-query path planning,'' in
+\emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2000.
+
+\bibitem{grothe2022strrt}
+F.~Grothe, V.~N. Hartmann, A.~Orthey, and M.~Toussaint, ``ST-RRT*: Asymptotically-optimal bidirectional
+motion planning through space-time,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2022.
+
+\bibitem{thomason2024vamp}
+W.~Thomason, Z.~Kingston, and L.~E. Kavraki, ``Motions in microseconds via vectorized sampling-based
+planning,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2024.
+
+\bibitem{khatib1986realtime}
+O.~Khatib, ``Real-time obstacle avoidance for manipulators and mobile robots,'' \emph{Int. J. Robot.
+Res.}, vol.~5, no.~1, pp.~90--98, 1986.
+
+\bibitem{faverjon1987local}
+B.~Faverjon and P.~Tournassoud, ``A local based approach for path planning of manipulators with a high
+number of degrees of freedom,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 1987.
+
+\bibitem{haviland2021neo}
+J.~Haviland and P.~Corke, ``NEO: A novel expeditious optimisation algorithm for reactive motion control
+of manipulators,'' \emph{IEEE Robot. Autom. Lett.}, vol.~6, no.~2, pp.~1043--1050, 2021.
+
+\bibitem{ratliff2009chomp}
+N.~Ratliff, M.~Zucker, J.~A. Bagnell, and S.~Srinivasa, ``CHOMP: Gradient optimization techniques for
+efficient motion planning,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2009.
+
+\bibitem{schulman2014trajopt}
+J.~Schulman, Y.~Duan, J.~Ho, A.~Lee, I.~Awwal, H.~Bradlow, J.~Pan, S.~Patil, K.~Goldberg, and
+P.~Abbeel, ``Motion planning with sequential convex optimization and convex collision checking,''
+\emph{Int. J. Robot. Res.}, vol.~33, no.~9, pp.~1251--1270, 2014.
+
+\bibitem{tedrake2019drake}
+R.~Tedrake and the Drake Development Team, ``Drake: Model-based design and verification for robotics,''
+2019. [Online]. Available: https://drake.mit.edu
+
+\bibitem{tedrake2024manipulation}
+R.~Tedrake, \emph{Robotic Manipulation: Perception, Planning, and Control}, course notes for MIT 6.4210.
+[Online]. Available: http://manipulation.mit.edu
+
+\bibitem{gill2005snopt}
+P.~E. Gill, W.~Murray, and M.~A. Saunders, ``SNOPT: An SQP algorithm for large-scale constrained
+optimization,'' \emph{SIAM Rev.}, vol.~47, no.~1, pp.~99--131, 2005.
+
+\bibitem{stellato2020osqp}
+B.~Stellato, G.~Banjac, P.~Goulart, A.~Bemporad, and S.~Boyd, ``OSQP: An operator splitting solver for
+quadratic programs,'' \emph{Math. Program. Comput.}, vol.~12, no.~4, pp.~637--672, 2020.
+
+\bibitem{pham2018toppra}
+H.~Pham and Q.-C. Pham, ``A new approach to time-optimal path parameterization based on reachability
+analysis,'' \emph{IEEE Trans. Robot.}, vol.~34, no.~3, pp.~645--659, 2018.
+
+\bibitem{kiemel2024jerk}
+J.~C. Kiemel and T.~Kr\"oger, ``Jerk-limited traversal of one-dimensional paths and its application to
+multi-dimensional path tracking,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2024,
+arXiv:2407.13423.
+
+\bibitem{fishman2022mpinets}
+A.~Fishman, A.~Murali, C.~Eppner, B.~Peele, B.~Boots, and D.~Fox, ``Motion policy networks,'' in
+\emph{Proc. Conf. Robot Learn. (CoRL)}, 2022.
+
+\bibitem{ross2011dagger}
+S.~Ross, G.~J. Gordon, and J.~A. Bagnell, ``A reduction of imitation learning and structured prediction
+to no-regret online learning,'' in \emph{Proc. Int. Conf. Artif. Intell. Statist. (AISTATS)}, 2011.
+
+\bibitem{schulman2017ppo}
+J.~Schulman, F.~Wolski, P.~Dhariwal, A.~Radford, and O.~Klimov, ``Proximal policy optimization
+algorithms,'' arXiv:1707.06347, 2017.
+
+\bibitem{schulman2016gae}
+J.~Schulman, P.~Moritz, S.~Levine, M.~Jordan, and P.~Abbeel, ``High-dimensional continuous control using
+generalized advantage estimation,'' in \emph{Proc. Int. Conf. Learn. Represent. (ICLR)}, 2016.
+
+\bibitem{hilton2022batch}
+J.~Hilton, K.~Cobbe, and J.~Schulman, ``Batch size-invariance for policy optimization,'' in \emph{Adv.
+Neural Inf. Process. Syst. (NeurIPS)}, 2022.
+
+\bibitem{ng1999shaping}
+A.~Y. Ng, D.~Harada, and S.~Russell, ``Policy invariance under reward transformations: Theory and
+application to reward shaping,'' in \emph{Proc. Int. Conf. Mach. Learn. (ICML)}, 1999.
+
+\bibitem{calli2015ycb}
+B.~Calli, A.~Walsman, A.~Singh, S.~Srinivasa, P.~Abbeel, and A.~M. Dollar, ``Benchmarking in
+manipulation research: Using the Yale-CMU-Berkeley object and model set,'' \emph{IEEE Robot. Autom.
+Mag.}, vol.~22, no.~3, pp.~36--52, 2015.
+
+\bibitem{sundermeyer2021contactgraspnet}
+M.~Sundermeyer, A.~Mousavian, R.~Triebel, and D.~Fox, ``Contact-GraspNet: Efficient 6-DoF grasp
+generation in cluttered scenes,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom. (ICRA)}, 2021.
+
+\bibitem{zhai2023monograspnet}
+G.~Zhai, D.~Huang, S.-C. Wu, H.~Jung, Y.~Di, F.~Manhardt, F.~Tombari, N.~Navab, and B.~Busam,
+``MonoGraspNet: 6-DoF grasping with a single RGB image,'' in \emph{Proc. IEEE Int. Conf. Robot. Autom.
+(ICRA)}, 2023.
+
+\end{thebibliography}
+
+% ---------------------------------------------------------------------------------------------------
+\appendix
+
+\begin{table}[h]
+  \centering
+  \caption{Training details of the learned policy (D).}
+  \label{tab:rl}
+  \footnotesize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.22\columnwidth}>{\raggedright\arraybackslash}p{0.74\columnwidth}@{}}
+    \toprule
+    BC & Adam $3\cdot10^{-4}$, batch 512, 40 epochs; state noise $s'=s+0.02\epsilon$; EMA of weights (0.999) \\
+    DAgger & label probability 0.25; switch time $\sim U[0, t_{\text{fail}}-0.2\,\text{s}]$; (C) gets $\le10$\,s
+      wall time per plan; 3.3M labels before PPO \\
+    PPO & clip 0.2; 4 epochs per batch of 32{,}768 steps, early stop at KL $>0.03$; minibatch 4096 PPO
+      + 4096 imitation rows; decoupled ratio with weight $\min(\pi_{\text{prox}}/\pi_{\text{beh}},2)$ \\
+    Critic & own $3\times512$ LayerNorm MLP, pretrained on 40k BC rollouts; returns of the last 2 batches \\
+    Learning rates & actor $5\cdot10^{-5}$ (halved from batch 747), $\log\sigma$ $10^{-3}$, critic $3\cdot10^{-4}$ \\
+    Schedule & imitation only until the critic's explained variance $\ge0.5$ (batch 100); 300-batch ramp of
+      the PPO weight $0\to1$ and imitation weight $0.04\to0$; entropy and learning-rate anneal to 0 over
+      batches 1100--1800; checkpoint 1300 selected on Train-500 \\
+    Rewards & $r_t=0.937\,\Delta\Phi_p+\Delta\Phi_c+\Delta\Phi_e+r_{\text{close}}+r_{\text{end}}$,
+      $\Delta\Phi=\gamma\Phi(s_{t+1})-\Phi(s_t)$; $\Phi_p=-(\lVert p_G-p_{\text{grasp}}\rVert+0.1\theta_{\text{err}})$;
+      $\Phi_c=-0.5\max(0,1-d_{\text{obst}}/4\,\text{cm})$;
+      $\Phi_e=-0.25\max(0,1-d_{\text{arm}}/2\,\text{cm},1-d_{\text{hand}}/5\,\text{mm})$;
+      close within 1\,cm and $10^\circ$: $0.5e^{-|v_G-v_{\text{obj}}|/0.05}$, else $-0.1$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}
