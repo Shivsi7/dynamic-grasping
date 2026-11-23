@@ -396,10 +396,11 @@ millisecond, but it has no collision guarantee and depends on its training distr
     failures were inspected during development.
 \end{itemize}
 
-\textbf{Protocol.} All runs use measured latency (Section~\ref{sec:problem}) on Apple-silicon laptops,
-with at most eight episodes in parallel; every non-success is rerun alone and that result counts, so
-that contention between parallel episodes does not cause failures. \todo{confirm the machine and
-protocol for each controller's final numbers; run-to-run variation is about $\pm2$ scenes for (B).}
+\textbf{Protocol.} All runs use measured latency (Section~\ref{sec:problem}) on 10-core Apple-silicon
+laptops, with eight episodes in parallel; every non-success is then rerun alone and that result counts,
+so that contention between parallel episodes does not cause failures. Each controller is evaluated once
+per scene at a fixed commit of the shared repository. Because measured latency is wall time, results vary
+slightly between runs: for (B), repeated runs of the held-out set differ by about $\pm2$ scenes.
 
 \textbf{Metrics.} Each metric maps to a design goal: success and the failure mode (G1, G2); time from
 the object entering reach to the grasp (G1); minimum obstacle clearance (G2); peak commanded joint speed
@@ -485,29 +486,37 @@ and 10 for (C). Its velocity steps between phases also exceed the torque limits 
 so (A) fails G3 even when it succeeds.
 
 \textbf{Are (B)'s abstentions correct?} To tell whether (B) missed grasps that were possible, we certified
-each held-out scene it did not grasp, with an exhaustive goal search, a time-optimal bound and an oracle
-(the same planner with 20$\times$ the compute and free planning) at several acceleration limits.
-Table~\ref{tab:cert} shows the result: in 6 scenes no grasp is feasible at any acceleration, in 5 grasps
-exist but even the oracle finds no plan, and 6 are possible only with more acceleration. So at most 69 of
-the 80 held-out scenes can be solved within (B)'s grasp model (its grasp candidates and fixed grasp tail)
-and acceleration limits, and (B) grasps 63: its search is not the bottleneck. These verdicts are relative
-to (B)'s goals, not absolute: (C) grasps several of these scenes (e.g.\ \texttt{mix\_0028},
-\texttt{mix\_0043}) with its own grasp poses, so (B)'s gap to (C) on the held-out set (63 vs.\ 72) is mainly
-one of goal coverage. \todo{list which certified scenes (C) and (D) grasp.}
+each held-out scene it did not grasp. An exhaustive goal search (dense intercept times, many IK seeds and
+elbow postures, (B)'s grasp candidates and grasp tail) tests whether any goal exists; an \emph{oracle},
+the same planner with 20$\times$ the compute and planning time free, tests whether a plan to one exists;
+and repeating the oracle at higher acceleration limits gives the acceleration each scene needs.
+Table~\ref{tab:cert} shows the result. In 7 scenes no goal exists at all, and in 6 more goals exist but
+even the oracle finds no plan within (B)'s limits (two of these become possible at $1.33\times$ its
+acceleration). So at most 67 of the 80 held-out scenes can be solved within (B)'s grasp model and limits,
+and (B) grasps 63. The remaining 4 are solved by the oracle at (B)'s own limits: there, the online
+planner's compute budget, not the problem, is what fails, which is the case for faster collision checking
+made in Section~\ref{sec:conclusion}. The verdicts are relative to (B)'s goals, not absolute: (C), with its
+own grasp poses and seeding, grasps 9 of the 17 scenes, including one with no goal for (B)
+(\texttt{mix\_0028}) and three where (B)'s oracle fails. (B)'s gap to (C) on the held-out set (63 vs.\ 72)
+is therefore mostly goal coverage, and partly compute. \todo{add (D)'s outcomes on these 17 scenes.}
 
 \begin{table}[t]
   \centering
-  \caption{Certification of the 17 held-out scenes (B) does not grasp.}
+  \caption{Certification of the 17 held-out scenes (B) does not grasp, and how many of them (C) grasps.}
   \label{tab:cert}
-  \begin{tabular}{@{}lc@{}}
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}lcc@{}}
     \toprule
-    Verdict & scenes \\
+    Verdict for (B) & scenes & (C) grasps \\
     \midrule
-    No feasible grasp at any acceleration                     & 6 \\
-    Grasps exist, no plan even for the oracle                 & 5 \\
-    Possible only with more acceleration (one oracle success) & 6 \\
+    No goal in (B)'s grasp model                        & 7 & 1 \\
+    Goals exist, no plan even for the oracle$^\ast$      & 6 & 4 \\
+    Oracle succeeds at (B)'s limits (missed online)     & 4 & 4 \\
+    \midrule
+    Total                                               & 17 & 9 \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}\\[2pt]
+  {\footnotesize $^\ast$Two become possible at $1.33\times$ (B)'s acceleration limits.}
 \end{table}
 
 \textbf{Compute.} (B) needs 862\,ms and (C) 1.5\,s per plan, while (A) and (D) decide in about a
@@ -551,7 +560,7 @@ above: drops caused by (A)'s abrupt motion, (B) waiting in an escape pose, and (
   swerving around the sphere, (B) never leaves its escape pose, and only (C) holds the object.
   \emph{Bottom} (\texttt{mix\_0079}, \vid{mix_0079}): three boxes and a sphere crowd the arm; (A) cannot
   get past them, (B) escapes and times out, and (C)'s plan arrives too late, so a box hits the parked arm.
-  This scene is one of the five that even (B)'s oracle cannot solve.}
+  This scene is one of the six that even (B)'s oracle cannot solve.}
   \label{fig:examples}
 \end{figure*}
 
@@ -581,10 +590,11 @@ planner's collision check as a safety filter, or a planner warm-started by the p
 prediction, a valid plan never goes stale, which favors the deliberative methods.
 (ii) \emph{No perception.} The object's pose, identity and geometry are known.
 (iii) \emph{Simulation only}, with a rigid model of the held object (no slip in (B)'s checks).
-(iv) \emph{Goal coverage.} Most of (B)'s misses have no feasible goal at all; more grasp types and a
-shorter grasp tail at high cart speeds would help.
-(v) \emph{Compute.} (B) spends about 70\,$\mu$s per state check; a vectorized checker such as
-VAMP~\cite{thomason2024vamp} would allow more replans and larger trees.
+(iv) \emph{Goal coverage.} 13 of (B)'s 17 held-out misses have no goal or no plan in its grasp model;
+more grasp types and a shorter grasp tail at high cart speeds would help.
+(v) \emph{Compute.} (B) spends about 70\,$\mu$s per state check, and 4 of its held-out misses are
+solvable with more compute; a vectorized checker such as VAMP~\cite{thomason2024vamp} would allow more
+replans and larger trees.
 (vi) \emph{Evaluation.} Measured latency depends on the machine, and some held-out failures were inspected
 during development.
 

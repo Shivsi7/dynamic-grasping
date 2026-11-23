@@ -99,6 +99,7 @@ def certify(spec_dict: dict, wall_scale: float, sweep: tuple = ()) -> dict:
     c0 = SpaceTimeRRTController(STRRTConfig(retreat_budget=10 * cfg.retreat_budget, lazy_retreat=False))
     c0.reset(world, robot, None)
     ck = c0.checker
+    c0.goalgen.stats = gg.stats  # finish_tail counts retreats there; c0's own search never starts
     tail_free, finish = c0.tail_free, c0.finish_tail
 
     goals = []
