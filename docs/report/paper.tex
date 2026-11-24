@@ -748,51 +748,65 @@ G.~Zhai, D.~Huang, S.-C. Wu, H.~Jung, Y.~Di, F.~Manhardt, F.~Tombari, N.~Navab, 
 \label{app:methods}
 
 Values are those of the 214-scene evaluation, which builds every controller with its defaults.
-\emph{Notation:} $q_{lo},q_{hi}$, $v_{\max}$, $\tau_{\max}$: the iiwa's joint limits, speeds and torques (datasheet);
-$a_{\text{ref}}=(15,7.5,10,12.5,15,20,20)$\,rad/s$^2$: reference joint accelerations~\cite{kiemel2024jerk};
-$X_G=(R_G,p_G)$, $J(q)\in\mathbb R^{6\times7}$: pose and [angular; linear] Jacobian of the WSG body;
-$X^*(t)=(R^*,p^*(t))$: the object's top-down grasp pose; $v_{\text{obj}}$: the cart's velocity;
-$[t_{\text{enter}},t_{\text{exit}}]$: when the object is in reach; $t_{\text{end}}$: end of the scene; $\hat z$: up;
-$\sigma(s)=10s^3-15s^4+6s^5$ (minimum jerk). Gripper: 0.107\,m open, 0 closed. Vector inequalities hold per
-component.
+
+\emph{Notation.} \emph{Robot:} $q,\dot q,\ddot q$: joint positions, velocities, accelerations; $q_{lo},q_{hi}$,
+$v_{\max}$: joint limits and speed limits (datasheet); $a_{\text{ref}}=(15,7.5,10,12.5,15,20,20)$\,rad/s$^2$:
+reference joint accelerations~\cite{kiemel2024jerk}; $X_G=(R_G,p_G)$: pose of the WSG body, $\omega_G,v_G$: its
+angular and linear velocity, $J(q)\in\mathbb R^{6\times7}$: its [angular; linear] Jacobian; opening 0.107\,m
+(open) to 0 (closed). \emph{Scene:} $X^*(t)=(R^*,p^*(t))$: the gripper pose that grasps the object at time $t$
+(top-down; (B) also tries others); $v_{\text{obj}}$: the object's velocity (the cart's); $\hat z$: up; $z_G$, $z^*$:
+heights of $p_G$, $p^*$; $t_{\text{enter}},t_{\text{exit}}$: when the object enters and leaves reach; $t_{\text{end}}$:
+end of the scene. \emph{Geometry:} the robot is links 1--7, the WSG body and its open fingers; $\phi$: a signed
+distance between it and the world posed as predicted at the queried time; $d$: a required clearance. Gripper--object
+contact never counts, since a grasp is such contact. \emph{Motion:} $x\in[0,1]$: progress through a timed motion;
+$m(x)=10x^3-15x^4+6x^5$: minimum-jerk profile (0 to 1, zero velocity and acceleration at both ends); $\tau$: time
+since a motion's start. Vector inequalities and $|\cdot|$ hold per component.
 
 % ---------------------------------------------------------------------------------------------------
 \subsection{(A) Reactive QP}
 \label{app:A}
 
-Every 10\,ms, at the measured $q$ and $X_G$, (A) solves
+Every 10\,ms, at the measured $q$ and $X_G$, (A) finds the joint velocities that best track a target twist while no
+robot--world pair closes faster than its distance allows:
 \begin{equation}
 \begin{aligned}
 \min_{\dot q,\,s}\ & \lVert W(J\dot q-V)\rVert^2+\lambda\lVert\dot q\rVert^2+\mu\lVert\dot q-\dot q_{\text{prev}}\rVert^2\\
 & +100\textstyle\sum_i s_i+1000\lVert s\rVert^2\\
-\text{s.t.}\ & a_i\dot q+s_i\ \ge\ -\xi(\phi_i-d_i)+b_i,\quad s_i\ge0,\\
-& \tfrac{q_{lo}+0.05-q}{0.2}\le\dot q\le\tfrac{q_{hi}-0.05-q}{0.2},\quad|\dot q|\le\bar v.
+\text{s.t.}\ & n_i^\top J_{r,i}\,\dot q+s_i\ \ge\ -\xi(\phi_i-d_i)+n_i^\top v_{w,i},\quad s_i\ge0,\\
+& \tfrac{q_{lo}+0.05-q}{0.2}\le\dot q\le\tfrac{q_{hi}-0.05-q}{0.2},\quad|\dot q|\le0.6\,v_{\max}.
 \end{aligned}
 \label{eq:qpfull}
 \end{equation}
 \begin{itemize}
-  \item \emph{Target twist:} $V=\big[k_R\,e_R;\ \operatorname{sat}(k_p e_p+v_{\text{ff}})\big]$, with $e_R$ the
-    axis-angle of $R_dR_G^\top$ and $e_p=p_d-p_G$ for the phase's target $(R_d,p_d)$ and feedforward $v_{\text{ff}}$
-    (Table~\ref{tab:phasesA}); $k_R=k_p=4\,\text{s}^{-1}$; $\operatorname{sat}(x)=x\min(1,0.8/\lVert x\rVert)$ (the
-    angular part is not capped).
-  \item \emph{Dampers:} for $\tau\in\{t,t+0.1,t+0.2\}$\,s, the robot at $q$ (links 1--7, WSG body, open fingers)
-    against the world as predicted at $\tau$ (obstacles, cart, floor, target; not WSG--target): one row per pair $i$
-    with signed distance $\phi_i\le0.25$\,m. $n_i$: unit normal, world to robot witness point;
-    $a_i=n_i^\top J_{r,i}(q)$, $J_{r,i}$: translational Jacobian of the robot witness point; $b_i=n_i^\top v_{w,i}$,
-    $v_{w,i}$: predicted velocity of the world witness point. $d_i$: 4\,cm (obstacles), 5\,mm (cart, floor, target);
-    $\xi=2\,\text{s}^{-1}$. As $\dot\phi_i=a_i\dot q-b_i$, a pair closes at most at $\xi(\phi_i-d_i)$.
-  \item \emph{Weights and limits:} $W=I_6$, and $\operatorname{diag}(1,1,1,1,1,10)$ in the lift (the height counts
-    100$\times$); $\lambda=\mu=5\cdot10^{-3}$; $\dot q_{\text{prev}}$: the last cycle's $\dot q$; $\bar v=0.6\,v_{\max}$.
+  \item \emph{Target twist:} $V=\big[k_R\,e_R;\ \operatorname{sat}(k_p e_p+v_{\text{ff}})\big]$, a pull towards the
+    phase's target pose $(R_d,p_d)$ plus a feedforward velocity $v_{\text{ff}}$ (Table~\ref{tab:phasesA});
+    $e_R$: axis-angle of $R_dR_G^\top$, $e_p=p_d-p_G$; $k_R=k_p=4\,\text{s}^{-1}$;
+    $\operatorname{sat}(v)=v\min(1,0.8/\lVert v\rVert)$ caps the linear part at 0.8\,m/s (the angular part is not
+    capped).
+  \item \emph{Dampers}, one row per pair $i$ closer than 25\,cm between the robot at $q$ and the world (obstacles,
+    cart, floor, object) as predicted at $t$, $t+0.1$ and $t+0.2$\,s; gripper--object pairs are left out so that the
+    gripper can grasp. $\phi_i$: signed distance; $n_i$: unit normal from the world to the robot witness point;
+    $J_{r,i}$: translational Jacobian of the robot witness point; $v_{w,i}$: predicted velocity of the world
+    witness point; $d_i$: 4\,cm (obstacles), 5\,mm (cart, floor, object); $\xi=2\,\text{s}^{-1}$. As
+    $\dot\phi_i=n_i^\top(J_{r,i}\dot q-v_{w,i})$, with $s_i=0$ the row is $\dot\phi_i\ge-\xi(\phi_i-d_i)$: the pair
+    may close at most at rate $\xi(\phi_i-d_i)$, so $\phi_i$ falls towards $d_i$ no faster than exponentially. The
+    slacks $s$ keep the QP feasible when dampers conflict.
+  \item \emph{Joint limits:} each joint may approach its limit (minus 0.05\,rad) at most fast enough to reach it in
+    0.2\,s; speeds stay within $0.6\,v_{\max}$.
+  \item \emph{Weights:} $W=I_6$, and $\operatorname{diag}(1,1,1,1,1,10)$ in the lift (the height error counts
+    100$\times$); $\lambda=\mu=5\cdot10^{-3}$; $\dot q_{\text{prev}}$: the last cycle's $\dot q$.
   \item \emph{Solve and command:} OSQP on a Drake program built every cycle ($\dot q=0$ if it fails);
     $q_{\text{cmd}}\leftarrow\operatorname{clip}(q_{\text{cmd}}+0.01\,\dot q,\ q_{lo},q_{hi})$.
-  \item \emph{Lift reference:} from the lift's start $t_L$, with $p_0=p_G(t_L)$, $v_h$ the horizontal part of
-    $v_{\text{obj}}(t_L)$ and $s=\operatorname{clip}\big((t-t_L)/0.6,0,1\big)$:
-    $p_L=p_0+0.6\,v_h(s-2.5s^4+3s^5-s^6)+0.1\,\sigma(s)\hat z$, $\dot p_L=(1-\sigma(s))v_h+\tfrac{0.1}{0.6}\sigma'(s)\hat z$.
+  \item \emph{Lift reference:} over 0.6\,s from the lift's start $t_L$, the gripper's horizontal velocity decays from
+    the object's to 0 along $1-m(x)$ while its height rises 10\,cm along $m(x)$; then it holds. With
+    $x=\operatorname{clip}\big((t-t_L)/0.6,0,1\big)$, $p_0=p_G(t_L)$ and $v_h$ the horizontal part of
+    $v_{\text{obj}}(t_L)$: $\dot p_L=(1-m(x))\,v_h+\tfrac{0.1}{0.6}m'(x)\hat z$, and its integral
+    $p_L=p_0+0.6\,v_h(x-2.5x^4+3x^5-x^6)+0.1\,m(x)\hat z$.
 \end{itemize}
 
 \begin{table}[!t]
   \centering
-  \caption{Phases of (A). $t_c$: when the close began.}
+  \caption{Phases of (A).}
   \label{tab:phasesA}
   \footnotesize\setlength{\tabcolsep}{2.5pt}
   \begin{tabular}{@{}lllc>{\raggedright\arraybackslash}p{0.3\columnwidth}@{}}
@@ -803,7 +817,7 @@ Every 10\,ms, at the measured $q$ and $X_G$, (A) solves
     approach & $(R^*,p^*(t)+0.1\hat z)$   & $v_{\text{obj}}$  & open   & $t_{\text{enter}}\le t\le t_{\text{exit}}$,
                                                                          $\lVert e_p\rVert<2$\,cm, $\lVert e_R\rVert<0.1$ \\
     descend  & $X^*(t)$                   & $v_{\text{obj}}$  & open   & $\lVert e_p\rVert<1.5$\,cm \\
-    close    & $X^*(t)$                   & $v_{\text{obj}}$  & closed & $t-t_c>0.4$\,s \\
+    close    & $X^*(t)$                   & $v_{\text{obj}}$  & closed & 0.4\,s in this phase \\
     lift     & $(R^*,p_L(t))$             & $\dot p_L(t)$     & closed & -- (final) \\
     \bottomrule
   \end{tabular}
@@ -813,84 +827,132 @@ Every 10\,ms, at the measured $q$ and $X_G$, (A) solves
 \subsection{(B) Space-time RRT-Connect}
 \label{app:B}
 
-Algorithms~\ref{alg:cycle} and~\ref{alg:rrt} give the planner, Table~\ref{tab:paramsB} its parameters.
+(B) replans periodically (Alg.~\ref{alg:cycle}) with a bidirectional RRT in $(q,t)$ from the arm's future state to
+timed goals (Alg.~\ref{alg:rrt}); each goal is followed by a fixed grasp motion, its tail. Table~\ref{tab:paramsB}
+lists the parameters; in particular $\bar v=0.5v_{\max}$ and $a_{\max}=0.6a_{\text{ref}}$ are the RRT's speed and
+acceleration limits.
 
-\emph{Checks.} $\textsc{Free}(q,t)$: the robot (links 1--7, WSG) at $q$, the world as predicted at $t$: $\ge m_O$
-from the obstacles, $\ge m_E$ from the cart and floor, no penetration of the target (WSG excepted) or of itself; once
-the gripper closes, the held object (rigid) $\ge m_O$ from the obstacles. \textsc{EdgeFree}: \textsc{Free} at
-$\lceil\max(\lVert\Delta q\rVert_\infty/\delta_q,\Delta t/\delta_t,1)\rceil+1$ evenly spaced states, in bisection
-order. $\textsc{HoldFree}(q,t,H)=\textsc{EdgeFree}(q,t,q,t+H)$. $d(q_a,q_b)=\max_j|q_{b,j}-q_{a,j}|/\bar v_j$.
+\emph{Checks} (what collision-free means). $\textsc{Free}(q,t)$: the robot at $q$, with the world as predicted at
+$t$, keeps $d_O$ from the obstacles and $d_{\text{env}}$ from the cart and floor, and penetrates neither the object
+(gripper excepted) nor itself; once the gripper has closed, the held object (rigidly attached) must also keep $d_O$
+from the obstacles. $\textsc{EdgeFree}(q_a,t_a,q_b,t_b)$: \textsc{Free} at
+$\lceil\max(\lVert q_b-q_a\rVert_\infty/0.03\,\text{rad},\,(t_b-t_a)/0.04\,\text{s},\,1)\rceil+1$ evenly spaced
+states of the segment, in bisection order. $\textsc{HoldFree}(q,t,H)=\textsc{EdgeFree}(q,t,q,t+H)$: holding $q$ is
+free for $H$. A state is \emph{safe} if $\textsc{HoldFree}(q,t,H_s)$, $H_s=1.5$\,s.
+$\delta(q_a,q_b)=\max_j|q_{b,j}-q_{a,j}|/\bar v_j$: the least time to move from $q_a$ to $q_b$.
 
-\emph{Grasps.} Top-down, closing across the object's $x$ or $y$ axis, each also turned by 180$^\circ$, and these
-pitched by $\pm35^\circ$ about the closing axis (not for the mustard bottle), as deep as the WSG geometry allows.
-Order: most goals so far, the nominal grasp, then approaches from above or the robot's side (never the far side).
+\emph{Grasps} (the gripper poses on the object that are tried). Top-down, closing across the object's $x$ or $y$
+axis, each also turned by 180$^\circ$ about the vertical, and these pitched by $\pm35^\circ$ about the closing axis
+(not for the mustard bottle, which slips); each as deep as the WSG geometry allows. In (B), $X^*$ is the grasp in
+use and $\hat a$ its approach direction (unit, palm to fingertips). Order: most goals so far, then the nominal grasp,
+then the more vertical or robot-side approaches.
 
-\emph{Goals} $(q_g,T)$. $q_g$: IK (Drake's \texttt{InverseKinematics}) for the pre-grasp pose, the grasp moved
-$h_{\text{pre}}$ back along its approach $a$, at $T$: $|p_G-p|\le3$\,mm, $\angle(R_G,R)\le0.02$\,rad, joint limits,
-cost $0.1\lVert q-q_{\text{seed}}\rVert^2$. IK families (seeds $q_s$, $q(0)$, one random for the nominal grasp) are
-seeded with their own solution at the previous $T$; a grasp never solved gets up to 3 random restarts; solutions within
-0.2\,rad of a goal of the same grasp are skipped. If the pre-grasp or its tail collides, the elbow's self-motion (null
-space of $J$) is walked in 0.2\,rad steps, re-projected onto the pose, nearest first.
+\emph{Goals} (where and when the arm can start a grasp). A goal $g=(q_g,t_g)$ is a pre-grasp configuration $q_g$,
+with the gripper at $X^*(t_g)$ moved 8\,cm back along $\hat a$, at an intercept time $t_g$. The intercept times are
+fixed at the first cycle (Table~\ref{tab:paramsB}); each is \emph{pending} until goals are generated for it, earliest
+first, over grasps and IK families. IK (Drake's
+\texttt{InverseKinematics}): gripper within 3\,mm and 0.02\,rad of the pre-grasp pose, joint limits, cost
+$0.1\lVert q-q_{\text{seed}}\rVert^2$. Families, by IK seed: $q_s$ of the first cycle, $q_{\text{home}}$ (the initial
+configuration) and, for the nominal grasp, one random; each is re-seeded with its own solution at the previous $t_g$,
+so it stays one arm posture. A grasp never solved gets up to 3 random restarts in all. A solution within 0.2\,rad of a
+goal of the same grasp is skipped. If the pre-grasp is not \textsc{Free} or its tail fails, the elbow's self-motion
+(the 1-D null space of $J$) is walked in 0.2\,rad steps, re-projected onto the pose, nearest first.
 
-\emph{Grasp tail.} A differential-IK rollout from $q_g$ at $T$, every 10\,ms:
-$\dot q=J^\top(JJ^\top+10^{-4}I)^{-1}[10\,e_R;\ 10\,e_p+\dot p_d]$, $R_d$ the grasp's, $t=T+\tau$,
+\emph{Grasp tail} (the fixed motion from a goal through the grasp and lift). A differential-IK rollout from $q_g$ at
+$t_g$, every 10\,ms: $\dot q=J^\top(JJ^\top+10^{-4}I)^{-1}[10\,e_R;\ 10\,e_p+\dot p_d]$ towards $R^*$ and, with
+$\tau=t-t_g$,
 \begin{equation*}
-p_d(\tau)=\begin{cases}
-p^*(t)-h_{\text{pre}}a & \tau<0.3\\
-p^*(t)-h_{\text{pre}}\big(1-\sigma(\tfrac{\tau-0.3}{0.6})\big)a & \tau<0.9\\
+p_d=\begin{cases}
+p^*(t)-0.08\,\hat a & \tau<0.3\\
+p^*(t)-0.08\big(1-m(\tfrac{\tau-0.3}{0.6})\big)\hat a & \tau<0.9\\
 p^*(t) & \tau<1.3\\
-p^*(T{+}1.3)+0.6\,v_h\big(s-\tfrac{s^2}{2}\big)+H\sigma(s)\hat z & \tau\le2.5
+p^*(t_g{+}1.3)+0.6\,v_h\big(x-\tfrac{x^2}{2}\big)+\Delta z\,m(x)\hat z & \tau\le2.5
 \end{cases}
 \end{equation*}
-(ride along, descend, close, lift and hold), with $s=\min(1,(\tau-1.3)/0.6)$, $v_h$ the horizontal part of $v_{\text{obj}}(T{+}1.3)$, gripper closed from
-$\tau=0.9$, and $H=10$\,cm, else 15\,cm. A tail is rejected if $|\dot q|>0.9v_{\max}$, $|\Delta\dot q|/0.01\,\text{s}
->0.8a_{\text{ref}}$, $q$ leaves its limits, the gripper is more than 1\,cm off $p_d$ (every 50\,ms), or it collides
-(knots every 50\,ms, object held from $\tau=1.3$). It is executed exactly as rolled out. \emph{Safe end:} if
-$\textsc{HoldFree}(\text{end},H_s)$ fails, an escape primitive with the object in hand that starts after the lift and
-keeps the gripper less than 3\,cm below its lifted height is appended (gentle limits, then the planner's; 0.1\,s
-each; only for the goal the RRT reaches); else the end must be free for 1\,s; else the goal is dropped.
+(ride along at the pre-grasp, descend, close, lift and hold), with $x=\min(1,(\tau-1.3)/0.6)$ and $v_h$ the horizontal part of $v_{\text{obj}}(t_g{+}1.3)$ (the gripper's
+horizontal velocity decays linearly from $v_h$ to 0); the gripper is commanded closed from $\tau=0.9$; $\Delta z=10$\,cm, or 15\,cm if that tail fails. A tail is rejected if
+$|\dot q|>0.9v_{\max}$, $|\Delta\dot q|/0.01\,\text{s}>0.8a_{\text{ref}}$, $q$ leaves its limits, the gripper is more
+than 1\,cm off $p_d$ (checked every 50\,ms), or it is not \textsc{EdgeFree} between knots 50\,ms apart (object held
+from $\tau=1.3$). It is executed exactly as rolled out. \emph{Safe end:} if the tail's end is not safe, a retreat is
+appended after the lift: an escape primitive (below) with the object in hand that keeps the gripper less than 3\,cm
+below its lifted height (holding limits, then the planner's; 0.1\,s of wall time each; planned only for the goal the RRT
+reaches). Failing that, holding the end must be free for 1\,s; else the goal is dropped.
 
-\emph{Executed motion.} The $C^1$ cubic Hermite curve through the knots at their times, sampled every 10\,ms;
-interior knot velocities are the harmonic mean of the adjacent segment velocities (0 if their signs differ), the end
-velocities those of the executing trajectory and of the tail. As its acceleration on a segment is at most
-$(4|\Delta v_{\text{in}}|+2|\Delta v_{\text{out}}|)/h$, \textsc{Jump} keeps it within $a_{\max}$.
-\textsc{Verify}: $q\in[q_{lo},q_{hi}]$, $|\dot q|\le0.95v_{\max}$, $|\ddot q|\le1.05a_{\max}$ (finite differences),
-joint torques (inverse dynamics of iiwa and WSG, every 20\,ms) $\le0.9\tau_{\max}$, and \textsc{EdgeFree} between samples 40\,ms apart. If the
-position or collision check fails, it is retried once with extra knots on the same edges, at most 0.4\,s apart.
+\emph{Executed motion} (how the planner's knots become the arm's trajectory, and its last checks). The arm executes the
+$C^1$ cubic Hermite curve through the knots at their times, sampled every 10\,ms. Interior knot velocities: per
+joint, the harmonic mean of the adjacent segment velocities (0 if their signs differ); end velocities: the executing
+trajectory's at $t_s$ and the tail's first. On a segment of duration $h$ the curve's acceleration is then at most
+$6\max(|\Delta v_0|,|\Delta v_1|)/h$, with $\Delta v_0,\Delta v_1$ the velocity jumps between consecutive segments at
+its two knots. So $\textsc{Jump}(\Delta v,h_1,h_2)$: $|\Delta v|\le a_{\max}\min(h_1,h_2)/6$, required at every
+knot (segments of durations $h_1,h_2$ on either side), keeps the curve within $a_{\max}$. \textsc{Verify}(curve): $q$
+within its limits, $|\dot q|\le0.95v_{\max}$, $|\ddot q|\le1.05a_{\max}$ (finite differences), joint torques
+(inverse dynamics of iiwa and WSG, every 20\,ms) within 90\% of the datasheet's, and \textsc{EdgeFree} between
+samples 40\,ms apart. If the position or collision check fails, the curve is retried once with extra knots on the
+same straight edges, at most 0.4\,s apart.
 
-\emph{Escape primitive.} One Hermite segment from $(q_s,v_s)$ at $t_s$ to a target at rest after
-$D\in\{0.6,0.9,1.2,1.6\}$\,s, shortest first. Targets: brake ($q_s+\tfrac12v_sD$), $q(0)$, and $q_s$ plus
-$\pm0.5,\pm1$ on joint 1, $\pm0.4,\pm0.8,\pm1$ on joint 2 or 4, $(\pm0.6,\pm0.6)$ on joints 2 and 4, or one of 10
-draws of $\mathcal N(0,0.6^2I)$; clipped to 0.05\,rad inside the limits. Accepted if it passes \textsc{Verify} and
-$\textsc{HoldFree}(\text{target},t_s+D,H_s)$. With the object in hand, escapes try the holding limits first.
+\emph{Escape primitive} (a cheap evasive motion, used when the executing plan becomes unsafe and as the retreat). One
+Hermite segment from the state $(q_s,v_s)$ at $t_s$ to a target at rest after $D\in\{0.6,0.9,1.2,1.6\}$\,s,
+shortest first. Targets, in order: brake ($q_s+\tfrac12v_sD$), $q_{\text{home}}$, and $q_s$ plus $\pm0.5,\pm1$\,rad
+on joint 1, $\pm0.4,\pm0.8,\pm1$ on joint 2 or 4, $(\pm0.6,\pm0.6)$ on joints 2 and 4, or one of 10 draws of
+$\mathcal N(0,0.6^2I)$; clipped to 0.05\,rad inside the limits. Accepted if it passes \textsc{Verify} and its target
+is safe at $t_s+D$. With the object in hand, the holding limits are tried first.
 
+\emph{Replanning} (Alg.~\ref{alg:cycle}). Planning costs simulated time, so a cycle at time $t$ with budget $b$ (wall
+time, which costs as much simulated time) plans the motion from $t_s=t+b$ on, from the executing trajectory's state
+$(q_s,v_s)$ at $t_s$ (first plan: holding still), and keeps that trajectory on $[t,t_s]$ as the \emph{prefix}; a plan
+that takes longer than $b$ arrives late and is rejected (Sec.~\ref{sec:problem}). $b_{\text{wait}}$: the budget while
+no grasp plan executes; it starts at $b_0$ and doubles while (B) waits safely. $t_{\text{hit}}$: the first time
+(40\,ms steps, within 3.5\,s; first plan: 3\,s) at which the executing motion, then holding its end, is not
+\textsc{Free}. The executing plan is \emph{valid} if it is \textsc{EdgeFree} from $t_s$ on and its end is safe.
+Cycles run every $t_r=0.5$\,s, except while \emph{committed}: from $t_{\text{commit}}=0.4$\,s before the executing
+grasp plan's $t_g$ until it ends.
+
+\emph{Search} (Alg.~\ref{alg:rrt}). Two trees of states $(q,t)$: $\mathcal T_s$ grows forward in time from the start,
+$\mathcal T_g$ backward from all goals at once. A node $(q_i,t_i,v_i,h_i)$ stores its state and the velocity $v_i$ and
+duration $h_i$ of the edge to its parent (forward in time); the roots are $(q_s,t_s,v_s,\infty)$ and, per goal,
+$(q_g,t_g,v,\infty)$ with $v$ its tail's first velocity. Samples are drawn only from states reachable from the start
+that can still reach a goal. $\Delta t_i$: the time from node $i$ to a state, forward in $\mathcal T_s$
+($t-t_i$), backward in $\mathcal T_g$ ($t_i-t$). Edges are straight in $(q,t)$, at most $\bar v$ fast, and satisfy
+\textsc{Jump} at both ends. \textsc{Shortcut}: up to 200 times while time is left, two random knots at least two
+apart are joined by one edge if it passes \textsc{Shot}'s checks against the neighbouring segments; knot times are
+kept, so the arrival time does not change. \textsc{EscapeTree}: one tree grown forward from $(q_s,t_s,v_s)$ by
+\textsc{Extend} (holding limits with the object in hand), sampling $t\le t_s+3$\,s, until a node that can stop there
+($\textsc{Jump}(-v_i,h_i,\infty)$) and is safe; its path is smoothed and verified like a grasp plan (none if not
+found in time).
+
+\algtext*{EndIf}\algtext*{EndFor}\algtext*{EndWhile}\algtext*{EndProcedure}\algtext*{EndFunction}
 \begin{algorithm}[!t]
   \caption{(B): replanning cycle}
   \label{alg:cycle}
   \footnotesize
   \begin{algorithmic}[1]
-    \State \textbf{every 10\,ms:} if executing a grasp plan and $T-t_{\text{commit}}\le t<$ its tail's end: keep executing
-    \State \quad else if $t\ge t_{\text{next}}$: \textsc{Cycle}$(t)$; $t_{\text{next}}\gets t+t_r$ ($t$ after goal work)
+    \State \textbf{every 10\,ms, at time $t$, unless committed:}
+    \State \quad\textbf{if} $t\ge t_{\text{next}}$: \textsc{Cycle}$(t)$; $t_{\text{next}}\gets t$ if it was goal-only,
+      else $t+t_r$
     \Procedure{Cycle}{$t$}
-      \State $b\gets b_1$ for the first plan; $b_0$ with a grasp plan; else $\min(b_{\max},2b)$ while safe
-      \If{holding still / the executing plan collides at $t_{\text{hit}}$ (within 3.5\,s; first plan: 3\,s)}
-        \State $b\gets\operatorname{clip}\big(\tfrac12(t_{\text{hit}}-t),\,b_0,\,b_{\max}\big)$ \Comment{first plan: $[0.05,b_1]$}
+      \State $b\gets b_1$ (first plan), $b_0$ (a grasp plan executes) or $b_{\text{wait}}$
+      \State \textbf{if} $t_{\text{hit}}$ exists: $b\gets\operatorname{clip}\big(\tfrac12(t_{\text{hit}}-t),b_0,
+        b_{\max}\big)$ (first plan: $0.05\,\text{s},b_1$)
+      \State \quad and if $b=b_0$: $b_{\text{wait}}\gets b_0$
+      \State $t_s\gets t+b$; $(q_s,v_s)\gets$ executing state at $t_s$; prefix $\gets$ it on $[t,t_s]$
+      \State $d_O\gets$ the largest of 3, 1, 0\,cm that the state at $t+b_0$ satisfies
+      \State \textbf{if} not valid: esc $\gets$ first escape primitive found in $0.5b$
+      \If{no grasp tail has run yet} \Comment{after one: escapes only}
+        \If{valid, some $t_g$ pending, and a grasp plan executes or no goal is reachable}
+          \State generate goals for $\le0.5$\,s; \Return nothing \Comment{goal-only cycle}
+        \EndIf
+        \State generate goals for pending $t_g$ while each is expected to fit in $0.6b$
+        \State $\mathcal G\gets$ reachable goals, $t_g-t_s\ge\delta(q_s,q_g)$; with a valid grasp plan
+          executing, only $t_g<$ its $t_g-\tfrac12\Delta t_g$
+        \State path $\gets\textsc{STRRT}(q_s,t_s,v_s,\mathcal G)$ in 0.7 of what is left of $0.85b$
+        \If{a path is found and its goal's end is made safe (\emph{Safe end})}
+          \State \textsc{Shortcut} it in the rest of $0.85b$; curve $\gets$ its Hermite curve
+          \State \textbf{if} \textsc{Verify}(curve): $b_{\text{wait}}\gets b_0$; \Return prefix $+$ curve $+$ tail
+        \EndIf
       \EndIf
-      \State $t_s\gets t+b$; $(q_s,v_s)\gets$ executing trajectory at $t_s$; prefix $\gets$ it on $[t,t_s]$
-      \State $m_O\gets$ the largest of 3, 1, 0\,cm that the start satisfies
-      \State valid $\gets$ executing plan \textsc{EdgeFree} from $t_s$ and \textsc{HoldFree}(its end, $H_s$)
-      \If{not valid} $E\gets$ first escape primitive found in $0.5b$ \EndIf
-      \If{valid, $T$s pending, and no goal reachable or a grasp plan executing}
-        \State \textsc{Goals} for pending $T$ for up to 0.5\,s; \Return (replan at once)
-      \EndIf
-      \State \textsc{Goals}$(T)$ for pending $T$, earliest first, while the cost of one $T$ fits in $0.6b$
-      \State $\mathcal G\gets\{g: T_g-t_s\ge d(q_s,q_g)\}$; with a valid grasp plan, only $T_g<T-\tfrac12\Delta T$
-      \State $P\gets\textsc{STRRT}(q_s,t_s,v_s,\mathcal G)$ in $0.7$ of the time left of $0.85b$
-      \If{$P$ and the goal's safe end resolves}
-        \State $P\gets\textsc{Shortcut}(P)$ in the rest; $C\gets$ Hermite curve of $P$
-        \If{\textsc{Verify}$(C)$} \Return prefix $+\,C\,+$ tail \EndIf
-      \EndIf
-      \If{not valid} \Return prefix $+\,E$, or else prefix $+$ \textsc{EscapeTree} \EndIf
+      \State \textbf{if} not valid: \Return prefix $+$ esc, or else prefix $+$ \textsc{EscapeTree}
+      \State \textbf{if} no grasp plan executes: $b_{\text{wait}}\gets\min(b_{\max},2b_{\text{wait}})$
+      \State \Return nothing \Comment{the executing plan goes on}
     \EndProcedure
   \end{algorithmic}
 \end{algorithm}
@@ -901,39 +963,39 @@ $\textsc{HoldFree}(\text{target},t_s+D,H_s)$. With the object in hand, escapes t
   \footnotesize
   \begin{algorithmic}[1]
     \Procedure{STRRT}{$q_s,t_s,v_s,\mathcal G$}
-      \State $S\gets$ tree at $(q_s,t_s)$, forward in time; $G\gets$ tree rooted at all $(q_g,T_g)\in\mathcal G$,
-        backward \Comment{node: $q,t$, velocity $u$ and duration $h$ of its edge; roots: $u=v_s$ or the tail's first
-        velocity, $h=\infty$}
-      \For{$g$ by increasing $T_g$} \If{\textsc{Shot}$(S_0,G_g)$} \Return path \EndIf \EndFor
-      \State $(A,B)\gets(S,G)$
-      \While{wall time left}
-        \State w.p.\ $p_g$: $x\gets$ a root of the other tree; else $q\sim U$ within limits $-0.05$ and
-          $t\sim U\big[t_s+d(q_s,q),\ \max_g(T_g-d(q,q_g))\big]$ (redraw if empty)
-        \State $j\gets\textsc{Extend}(A,x)$
-        \If{$j$ and \textsc{Connect}$(B,A_j)$} \Return path \EndIf
-        \State swap $A,B$
+      \State $\mathcal T_s,\mathcal T_g\gets$ their roots
+      \For{$g\in\mathcal G$ by increasing $t_g$}
+        \State \textbf{if} \textsc{Shot}(root of $\mathcal T_s$, root of $g$): \Return that edge
+      \EndFor
+      \State $(\mathcal T,\mathcal T')\gets(\mathcal T_s,\mathcal T_g)$
+      \While{wall time is left}
+        \State with probability 0.1: $(q_{\text{rand}},t_{\text{rand}})\gets$ a random root of $\mathcal T'$
+        \State else: $q_{\text{rand}}\sim U$ within the limits $\mp0.05$\,rad, $t_{\text{rand}}\sim U[t_s+\delta(q_s,
+          q_{\text{rand}}),\max_g(t_g-\delta(q_{\text{rand}},q_g))]$, redrawn if empty
+        \State $j\gets\textsc{Extend}(\mathcal T,q_{\text{rand}},t_{\text{rand}})$
+        \State \textbf{if} $j$ is added and \textsc{Connect}$(\mathcal T',j)$: \Return the joined path
+        \State swap $\mathcal T$ and $\mathcal T'$
       \EndWhile
     \EndProcedure
-    \Function{Extend}{$A,(q,t)$}
-      \State $i\gets\arg\min_i d(q_i,q)+w_t\Delta t_i$ s.t.\ $\Delta t_i=\pm(t-t_i)>0$, $d(q_i,q)\le\Delta t_i$
-      \State $(q',t')\gets$ towards $(q,t)$, $\lVert q'-q_i\rVert_\infty\le\Delta_q$, $|t'-t_i|\le\Delta_t$; $h\gets|t'-t_i|$
-      \State $w\gets\frac{q'-q_i}{t'-t_i}$ clipped to $|w-u_i|\le\frac{a_{\max}}6\min(h_i,h)$ and $|w|\le\bar v$;
-        $q'\gets q_i+w(t'-t_i)$
-      \If{$q'$ within limits and \textsc{EdgeFree}} add $(q',t',w,h)$, parent $i$ \EndIf
+    \Function{Extend}{$\mathcal T,q,t$} \Comment{one step of $\mathcal T$ towards $(q,t)$}
+      \State $i\gets$ nearest node that can reach $(q,t)$: $\arg\min_i\delta(q_i,q)+0.25\Delta t_i$ over
+        $\Delta t_i>0$, $\delta(q_i,q)\le\Delta t_i$
+      \State $(q_{\text{new}},t_{\text{new}})\gets$ step from $(q_i,t_i)$ towards $(q,t)$: $\le0.35$\,rad, $\le0.6$\,s
+      \State $h\gets|t_{\text{new}}-t_i|$; $v\gets\frac{q_{\text{new}}-q_i}{t_{\text{new}}-t_i}$, clipped so that
+        $\textsc{Jump}(v-v_i,h_i,h)$ and $|v|\le\bar v$
+      \State $q_{\text{new}}\gets q_i+v\,(t_{\text{new}}-t_i)$
+      \State \textbf{if} within the limits $\mp0.05$\,rad and \textsc{EdgeFree}: add $(q_{\text{new}},t_{\text{new}},
+        v,h)$, parent $i$
     \EndFunction
-    \Function{Connect}{$B,x$} \Comment{at most 50 steps}
-      \State loop: $k\gets$ nearest node of $B$ that reaches $x$; \textbf{true} if \textsc{Shot}$(k,x)$; else
-        \textsc{Extend}$(B,x)$, \textbf{false} if trapped
+    \Function{Connect}{$\mathcal T',j$} \Comment{grow $\mathcal T'$ towards node $j$ of the other tree}
+      \State $k\gets$ the nearest node of $\mathcal T'$ that can reach $(q_j,t_j)$, as in \textsc{Extend}
+      \State $\le50$ times: \textbf{true} if \textsc{Shot} joins $k$ and $j$, else $k\gets\textsc{Extend}(\mathcal
+        T',q_j,t_j)$ (\textbf{false} if none)
     \EndFunction
-    \Function{Shot}{$a,b$} \Comment{$a\in S$, $b\in G$}
-      \State $h\gets t_b-t_a$, $w\gets(q_b-q_a)/h$
-      \State \Return $h>0$, $|w|\le\bar v$, \textsc{Jump}$(w-u_a,h_a,h)$, \textsc{Jump}$(u_b-w,h,h_b)$, \textsc{EdgeFree}
+    \Function{Shot}{$a,b$} \Comment{one straight edge, $a\in\mathcal T_s$ to $b\in\mathcal T_g$}
+      \State $h\gets t_b-t_a$; $v\gets(q_b-q_a)/h$
+      \State \Return $h>0$, $|v|\le\bar v$, $\textsc{Jump}(v-v_a,h_a,h)$, $\textsc{Jump}(v_b-v,h,h_b)$, \textsc{EdgeFree}
     \EndFunction
-    \State \textsc{Jump}$(\Delta v,h_1,h_2)$: $|\Delta v|\le a_{\max}\min(h_1,h_2)/6$
-    \State \textsc{Shortcut}: up to 200 times, replace knots $i..j$ ($j\ge i+2$, random) by one edge if it passes
-      \textsc{Shot} against the neighbouring segments; knot times are kept
-    \State \textsc{EscapeTree}: one forward tree (same \textsc{Extend}) until a node with \textsc{Jump}$(-u,h,\infty)$
-      and \textsc{HoldFree}$(q,t,H_s)$, $t\le t_s+3$\,s
   \end{algorithmic}
 \end{algorithm}
 
@@ -942,19 +1004,19 @@ $\textsc{HoldFree}(\text{target},t_s+D,H_s)$. With the object in hand, escapes t
   \caption{Parameters of (B).}
   \label{tab:paramsB}
   \footnotesize\setlength{\tabcolsep}{3pt}
-  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.36\columnwidth}>{\raggedright\arraybackslash}p{0.6\columnwidth}@{}}
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.2\columnwidth}>{\raggedright\arraybackslash}p{0.76\columnwidth}@{}}
     \toprule
-    $\bar v$, $a_{\max}$ (RRT, escapes) & $0.5v_{\max}$; $0.6a_{\text{ref}}=(9,4.5,6,7.5,9,12,12)$\,rad/s$^2$ \\
-    tail limits; holding limits & $0.9v_{\max}$, $0.8a_{\text{ref}}$; $0.25v_{\max}$, $0.2a_{\text{ref}}$ \\
-    $m_O$, $m_E$ & 3\,cm (fallbacks 1, 0\,cm), 5\,mm \\
-    $\delta_q$, $\delta_t$; joint margin & 0.03\,rad, 0.04\,s; 0.05\,rad \\
-    $\Delta_q$, $\Delta_t$, $w_t$, $p_g$ & 0.35\,rad, 0.6\,s, 0.25, 0.1; $\le$20{,}000 nodes per tree \\
-    intercept times $T$ & every $\Delta T=0.25$\,s from $\max(t_s,t_{\text{enter}}-0.5)$ to
-      $\min(t_{\text{exit}},t_{\text{end}}-2.5)$, $\le16$ \\
-    per $T$ & $\le3$ goals, $\le10$ IK solves; 6 self-motion steps each way, $\le3$ tails per IK solution \\
-    $h_{\text{pre}}$; $H_s$ & 8\,cm; 1.5\,s \\
-    $t_r$; $t_{\text{commit}}$ & 0.5\,s; 0.4\,s \\
-    $b_0$, $b_1$, $b_{\max}$ & 0.25, 1.5, 1.0\,s (wall time = simulated time) \\
+    RRT, escapes & $\bar v=0.5v_{\max}$; $a_{\max}=0.6a_{\text{ref}}=(9,4.5,6,7.5,9,12,12)$\,rad/s$^2$ \\
+    tail & $0.9v_{\max}$, $0.8a_{\text{ref}}$ \\
+    holding & object in hand: $0.2a_{\text{ref}}$; in \textsc{EscapeTree} also $0.25v_{\max}$ \\
+    clearance & $d_O=3$\,cm (fallbacks 1, 0\,cm); $d_{\text{env}}=5$\,mm \\
+    edge checks & every 0.03\,rad and 0.04\,s; joints 0.05\,rad inside their limits \\
+    RRT & step 0.35\,rad, 0.6\,s; time weight 0.25; goal bias 0.1; $\le$20{,}000 nodes per tree \\
+    intercept times & every $\Delta t_g=0.25$\,s from $\max(t_s,t_{\text{enter}}-0.5)$ to
+      $\min(t_{\text{exit}},t_{\text{end}}-2.5)$ (the tail lasts 2.5\,s); $\le16$, spread evenly \\
+    per $t_g$ & $\le3$ goals, $\le10$ IK solves; $\le6$ self-motion steps each way, $\le3$ tails per IK solution \\
+    pre-grasp; safe & 8\,cm back along $\hat a$; $H_s=1.5$\,s \\
+    replanning & $t_r=0.5$\,s; $t_{\text{commit}}=0.4$\,s; $b_0=0.25$, $b_1=1.5$, $b_{\max}=1.0$\,s \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -963,52 +1025,65 @@ $\textsc{HoldFree}(\text{target},t_s+D,H_s)$. With the object in hand, escapes t
 \subsection{(C) Space-time trajectory optimization}
 \label{app:C}
 
-\emph{Notation.} $q(s)=\sum_{j=1}^Nb_j(s)P_j$, $s\in[0,1]$: clamped cubic B-spline with uniform knots and control
-points $P_j\in\mathbb R^7$, executed at $t=t_0+sT$, so $\dot q=q'/T$, $\ddot q=q''/T^2$. A constraint ``at $s$''
-holds for $(q(s),\dot q(s),t_0+sT)$. $E(P)=\sum_j\lVert P_{j+1}-P_j\rVert^2$ (Drake's path energy).
-$\mathcal L_a$: $q_{lo}+0.05\le q\le q_{hi}-0.05$, $|\dot q|\le0.6v_{\max}$, $|\ddot q|\le a$\,rad/s$^2$, imposed
-on the control points of $q,\dot q,\ddot q$ and so for all $s$. $p^*(t)=p^*(\bar t)+v_{\text{obj}}(t-\bar t)$ with
-$v_{\text{obj}}$ the cart's velocity at $t_{\text{enter}}$; $e_R=\tfrac12(R-R^\top)^\vee$, $R=R^{*\top}R_G$;
-$\omega_G,v_G$: the gripper's angular and linear velocity. $d_{\mathcal C}(q,t)$: minimum signed distance from the
-robot (links 1--7, WSG body, open fingers) to $\mathcal C$ ($O$: obstacles, $E$: cart and floor, $Tg$: target, not
-WSG--target) posed as predicted at $t$; $d_{\mathcal C}\ge lb$ is Drake's \texttt{MinimumDistanceLowerBoundConstraint}
-(smoothed hinge over pairs within $lb+1$\,cm; $lb+0.2$\,m in IK). In it, the world's configuration is
-$x_w(\bar t)+\dot x_w(\bar t)(t-\bar t)$, $t=t_0+sT$, so its gradient w.r.t.\ $T$ includes the obstacles' motion.
+(C) optimizes the approach and the close, lift and hold once, from several initial guesses (seeds) built by IK; until
+the plan starts, the arm is parked, and it dodges if it would be hit. Table~\ref{tab:paramsC} lists the parameters.
 
-\emph{IK} (Drake's \texttt{InverseKinematics}, world fixed as predicted at $t$, solved from the initial guess):
+\emph{Notation.}
+\begin{itemize}
+  \item \emph{Trajectory:} $q(x)$, $x\in[0,1]$: a clamped cubic B-spline with uniform knots and $N$ control points
+    $P_j\in\mathbb R^7$, executed at $t=t_0+xT$ ($T$: duration), so $\dot q=q'/T$, $\ddot q=q''/T^2$. A constraint
+    ``at $x$'' holds for $(q(x),\dot q(x),t_0+xT)$. $E(P)=\sum_j\lVert P_{j+1}-P_j\rVert^2$ (Drake's path
+    energy).
+  \item $\mathcal L_a$: $q_{lo}+0.05\le q\le q_{hi}-0.05$, $|\dot q|\le0.6v_{\max}$, $|\ddot q|\le a$\,rad/s$^2$,
+    imposed on the control points of $q,\dot q,\ddot q$, hence for all $x$.
+  \item $\phi_{\mathcal C}(q,t)$: minimum signed distance from the robot to $\mathcal C$, posed as predicted at $t$:
+    $O$ (obstacles), env (cart, floor), obj (the object). $\phi_{\mathcal C}\ge d$ is Drake's
+    \texttt{MinimumDistanceLowerBoundConstraint} (a smooth penalty on the pairs closer than $d+1$\,cm; $d+0.2$\,m in
+    IK).
+  \item \emph{Space-time:} $t=t_0+xT$ moves with $T$. The world's configuration $q_w$ (cart and obstacle joints,
+    object pose) and the grasp position are evaluated at the solver's current value $\bar t$ of $t$ and linearised
+    there: $q_w(\bar t)+\dot q_w(\bar t)(t-\bar t)$ and $p^*(\bar t)+v_{\text{obj}}(t-\bar t)$, with $v_{\text{obj}}$
+    taken at $t_{\text{enter}}$. So the gradients w.r.t.\ $T$ include the world's motion.
+  \item $e_R=\tfrac12(R^{*\top}R_G-R_G^\top R^*)^\vee$: rotation error (sine of the angle times the axis).
+  \item \emph{Timing:} $\beta$: the planning budget; (C) starts planning at $t_{\text{plan}}=t_{\text{enter}}-1-\beta$,
+    for the plan to start at $t_0=\text{now}+\beta$ ($\beta=2$\,s at first) from the arm's state $(q_0,v_0)$ there. \emph{Parked}: holding still at its
+    commanded $q_p$, with no trajectory executing.
+  \item \emph{Solves:} SNOPT, feasibility tolerance $10^{-4}$. \emph{Loose}: major optimality tolerance 0.1;
+    \emph{refined}: re-solved from a loose solution at 0.01.
+\end{itemize}
+
+\emph{IK} gives a collision-free configuration with the gripper at a pose $X$, or nearest to a guess $\hat q$
+(Drake's \texttt{InverseKinematics}, world fixed as predicted at $t$, solved from $\hat q$):
 \begin{equation}
-\mathrm{IK}(t,X,\hat q):\ 
-\begin{aligned}[t]
-\text{find}\ & q\ \text{(from } \hat q)\\
-\text{s.t.}\ & q_{lo}\le q\le q_{hi},\ \ d_O(q,t)\ge5\,\text{cm},\\
-& |p_G-p_X|\le3\,\text{mm},\ \ \angle(R_G,R_X)\le0.01,
+\begin{aligned}
+\mathrm{IK}(t,X,\hat q):\ & \text{find } q \text{ s.t. } q_{lo}\le q\le q_{hi},\ \phi_O(q,t)\ge5\,\text{cm},\\
+& |p_G-p_X|\le3\,\text{mm},\ \angle(R_G,R_X)\le0.01;\\
+\mathrm{IK}(t,\hat q):\ & \min_q\lVert q-\hat q\rVert^2 \text{ s.t. } q_{lo}\le q\le q_{hi},\\
+& \phi_O(q,t)\ge5\,\text{cm}.
 \end{aligned}
 \label{eq:ikC}
 \end{equation}
-\begin{equation}
-\mathrm{IK}(t,\hat q):\ 
-\begin{aligned}[t]
-\min_q\ & \lVert q-\hat q\rVert^2\ \text{(from } \hat q)\\
-\text{s.t.}\ & q_{lo}\le q\le q_{hi},\ \ d_O(q,t)\ge5\,\text{cm}.
-\end{aligned}
-\label{eq:viaC}
-\end{equation}
 
-\emph{Grasp times.} $t_c=\operatorname{clip}(t_{\text{closest}},lo,hi)$, $lo=\max(t_{\text{enter}},t_0+1)$,
-$hi=t_{\text{exit}}-1.2$ ($t_{\text{closest}}$: the cart passes $y=0$). Candidates $t_g=t_c+0.5k\in[lo,hi]$ are tried
-untried by an earlier failed plan first, then by $|k|$, then $t_g$. For each, $t_d=t_g-0.6$, and 6 tries ($q_{\text{guess}}=q_0$, then
-uniform random): $q_g=\mathrm{IK}(t_g,X^*(t_g),q_{\text{guess}})$, $q_h=\mathrm{IK}(t_d,X^*(t_d)+0.1\hat z,q_g)$, keeping
-the pair with the least $\max_j|q_{h,j}-q_{0,j}|/v_{\max,j}$. \emph{Earliest:} the same, ordered by $t_g\le t_0+5$ first,
-untried, then $t_g$. If no candidate has a pair: $t\pm0.1$, $t\pm0.2$ around the two whose failed IK came nearest (position
-error $+\,0.1\times$angle $+$ clearance shortfall).
+\emph{Grasp-time search} finds grasp times $t_*$ with a \emph{pair}: a grasp configuration $q_*$ at $t_*$ and a hover
+configuration $q_h$ 10\,cm above the grasp at $t_h=t_*-0.6$. Candidates are $t_*=t_{cl}+0.5k$ in
+$[t_{lo},t_{hi}]=[\max(t_{\text{enter}},t_0+1),\ t_{\text{exit}}-1.2]$, where $t_{cl}$ is when the cart passes
+$y=0$ (closest to the robot), clipped to that window. Order: not tried by an earlier failed plan first, then by
+$|k|$, then $t_*$. Each gets 6 tries (guess $q_0$, then uniform random):
+$q_*=\mathrm{IK}(t_*,X^*(t_*),\text{guess})$, $q_h=\mathrm{IK}\big(t_h,(R^*,p^*(t_h)+0.1\hat z),q_*\big)$, keeping
+the pair with the least $\max_j|q_{h,j}-q_{0,j}|/v_{\max,j}$. The \emph{first pair} is that of the first candidate
+with one; the \emph{earliest pair} comes from the same search ordered by $t_*\le t_0+5$ first, untried, then $t_*$.
+If no candidate has a pair: $t\pm0.1$, $t\pm0.2$ around the two whose failed IK came nearest (position error
+$+\,0.1\times$angle $+$ clearance shortfall).
 
-\emph{Seeds}, in order: straight joint-space lines through $(t_0,q_0)$, $(t_d,q_h)$, $(t_g,q_g)$ to the first pair;
-to the earliest pair, if at another time; via $\mathrm{IK}(t_m,q_m)$, $t_m=\tfrac12(t_0+t_d)$, $q_m=\tfrac12(q_0+q_h)$
-(dropped if it returns $q_m$); via $\mathrm{IK}\big(t_m,\operatorname{clip}(q_m+u)\big)$, $u\sim U[-1,1]^7$, 3 times (2
-with an earliest seed); if none gives a plan, lines to the next 2 grasp times. Each line is sampled 40 times; $P$ is its
-least-squares fit, $T_{\text{guess}}=t_g-t_0$ (clipped).
+\emph{Seeds} (initial guesses for the approach), in order: straight joint-space lines through $(t_0,q_0)$,
+$(t_h,q_h)$, $(t_*,q_*)$ of the first pair; the same to the earliest pair, if at another time; via
+$\mathrm{IK}(t_m,q_m)$, $t_m=\tfrac12(t_0+t_h)$, $q_m=\tfrac12(q_0+q_h)$ (dropped if it returns $q_m$, already free);
+via $\mathrm{IK}\big(t_m,\operatorname{clip}(q_m+U[-1,1]^7)\big)$, 3 times (2 with an earliest-pair seed); if none
+gives a plan, lines to the pairs of the next 2 candidate times. On a retry, the vias go to the earliest pair. Each
+line is sampled 40 times; $P$ is their least-squares fit and $T_{\text{guess}}=t_*-t_0$, clipped to $T$'s bounds.
 
-\emph{Approach} ($N=12$):
+\emph{Approach} (from $(q_0,v_0)$ at $t_0$ to the grasp pose at $t_0+T$, moving with the object, after hovering
+10\,cm above it at $x_h$ and descending straight; fast and smooth), with $N=12$:
 \begin{equation}
 \begin{aligned}
 \min_{P,\,T}\ & T+0.1\,E(P)\\
@@ -1016,58 +1091,60 @@ least-squares fit, $T_{\text{guess}}=t_g-t_0$ (clipped).
 & q(0)=q_0,\quad \dot q(0)=v_0,\\
 & \text{at } 1:\ |p_G-p^*(t)|\le5\,\text{mm},\ |e_R|\le0.02,\\
 & \qquad\ \ |\omega_G|\le0.02,\ |v_G-v_{\text{obj}}|\le0.02\,\text{m/s},\\
-& \text{at } s_d:\ |p_G-p^*(t)-0.1\hat z|\le1\,\text{cm},\ |e_R|\le0.04,\\
-& \text{at } s_d+\tfrac i4(1-s_d),\ i=1,2,3:\\
+& \text{at } x_h:\ |p_G-p^*(t)-0.1\hat z|\le1\,\text{cm},\ |e_R|\le0.04,\\
+& \text{at } x_h+\tfrac i4(1-x_h),\ i=1,2,3:\\
 & \qquad p_G-p^*(t)\in[-1.5,1.5]^2\times[0,12]\,\text{cm},\\
-& \text{at } \tfrac k{30},\ k=1,\dots,30:\ d_O\ge4\,\text{cm},\ d_{E\cup Tg}\ge5\,\text{mm}.
+& \text{at } \tfrac k{30},\ k=1,\dots,30:\ \phi_O\ge4\,\text{cm},\ \phi_{\text{env}\cup\text{obj}}\ge5\,\text{mm}.
 \end{aligned}
 \label{eq:approachC}
 \end{equation}
-$s_d=\operatorname{clip}\big((t_d-t_0)/T_{\text{guess}},0.3,0.9\big)$ is fixed. $v_0=0$ (imposed as $q'(0)=0$) when
-parked, else the dodge's velocity at $t_0$.
+$x_h=\operatorname{clip}\big((t_h-t_0)/T_{\text{guess}},0.3,0.9\big)$ is fixed per solve. $v_0=0$ (imposed as
+$q'(0)=0$) when parked, else the dodge's velocity at $t_0$.
 
-\emph{Close, lift and hold}, from $t_g=t_0+T^*$ in the approach's end state $(q_T,\dot q_T)$, with
-$D=\max(t_{\text{end}}-t_g,1.5)$, $N=\lceil D/0.5\rceil+3$, $\tau=sD$; the gripper is commanded closed from $t_g$:
+\emph{Close, lift and hold} (ride with the object while the gripper closes, lift it 10\,cm and keep it there, clear of
+the obstacles, until the scene ends), from $t_*=t_0+T$ in the approach's end state $(q_T,\dot q_T)$, with
+$D=\max(t_{\text{end}}-t_*,1.5)$, $N=\lceil D/0.5\rceil+3$, $\tau=xD$; the gripper is commanded closed from $t_*$:
 \begin{equation}
 \begin{aligned}
 \min_{P}\ & E(P)\\
 \text{s.t.}\ & T=D,\ \ q(0)=q_T,\ \ \dot q(0)=\dot q_T,\ \ \dot q(1)=0,\ \ \mathcal L_2,\\
 & \tau=0.2,0.4:\ |p_G-p^*(t)|\le5\,\text{mm},\ |e_R|\le0.02,\\
-& \tau=1.0,1.4,\dots\le D:\ z_G\ge z^*(t_g)+0.1,\\
-& \tau=0.4,0.8,\dots\le D:\ d_O\ge4\,\text{cm},\ d_E\ge5\,\text{mm}.
+& \tau=1.0,1.4,\dots\le D:\ z_G\ge z^*(t_*)+0.1,\\
+& \tau=0.4,0.8,\dots\le D:\ \phi_O\ge4\,\text{cm},\ \phi_{\text{env}}\ge5\,\text{mm}.
 \end{aligned}
 \label{eq:holdC}
 \end{equation}
-Initial guess: lines through $q_T$, $q_c=\mathrm{IK}(t_g+0.4,X^*(t_g+0.4),q_T)$ (else $q_T+0.4\dot q_T$), and
-$q_l=\mathrm{IK}(t_g+1,X^*(t_g+0.4)+0.1\hat z,q_c)$ (else $q_c$) at $\tau=0,0.4,1$, held to $D$.
+Initial guess: lines through $q_T$, $q_c=\mathrm{IK}(t_*+0.4,X^*(t_*+0.4),q_T)$ (else $q_T+0.4\dot q_T$) and
+$q_l=\mathrm{IK}\big(t_*+1,(R^*,p^*(t_*+0.4)+0.1\hat z),q_c\big)$ (else $q_c$) at $\tau=0,0.4,1$, held to $D$.
 
-\emph{Dodge.} While parked at $q_p$, $t_{\text{hit}}$ is the first $t$ in 0.05\,s steps at which
-$d_O(q_p,t)<4$\,cm or $d_{E\cup Tg}(q_p,t)<5$\,mm. If $\text{now}+0.1<t_{\text{hit}}\le t_{\text{go}}$, where
-$t_{\text{go}}$ is when a pending grasp plan would start moving the arm ($\max(\text{now},t_{\text{plan}})+\beta$;
-$\infty$ once none was found), (C) solves, with $t_s=\text{now}+\min\big(2,\tfrac12(t_{\text{hit}}-\text{now})\big)$,
-$D=t_{\text{end}}-t_s$, $N=\lceil D/0.5\rceil+3$, $\tau=sD$, from the guess $q\equiv q_p$:
+\emph{Dodge} (moves the parked arm out of a predicted collision). While parked at $q_p$, $t_{\text{hit}}$ is the first
+$t$, in 0.05\,s steps, with $\phi_O(q_p,t)<4$\,cm or $\phi_{\text{env}\cup\text{obj}}(q_p,t)<5$\,mm. (C) dodges if
+$\text{now}+0.1<t_{\text{hit}}\le t_{\text{go}}$, where $t_{\text{go}}=\max(\text{now},t_{\text{plan}})+\beta$ is
+when a grasp plan would move the arm ($\infty$ once a planning attempt has failed). From the guess $q\equiv q_p$ it
+solves, for the motion from $t_s=\text{now}+\min\big(2,\tfrac12(t_{\text{hit}}-\text{now})\big)$ with
+$D=t_{\text{end}}-t_s$, $N=\lceil D/0.5\rceil+3$, $\tau=xD$:
 \begin{equation}
 \begin{aligned}
 \min_{P}\ & E(P)\\
 \text{s.t.}\ & T=D,\ \ q(0)=q_p,\ \ \dot q(0)=\dot q(1)=0,\ \ \mathcal L_4,\\
-& \tau=0.1,0.2,\dots\le D:\ d_O\ge4\,\text{cm},\ d_{E\cup Tg}\ge5\,\text{mm},
+& \tau=0.1,0.2,\dots\le D:\ \phi_O\ge4\,\text{cm},\ \phi_{\text{env}\cup\text{obj}}\ge5\,\text{mm},
 \end{aligned}
 \label{eq:dodgeC}
 \end{equation}
-and sends ``hold $q_p$ until $t_s$, then the dodge''. Its solve time is unbounded too: the arm stays parked while
-(C) computes, and a dodge that arrives late is rejected like any trajectory that no longer matches the arm. If it has
-no solution, (C) stays parked at $q_p$. A grasp plan then starts from the dodge's state at $t_0$.
+and sends ``hold $q_p$ until $t_s$, then the dodge''. Its solve time is unbounded too: the arm stays parked while (C)
+computes, and a dodge that arrives late is rejected like any trajectory that no longer matches the arm. Without a
+solution, (C) stays parked and does not retry from $q_p$. A grasp plan then starts from the dodge's state at $t_0$.
 
-\emph{Solving.} Workers take the seeds round-robin. Each sends its loose~(\ref{eq:approachC})
-and~(\ref{eq:holdC}), then, before the deadline (start $+\,\beta-0.05$\,s), the refined~(\ref{eq:holdC}), then the
-refined (\ref{eq:approachC}) and~(\ref{eq:holdC}). (C) keeps the lowest total cost received: at the deadline once one
-is feasible, else when all seeds are done.
+\emph{Solving.} Four worker processes take the seeds round-robin. For each seed a worker sends the loose
+(\ref{eq:approachC}) with its loose (\ref{eq:holdC}); then, before the deadline (start $+\,\beta-0.05$\,s), the
+refined (\ref{eq:holdC}); then the refined (\ref{eq:approachC}) with its refined (\ref{eq:holdC}). (C) keeps the plan
+with the lowest total cost received: at the deadline once one is feasible, else when all seeds are done.
 
-\emph{Timing.} From $t_{\text{plan}}=t_{\text{enter}}-1-\beta$, (C) plans for $t_0=\text{now}+\beta$ and holds still
-(or dodges) until then; it sends hold, approach (open) and~(\ref{eq:holdC}) (closed). A late plan is rejected and (C)
-plans again; each plan found sets $\beta\gets\max(\beta,1.5\times\text{its compute time})$. Without a plan, it retries
-at every update while $t_0<t_{\text{exit}}-1.2$, with new random vias and IK starts, untried grasp times first. A plan
-that executes is never replaced.
+\emph{Timing.} From $t_{\text{plan}}$, (C) plans for $t_0=\text{now}+\beta$ and stays parked (or dodges) until then;
+it sends: hold (or the dodge) until $t_0$, the approach (gripper open), then (\ref{eq:holdC}) (closed), sampled every
+5\,ms. A late plan is rejected and (C) plans again; each plan found sets $\beta\gets\max(\beta,1.5\times\text{its
+compute time})$. Without a plan, it retries at every update while $t_0<t_{\text{exit}}-1.2$, with new random vias and
+IK starts, untried grasp times first. A plan that executes is never replaced.
 
 \begin{table}[!t]
   \centering
@@ -1077,14 +1154,14 @@ that executes is never replaced.
   \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.24\columnwidth}>{\raggedright\arraybackslash}p{0.72\columnwidth}@{}}
     \toprule
     B-splines & cubic; $N=12$ (approach), $\lceil D/0.5\rceil+3$ (hold, dodge) \\
-    clearance & 4\,cm obstacles, 5\,mm cart, floor, target; IK 5\,cm \\
-    collision samples & $s=k/30$ (approach); every 0.4\,s (hold), 0.1\,s (dodge) \\
+    clearance & 4\,cm obstacles, 5\,mm cart, floor, object; IK 5\,cm \\
+    collision samples & $x=k/30$ (approach); every 0.4\,s (hold), 0.1\,s (dodge) \\
     limits & $0.6v_{\max}$; 4\,rad/s$^2$ (approach, dodge), 2 (hold); 0.05\,rad inside joint limits \\
-    grasp & hover 10\,cm, 0.6\,s before $t_g$; close 0.4\,s; lifted 10\,cm from 1\,s \\
+    grasp & hover 10\,cm, 0.6\,s before $t_*$; close 0.4\,s; lifted 10\,cm from 1\,s \\
     grasp times & 0.5\,s apart in $[\max(t_{\text{enter}},t_0+1),\,t_{\text{exit}}-1.2]$; 6 IK starts each \\
     seeds & 3 grasp times; 3 random vias ($\pm1$\,rad); lines sampled 40 times \\
     solver & SNOPT, feasibility $10^{-4}$, optimality 0.1, refined 0.01; 4 workers \\
-    timing & $\beta=2$\,s initially, lead 1\,s, commands every 5\,ms \\
+    timing & $\beta=2$\,s at first; first plan for $t_0=t_{\text{enter}}-1$\,s; commands every 5\,ms \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -1095,18 +1172,17 @@ that executes is never replaced.
 
 \begin{table}[!t]
   \centering
-  \caption{Inputs of (D) (84, fixed scaling).}
+  \caption{Inputs $o$ of (D): 84 values, each with a fixed scaling.}
   \label{tab:obsD}
   \footnotesize\setlength{\tabcolsep}{3pt}
-  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.4\columnwidth}>{\raggedright\arraybackslash}p{0.56\columnwidth}@{}}
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.27\columnwidth}>{\raggedright\arraybackslash}p{0.69\columnwidth}@{}}
     \toprule
-    joint positions (7) & $(q-q_{\text{mid}})/$half range \\
-    commanded joint velocities (7) & $/v_{\max}$ \\
-    opening, commanded and measured (2) & $2w/0.107-1$ \\
-    gripper position (3), $R_G$ columns 1--2 (6) & $(p_G-[0.5,0,0.4])/0.5$ \\
-    grasp-pose error in the gripper frame (9) & position $/0.5$ and $\operatorname{clip}(/0.05,\pm1)$; rotation
+    joints (14) & positions $(q-q_{\text{mid}})/$half range; commanded velocities $/v_{\max}$ \\
+    opening (2) & commanded and measured, $2w/0.107-1$ \\
+    gripper pose (9) & $(p_G-[0.5,0,0.4])/0.5$; columns 1, 2 of $R_G$ \\
+    grasp-pose error (9) & in the gripper frame: position $/0.5$ and $\operatorname{clip}(/0.05,\pm1)$; rotation
       (axis $\times$ angle) \\
-    object velocity (3), width (1) & $/0.3$, $/0.1$ \\
+    object (4) & velocity $/0.3$; width $/0.1$ \\
     4 nearest obstacles ($4\times11$) & position $-\,p_G$ and velocity $/0.5$; half extents $/0.25$; distance to the
       robot, $\operatorname{clip}(\cdot,-0.1,1)/0.25$; present flag. Nearest first, zero-padded \\
     timing (2) & $\operatorname{clip}(t_{\text{enter}}-t,0,5)/5$, $\operatorname{clip}(t_{\text{exit}}-t,-2,10)/10$ \\
@@ -1114,41 +1190,53 @@ that executes is never replaced.
   \end{tabular}
 \end{table}
 
-\emph{Policy.} A $3\times512$ ReLU MLP gives $\mu(s)\in\mathbb R^8$ every 0.1\,s; $\sigma\in\mathbb R^8$ is a learned,
-state-independent parameter. Joints: $u_{1:7}\sim\mathcal N(\mu_{1:7},\sigma_{1:7}^2)$, $a=\tanh u$; over the step
-the commanded velocity ramps linearly from $v$ to $v+\operatorname{clip}(a\,v_{\max}-v,\pm0.6a_{\text{ref}}\cdot0.1\,\text{s})$,
-and its integral is sent as positions every 10\,ms, 0.05\,rad inside the limits. Gripper:
-$u_8\sim\mathcal N(\tanh\mu_8,\sigma_8^2)$, width $0.107\,(\operatorname{clip}(u_8,\pm1)+1)/2$. At test time $u$ is
-the mean.
+\emph{Policy.} A $3\times512$ ReLU MLP maps the inputs $o$ (Table~\ref{tab:obsD}) to $\mu_\theta(o)\in\mathbb R^8$
+every 0.1\,s; $\sigma\in\mathbb R^8$ is learned and state-independent (in BC, a head $\sigma_\theta(o)$). Joints:
+$u_{1:7}\sim\mathcal N(\mu_{\theta,1:7},\sigma_{1:7}^2)$, $a_{1:7}=\tanh u_{1:7}$; $a\,v_{\max}$ is a target joint
+velocity: over the step the commanded velocity ramps linearly from its current value $v$ to
+$v+\operatorname{clip}(a\,v_{\max}-v,\pm0.6a_{\text{ref}}\cdot0.1\,\text{s})$, and its integral is sent as positions
+every 10\,ms, 0.05\,rad inside the limits. Gripper: $u_8\sim\mathcal N(\tanh\mu_{\theta,8},\sigma_8^2)$ in action
+units, $a_8=\operatorname{clip}(u_8,\pm1)$, opening $0.107\,(a_8+1)/2$. At test time $u$ is the mean.
 
-\emph{BC} on (C)'s actions $a^*$, with $s'=s+0.02\epsilon$ and $\sigma(s)$ from a head on detached features:
+\emph{Labels.} $a^*\in[-1,1]^8$: (C)'s command over a step, written as the action that reproduces it (joints: the
+ramp's end velocity$/v_{\max}$ that tracks (C)'s commanded positions; gripper: (C)'s mean opening, mapped to
+$[-1,1]$). $o'=o+0.02\,\epsilon$, $\epsilon\sim\mathcal N(0,I)$: inputs with noise. $\sg(\cdot)$: stop-gradient (the
+value, without its gradient). $a^*$ is clipped to $\pm(1-10^{-3})$ before $\operatorname{atanh}$.
+
+\emph{BC} on (C)'s demonstrations: the mean is fit to $a^*$, and the noise $\sigma_\theta(o')$, from a head on the
+trunk's detached features, to the expert's pre-tanh residual:
 \begin{equation}
 \begin{aligned}
-L_{\text{BC}}={}&\tfrac18\textstyle\sum_i\big(\tanh\mu_i(s')-a^*_i\big)^2\\
-&+\tfrac18\textstyle\sum_i\Big[\frac{(\operatorname{atanh}a^*_i-\sg\mu_i)^2}{2\sigma_i(s)^2}+\log\sigma_i(s)\Big].
+L_{\text{BC}}={}&\tfrac18\textstyle\sum_i\big(\tanh\mu_{\theta,i}(o')-a^*_i\big)^2\\
+&+\tfrac18\textstyle\sum_i\Big[\frac{(\operatorname{atanh}a^*_i-\sg\mu_{\theta,i}(o'))^2}{2\sigma_{\theta,i}(o')^2}
++\log\sigma_{\theta,i}(o')\Big].
 \end{aligned}
 \end{equation}
 
-\emph{DAgger.} With probability $p_{\text{lab}}$ after a policy episode, its actions are replayed up to
-$t_{\text{sw}}\sim U[0,t_{\text{fail}}-0.2\,\text{s}]$ ($t_{\text{fail}}$: first collision, else grasp, else end); (C)
-then plans from the moving $(q,\dot q)$ with the simulation paused, and if it succeeds its actions from $t_{\text{sw}}$
-on are labels.
+\emph{DAgger} (labels on states the policy itself reaches). With probability $p_{\text{lab}}$ after a policy
+episode, its actions are replayed up to $t_{\text{sw}}\sim U[0,t_{\text{fail}}-0.2\,\text{s}]$ ($t_{\text{fail}}$:
+first collision, else grasp, else end); (C) then plans from the moving $(q,\dot q)$ with the simulation paused, and if
+it succeeds its actions $a^*$ from $t_{\text{sw}}$ on are labels.
 
-\emph{PPO + imitation}, per minibatch of PPO rows and imitation rows (half (C) demonstrations, half DAgger labels):
+\emph{PPO + imitation}, per minibatch of PPO rows $(o,u,\hat A)$ and imitation rows $(o,a^*)$ (half (C)
+demonstrations, half DAgger labels):
 \begin{equation}
 \begin{aligned}
-L&=w\,L_{\text{PPO}}+\lambda(L_\mu+L_\sigma)-\textstyle\sum_ic_i\log\sigma_i,\\
-L_{\text{PPO}}&=-\hat{\mathbb E}\big[\omega\min\big(r\hat A,\operatorname{clip}(r,0.8,1.2)\hat A\big)\big],\\
-L_\mu&=\hat{\mathbb E}\textstyle\sum_i\big(\tanh\mu_i(s')-a^*_i\big)^2/(2\bar\sigma^2),\\
-L_\sigma&=\hat{\mathbb E}\textstyle\sum_i\big[\min(\rho_i^2,9\sigma_i^2)/(2\sigma_i^2)+\log\sigma_i\big],
+L&=w_{\text{PPO}}L_{\text{PPO}}+w_{\text{imit}}(L_\mu+L_\sigma)-\textstyle\sum_ic_i\log\sigma_i,\\
+L_{\text{PPO}}&=-\hat{\mathbb E}\big[w_{\text{IS}}\min\big(\rho\hat A,\operatorname{clip}(\rho,0.8,1.2)\hat A\big)\big],\\
+L_\mu&=\hat{\mathbb E}\textstyle\sum_i\big(\tanh\mu_{\theta,i}(o')-a^*_i\big)^2/(2\bar\sigma^2),\\
+L_\sigma&=\hat{\mathbb E}\textstyle\sum_i\big[\min(e_i^2,9\sigma_i^2)/(2\sigma_i^2)+\log\sigma_i\big],
 \end{aligned}
 \end{equation}
-with $r=\pi_\theta/\pi_{\text{prox}}$ and $\omega=\min(\pi_{\text{prox}}/\pi_{\text{beh}},2)$ (decoupled
-PPO~\cite{hilton2022batch}: $\pi_{\text{prox}}$ the policy at the update's start, $\pi_{\text{beh}}$ the one the
-worker acted with); $\hat A$: GAE ($\gamma=0.99$, $\lambda_{\text{GAE}}=0.95$), normalized;
-$\bar\sigma^2=\sg(\text{mean joint }\sigma_i^2)$; $\rho_i=\operatorname{atanh}a^*_i-\sg\mu_i$ (gripper:
-$a^*_8-\tanh\sg\mu_8$). The critic minimizes $(V_\phi(s)-\hat R)^2$. Table~\ref{tab:rl} gives the schedule,
-hyperparameters and rewards.
+with $\rho=\pi_\theta(u|o)/\pi_{\text{prox}}(u|o)$ and $w_{\text{IS}}=\min(\pi_{\text{prox}}/\pi_{\text{beh}},2)$
+(decoupled PPO~\cite{hilton2022batch}: $\pi_{\text{prox}}$ the policy at the update's start, $\pi_{\text{beh}}$ the one
+the worker acted with); $\hat A$: GAE ($\gamma=0.99$, $\lambda_{\text{GAE}}=0.95$), normalized per batch;
+$\bar\sigma^2=\sg(\text{mean of the joints' }\sigma_i^2)$; $e_i=\operatorname{atanh}a^*_i-\sg\mu_{\theta,i}(o')$, the
+expert's residual ($\mu$ clipped like $\operatorname{atanh}a^*$; gripper:
+$a^*_8-\tanh\sg\mu_{\theta,8}(o')$). $L_\mu$ is the expert's log-likelihood at the policy's noise scale, $L_\sigma$
+sets $\sigma$ to the expert's residual, and the entropy bonus keeps $\sigma$ from collapsing. The critic $V_\psi$
+minimizes $(V_\psi(o)-\hat R)^2$, with $\hat R=\hat A+V_\psi(o)$ before normalization (the GAE return).
+Table~\ref{tab:rl} gives the schedule, hyperparameters and rewards.
 
 \begin{table}[!t]
   \centering
@@ -1162,21 +1250,28 @@ hyperparameters and rewards.
       pillar); fresh seeds, never a test scene; fixed 1\,ms latency \\
     BC & 34{,}981 successful (C) episodes (4.4M pairs); Adam $3\cdot10^{-4}$, batch 512, 40 epochs; EMA of weights
       (0.999) \\
-    DAgger & (C) gets $\le10$\,s wall time per plan; 3.3M labels from 40k BC rollouts before PPO, 5.0M in all \\
-    PPO & clip 0.2; 4 epochs per batch of 32{,}768 steps, early stop at KL $>0.03$; minibatch 4096 PPO + 4096
-      imitation rows; $\sigma_8\ge0.018$; exported policy: EMA (0.999) \\
+    DAgger & (C) tries no more seeds after 10\,s of wall time per plan; 3.3M labels from 40k BC rollouts before PPO,
+      5.0M in all \\
+    PPO & clip 0.2; 4 epochs per batch of 32{,}768 steps, stopped early once KL $>0.03$; minibatch 4096 PPO + 4096
+      imitation rows; $\sigma$ starts at 0.03, $\sigma_8$ at its floor 0.018; exported policy: EMA (0.999) \\
     Critic & own $3\times512$ LayerNorm MLP, pretrained on the 40k BC rollouts; returns of the last 2 batches \\
     Learning rates & actor $5\cdot10^{-5}$ (halved from batch 747), $\log\sigma$ $10^{-3}$, critic $3\cdot10^{-4}$ \\
-    Schedule & $w=0$, $\lambda=0.04$, $p_{\text{lab}}=0.25$ until the critic's explained variance is $\ge0.5$ on 3
-      new batches in a row, after $\ge100$ batches (batch 100); then over 300 batches $x:0\to1$: $w=x$,
-      $\lambda=0.04(1-x)$, $p_{\text{lab}}=0.25(1-x)$, $c_i:0.02\to0.002$ (gripper $0.01\to0.001$); batches
-      1100--1800: $c_i$ and the actor and $\log\sigma$ learning rates anneal to 0; batch 1300 selected on Train-500 \\
-    Rewards & $r_t=0.937\,\Delta\Phi_p+\Delta\Phi_c+\Delta\Phi_e+r_{\text{close}}+r_{\text{end}}$,
-      $\Delta\Phi=\gamma\Phi(s_{t+1})-\Phi(s_t)$; $\Phi_p=-(\lVert p_G-p_{\text{grasp}}\rVert+0.1\theta_{\text{err}})$,
-      0 once in hand (0.937: 1/mean start distance); $\Phi_c=-0.5\max(0,1-d_{\text{obst}}/4\,\text{cm})$;
-      $\Phi_e=-0.25\max(0,1-d_{\text{arm}}/2\,\text{cm},1-d_{\text{hand}}/5\,\text{mm})$; first close within 1\,cm and
-      $10^\circ$: $0.5e^{-|v_G-v_{\text{obj}}|/0.05}$, a close outside them $-0.1$; $r_{\text{end}}$: success $+1$, collision
-      or drop $-1$, timeout 0, failure after success $-2$ \\
+    Schedule & $w_{\text{PPO}}=0$, $w_{\text{imit}}=0.04$, $p_{\text{lab}}=0.25$ until the critic's explained variance is
+      $\ge0.5$ on 3 new batches in a row, after $\ge100$ batches (batch 100); then a ramp over 300 batches, $x:0\to1$:
+      $w_{\text{PPO}}=x$, $w_{\text{imit}}=0.04(1-x)$, $p_{\text{lab}}=0.25(1-x)$, $c_i:0.02\to0.002$ (gripper
+      $0.01\to0.001$); batches 1100--1800: $c_i$ and the actor and $\log\sigma$ learning rates anneal to 0; batch 1300
+      selected on Train-500 \\
+    \midrule
+    Reward & $r_t=0.937\,\Delta\Phi_p+\Delta\Phi_c+\Delta\Phi_{\text{env}}+r_{\text{close}}+r_{\text{end}}$ per step;
+      shaping $\Delta\Phi=\gamma\Phi_{t+1}-\Phi_t$ \\
+    \quad progress & $\Phi_p=-(\lVert e_p\rVert+0.1\lVert e_R\rVert)$, the gripper's error to $X^*(t)$ (m, rad); 0
+      once in hand; $0.937=1/$mean start distance \\
+    \quad clearance & $\Phi_c=-0.5\max(0,1-\phi_{\text{obst}}/4\,\text{cm})$, robot to obstacles;
+      $\Phi_{\text{env}}=-0.25\max(0,1-\phi_{\text{arm}}/2\,\text{cm},1-\phi_{\text{hand}}/5\,\text{mm})$, links and WSG
+      to cart and floor \\
+    \quad close & a close: the commanded opening drops below the object's width. The first within 1\,cm and
+      $10^\circ$ of $X^*$: $0.5\,e^{-\lVert v_G-v_{\text{obj}}\rVert/0.05}$; any outside them: $-0.1$ \\
+    \quad end & success $+1$; collision or drop $-1$; timeout 0; failure after success $-2$ \\
     \bottomrule
   \end{tabular}
 \end{table}
