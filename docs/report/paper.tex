@@ -446,10 +446,10 @@ decision, including failed attempts (G4).
     \toprule
     & (A) & (B) & (C) & (D) PPO \\
     \midrule
-    Time to grasp after object in reach (s)  & 2.21 & 2.66 & \textbf{1.60} & \todo{} \\
-    Min.\ obstacle clearance (cm)            & 5.3  & \textbf{5.5} & 4.1 & \todo{} \\
-    Peak torque (fraction of limit)          & 2.20 & \textbf{0.34} & 0.44 & \todo{} \\
-    Peak joint speed (fraction of limit)     & 0.60 & \textbf{0.44} & 0.59 & \todo{} \\
+    Time to grasp after object in reach (s)  & 2.21 & 2.66 & 1.60 & \textbf{1.24} \\
+    Min.\ obstacle clearance (cm)            & 5.3  & \textbf{5.5} & 4.1 & 3.3 \\
+    Peak torque (fraction of limit)          & 2.20 & \textbf{0.34} & 0.44 & 0.47 \\
+    Peak joint speed (fraction of limit)     & 0.60 & \textbf{0.44} & 0.59 & 0.49 \\
     Compute per plan / decision (ms)         & 2.2  & 862  & 1492 & \textbf{1.24} \\
     \bottomrule
   \end{tabular}
@@ -501,29 +501,32 @@ planner's compute budget, not the problem, is what fails, which is the case for 
 made in Section~\ref{sec:conclusion}. The verdicts are relative to (B)'s goals, not absolute: (C), with its
 own grasp poses and seeding, grasps 9 of the 17 scenes, including one with no goal for (B)
 (\texttt{mix\_0028}) and three where (B)'s oracle fails. (B)'s gap to (C) on the held-out set (63 vs.\ 72)
-is therefore mostly goal coverage, and partly compute. \todo{add (D)'s outcomes on these 17 scenes.}
+is therefore mostly goal coverage, and partly compute. (D) PPO grasps 5 of the 17; in all 7 scenes with no goal for (B), it collides instead of abstaining.
 
 \begin{table}[t]
   \centering
-  \caption{Certification of the 17 held-out scenes (B) does not grasp, and how many of them (C) grasps.}
+  \caption{Certification of the 17 held-out scenes (B) does not grasp, and how many of them (C) and (D) PPO grasp.}
   \label{tab:cert}
   \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{@{}lcc@{}}
+  \begin{tabular}{@{}lccc@{}}
     \toprule
-    Verdict for (B) & scenes & (C) grasps \\
+    Verdict for (B) & scenes & \multicolumn{2}{c}{grasps} \\
+    \cmidrule(l){3-4}
+    & & (C) & (D) \\
     \midrule
-    No goal in (B)'s grasp model                        & 7 & 1 \\
-    Goals exist, no plan even for the oracle$^\ast$      & 6 & 4 \\
-    Oracle succeeds at (B)'s limits (missed online)     & 4 & 4 \\
+    No goal in (B)'s grasp model                        & 7 & 1 & 0 \\
+    Goals exist, no plan even for the oracle$^\ast$      & 6 & 4 & 3 \\
+    Oracle succeeds at (B)'s limits (missed online)     & 4 & 4 & 2 \\
     \midrule
-    Total                                               & 17 & 9 \\
+    Total                                               & 17 & 9 & 5 \\
     \bottomrule
   \end{tabular}\\[2pt]
   {\footnotesize $^\ast$Two become possible at $1.33\times$ (B)'s acceleration limits.}
 \end{table}
 
 \textbf{Compute.} (B) needs 862\,ms and (C) 1.5\,s per plan, while (A) and (D) decide in about a
-millisecond (G4). Because compute costs time, slow plans fail in a specific way: 7 of (C)'s 9 collisions
+millisecond (G4). (D) runs on one CPU core; it pays at training time instead: (C)'s demonstrations and DAgger
+labels, then 3.9\,h of PPO on about 400 CPU cores and one GPU. Because compute costs time, slow plans fail in a specific way: 7 of (C)'s 9 collisions
 are pillar scenes where the dodge takes 1.4--20\,s to compute, and in the other two the arm is hit while
 parked as a late first plan arrives. The policy (D) avoids this entirely: it recovers 193 of (C)'s 195
 successes at about 1/1200 of its compute.
