@@ -380,7 +380,7 @@ The reward combines potential-based shaping terms~\cite{ng1999shaping} for progr
 and for clearance from obstacles, the cart and the floor, a bonus for closing at the grasp pose at the
 object's velocity, and terminal rewards ($+1$ success, $-1$ collision or drop, $-2$ for a failure after
 success). Training runs on about 400 CPU workers feeding one GPU learner, and the selected checkpoint
-(42.7M steps, 3.9\,h) is the best on 500 fresh training scenes (Train-500). Table~\ref{tab:rl} in the
+(42.7M steps, 3.9\,h) is the best on 500 new scenes from the training mix, never trained on (Train-500). Table~\ref{tab:rl} in the
 appendix lists the full schedule and hyperparameters. \emph{Trade-off:} (D) decides in about a
 millisecond, but it has no collision guarantee and depends on its training distribution.
 
