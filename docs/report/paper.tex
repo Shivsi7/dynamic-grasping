@@ -199,22 +199,23 @@ at $t$ are available for any $(q, t)$.
 \begin{figure}[t]
   \centering
   \begin{tikzpicture}[
-      font=\footnotesize, node distance=6mm and 8mm,
-      box/.style={draw, rounded corners=2pt, align=center, text width=3.1cm, minimum height=9mm, inner sep=2pt, fill=gray!8},
+      font=\footnotesize,
+      box/.style={draw, rounded corners=2pt, align=center, text width=3.1cm, minimum height=10mm, inner sep=2pt, fill=gray!8},
       arr/.style={-{Stealth[length=2mm]}, thick}]
-    \node[box] (gen) {Scene generator\\{\scriptsize seeded set or preset grid}};
-    \node[box, right=of gen] (sim) {Drake simulation\\{\scriptsize iiwa + WSG, cart, obstacles}};
-    \node[box, below=of gen] (wm) {World model\\{\scriptsize predicted poses at any $t$}};
-    \node[box, below=of sim, fill=blue!8] (ctrl) {Controller (A)--(D)\\{\scriptsize QP, ST-RRT, TrajOpt, policy}};
-    \node[box, below=of wm] (mon) {Episode monitor\\{\scriptsize success, collision, drop, timeout}};
-    \node[box, below=of ctrl] (lat) {Latency model\\{\scriptsize applied $w$\,s after it is computed}};
-    \draw[arr] (gen) -- (sim);
-    \draw[arr] (gen) -- (wm);
-    \draw[arr] (wm) -- (ctrl);
-    \draw[arr] (sim) -- node[right, font=\scriptsize]{state} (ctrl);
-    \draw[arr] (ctrl) -- node[right, font=\scriptsize]{command} (lat);
-    \draw[arr] (lat.east) -- ++(2.5mm,0) |- (sim.east);
-    \draw[arr] (sim.north) -- ++(0,2.5mm) -| ([xshift=-3mm]gen.west) |- (mon.west);
+    \node[box] (gen) at (0,0) {Scene generator\\{\scriptsize seeded set or preset grid}};
+    \node[box] (wm) at (-1.95,-1.7) {World model\\{\scriptsize predicted poses at any $t$}};
+    \node[box] (sim) at (1.95,-1.7) {Drake simulation\\{\scriptsize iiwa + WSG, cart, obstacles}};
+    \node[box, fill=blue!8] (ctrl) at (0,-3.4) {Controller (A)--(D)\\{\scriptsize QP, ST-RRT, TrajOpt, policy}};
+    \node[box] (mon) at (1.95,-5.15) {Episode monitor\\{\scriptsize success, collision, drop, timeout}};
+    \node[box] (lat) at (-1.95,-5.15) {Latency model\\{\scriptsize applied $w$\,s after it is computed}};
+    \draw[arr] ([xshift=-10mm]gen.south) -- ([xshift=-10mm]gen.south |- wm.north);
+    \draw[arr] ([xshift=10mm]gen.south) -- ([xshift=10mm]gen.south |- sim.north);
+    \draw[arr] ([xshift=-10mm]ctrl.north |- wm.south) -- ([xshift=-10mm]ctrl.north);
+    \draw[arr] ([xshift=10mm]ctrl.north |- sim.south) -- node[right, font=\scriptsize]{state} ([xshift=10mm]ctrl.north);
+    \draw[arr] ([xshift=-10mm]ctrl.south) -- node[left, font=\scriptsize]{command} ([xshift=-10mm]ctrl.south |- lat.north);
+    \draw[arr] ([xshift=10mm]sim.south) -- ([xshift=10mm]sim.south |- mon.north);
+    \coordinate (mid) at ($(ctrl.south)!0.5!(lat.north)$);
+    \draw[arr] ([xshift=13mm]lat.north) -- ([xshift=13mm]lat.north |- mid) -- ([xshift=3mm]sim.south |- mid) -- ([xshift=3mm]sim.south);
   \end{tikzpicture}
   \caption{Shared evaluation system. Every controller reads the robot's state and the world model's
   predictions; its command reaches the simulated arm only after the wall time it took to compute, and a
