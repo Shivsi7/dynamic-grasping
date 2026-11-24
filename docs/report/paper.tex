@@ -525,7 +525,7 @@ is therefore mostly goal coverage, and partly compute. (D) PPO grasps 5 of the 1
 \end{table}
 
 \textbf{Compute.} (B) needs 862\,ms and (C) 1.5\,s per plan, while (A) and (D) decide in about a
-millisecond (G4). (D) runs on one CPU core; it pays at training time instead: (C)'s demonstrations and DAgger
+millisecond (G4). (D) is this fast because it moves the computation to training: (C)'s demonstrations and DAgger
 labels, then 3.9\,h of PPO on about 400 CPU cores and one GPU. Because compute costs time, slow plans fail in a specific way: 7 of (C)'s 9 collisions
 are pillar scenes where the dodge takes 1.4--20\,s to compute, and in the other two the arm is hit while
 parked as a late first plan arrives. The policy (D) avoids this entirely: it recovers 193 of (C)'s 195
