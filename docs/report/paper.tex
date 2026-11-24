@@ -744,6 +744,7 @@ G.~Zhai, D.~Huang, S.-C. Wu, H.~Jung, Y.~Di, F.~Manhardt, F.~Tombari, N.~Navab, 
 
 % ---------------------------------------------------------------------------------------------------
 \appendices
+\raggedbottom
 \section{Method details}
 \label{app:methods}
 
@@ -927,12 +928,12 @@ found in time).
   \footnotesize
   \begin{algorithmic}[1]
     \State \textbf{every 10\,ms, at time $t$, unless committed:}
-    \State \quad\textbf{if} $t\ge t_{\text{next}}$: \textsc{Cycle}$(t)$; $t_{\text{next}}\gets t$ if it was goal-only,
-      else $t+t_r$
+    \State \quad\textbf{if} $t\ge t_{\text{next}}$: \textsc{Cycle}$(t)$; $t_{\text{next}}\gets t$ if the cycle only generated
+      goals (it plans next), else $t+t_r$
     \Procedure{Cycle}{$t$}
       \State $b\gets b_1$ (first plan), $b_0$ (a grasp plan executes) or $b_{\text{wait}}$
       \State \textbf{if} $t_{\text{hit}}$ exists: $b\gets\operatorname{clip}\big(\tfrac12(t_{\text{hit}}-t),b_0,
-        b_{\max}\big)$ (first plan: $0.05\,\text{s},b_1$)
+        b_{\max}\big)$ (first plan: clipped to $[0.05\,\text{s},b_1]$)
       \State \quad and if $b=b_0$: $b_{\text{wait}}\gets b_0$
       \State $t_s\gets t+b$; $(q_s,v_s)\gets$ executing state at $t_s$; prefix $\gets$ it on $[t,t_s]$
       \State $d_O\gets$ the largest of 3, 1, 0\,cm that the state at $t+b_0$ satisfies
@@ -1072,7 +1073,7 @@ $|k|$, then $t_*$. Each gets 6 tries (guess $q_0$, then uniform random):
 $q_*=\mathrm{IK}(t_*,X^*(t_*),\text{guess})$, $q_h=\mathrm{IK}\big(t_h,(R^*,p^*(t_h)+0.1\hat z),q_*\big)$, keeping
 the pair with the least $\max_j|q_{h,j}-q_{0,j}|/v_{\max,j}$. The \emph{first pair} is that of the first candidate
 with one; the \emph{earliest pair} comes from the same search ordered by $t_*\le t_0+5$ first, untried, then $t_*$.
-If no candidate has a pair: $t\pm0.1$, $t\pm0.2$ around the two whose failed IK came nearest (position error
+If no candidate has a pair: $t_*\pm0.1$, $t_*\pm0.2$\,s around the two whose failed IK came nearest (position error
 $+\,0.1\times$angle $+$ clearance shortfall).
 
 \emph{Seeds} (initial guesses for the approach), in order: straight joint-space lines through $(t_0,q_0)$,
@@ -1090,7 +1091,7 @@ line is sampled 40 times; $P$ is their least-squares fit and $T_{\text{guess}}=t
 \text{s.t.}\ & \max(t_{\text{enter}}-t_0,0.3)\le T\le t_{\text{exit}}-1.2-t_0,\quad \mathcal L_4,\\
 & q(0)=q_0,\quad \dot q(0)=v_0,\\
 & \text{at } 1:\ |p_G-p^*(t)|\le5\,\text{mm},\ |e_R|\le0.02,\\
-& \qquad\ \ |\omega_G|\le0.02,\ |v_G-v_{\text{obj}}|\le0.02\,\text{m/s},\\
+& \qquad\ \ |\omega_G|\le0.02\,\text{rad/s},\ |v_G-v_{\text{obj}}|\le0.02\,\text{m/s},\\
 & \text{at } x_h:\ |p_G-p^*(t)-0.1\hat z|\le1\,\text{cm},\ |e_R|\le0.04,\\
 & \text{at } x_h+\tfrac i4(1-x_h),\ i=1,2,3:\\
 & \qquad p_G-p^*(t)\in[-1.5,1.5]^2\times[0,12]\,\text{cm},\\
