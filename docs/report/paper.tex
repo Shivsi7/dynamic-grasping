@@ -168,7 +168,7 @@ PD joints, so collisions are physical.
 and a \emph{world model} that predicts the pose and velocity of the target, the cart and every
 obstacle at any time $t$. In this work the prediction is exact.
 
-\textbf{Commands.} A controller runs every 10\,ms (every 0.1\,s for (D)) and returns joint positions,
+\textbf{Commands.} A controller runs every 10\,ms (5\,ms for (C), 0.1\,s for (D)) and returns joint positions,
 joint velocities or a time-indexed joint trajectory, plus a gripper opening.
 
 \textbf{Computation costs time.} The simulator waits for the controller, so by default a slow
@@ -293,7 +293,7 @@ one search considers all of them, and the planner stops at the first connection.
 replaces sub-paths with straight edges while keeping the knot times, so that the arrival time does not
 change.
 
-\textbf{Goals.} Intercept times span the window in which the object is reachable and the tail still fits
+\textbf{Goals.} Intercept times span from 0.5\,s before the object becomes reachable until the tail no longer fits
 in the episode. IK families are seeded with their own solution at the previous $T$, so each family is a
 consistent arm posture. When a pre-grasp or tail collides, the planner searches the elbow's self-motion
 (the one-dimensional null space of the gripper pose), since obstacles mostly meet the elbow rather than
@@ -351,7 +351,7 @@ tolerance, then refine them while time remains, and (C) keeps the lowest-cost pl
 
 \textbf{Timing.} Planning starts 2\,s before $t_0$ and the arm holds still meanwhile. A plan that arrives
 late is rejected and redone with 1.5$\times$ the time it took. Without a plan, (C) replans at every update
-until the object leaves reach. If an obstacle would hit the parked arm first, a small \emph{dodge}
+until 1.2\,s before the object leaves reach. If an obstacle would hit the parked arm first, a small \emph{dodge}
 optimization moves it out of the way. \emph{Trade-off:} (C) finds the fastest grasps, but solve times are
 unbounded, so a plan, or even a dodge, can arrive too late.
 
