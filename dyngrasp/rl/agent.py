@@ -26,6 +26,12 @@ LayerNorm on (obs, action).  One update (RLPD-style when the batch mixes online 
   actor_ema > 0: the policy that acts, is exported and gives the critic targets' actions is this EMA of the actor (as BC's)
   alpha    automatic (target entropy, settable: set_target_entropy) or fixed
   targets  Polyak averaging (tau)
+TD3 mode (td3, "TD3+BC"): the actor is deterministic, a = tanh(mean) (the log_std head is unused), there is no
+entropy term, the critic target uses the (delayed) actor's smoothed target action td3_target_action, the actor loss is
+-mean over critics Q(s, tanh(mean(s))) (q_norm: / mean |Q|) plus the same regularisers, and the actor AND the target
+critics move only every actor_delay critic updates.  Acting adds N(0, explore_std) to the action (clipped to [-1, 1]);
+finetune.py decays explore_std over td3_explore_steps.  The remaining options (demo mixing, bc_* anchors, n-step
+rows, actor_ema, actor_obs_noise, residual mode) apply unchanged.
 Residual mode (residual_scale > 0): the BC actor stays frozen and the trained network (a copy of it with a zero mean
 head) adds residual_scale x tanh(its mean) to the BC mean before the tanh; its log_std head gives the noise.
 `export_arrays` writes either kind in the actor.npz format RLController reads.
@@ -68,6 +74,12 @@ def actor_forward(params, x):
     mean = x @ p[f"Dense_{n}"]["kernel"] + p[f"Dense_{n}"]["bias"]
     log_std = x @ p[f"Dense_{n + 1}"]["kernel"] + p[f"Dense_{n + 1}"]["bias"]
     return mean, jnp.clip(log_std, LOG_STD_MIN, LOG_STD_MAX)
+
+
+def td3_target_action(mean, key, noise_std: float, noise_clip: float):
+    """TD3's smoothed target action: tanh(mean) + clip(N(0, noise_std), +-noise_clip), clipped to [-1, 1]."""
+    eps = jnp.clip(noise_std * jax.random.normal(key, mean.shape), -noise_clip, noise_clip)
+    return jnp.clip(jnp.tanh(mean) + eps, -1.0, 1.0)
 
 
 def sample_action(mean, log_std, key):
@@ -121,6 +133,10 @@ class Agent:
         self.opt_critic = optax.adam(float(f["lr_critic"]))
         self.opt_alpha = optax.adam(float(f["lr_alpha"]))
         self.auto_alpha = f["ent_coef"] == "auto"
+        self.td3 = bool(f["td3"])
+        if self.td3:
+            self.auto_alpha = False  # a deterministic actor: no entropy term, no temperature
+        self.explore_std = float(f["td3_explore_std"])  # TD3's exploration noise while acting (finetune.py decays it)
         key = jax.random.PRNGKey(seed)
         key, k = jax.random.split(key)
         critic_params = self.critic.init(k, jnp.zeros((1, OBS_DIM)), jnp.zeros((1, ACTION_DIM)))
@@ -138,7 +154,8 @@ class Agent:
             n = len(p) - 2
             p[f"Dense_{n}"] = jax.tree_util.tree_map(jnp.zeros_like, p[f"Dense_{n}"])
             actor_params = {"params": p}
-        log_alpha = jnp.log(float(f["init_ent_coef"] if self.auto_alpha else f["ent_coef"]))
+        # (TD3: alpha is unused; it just needs a number)
+        log_alpha = jnp.log(float(f["init_ent_coef"] if (self.auto_alpha or f["ent_coef"] == "auto") else f["ent_coef"]))
         copy = partial(jax.tree_util.tree_map, lambda x: jnp.array(x, copy=True))  # distinct buffers (donated)
         self.state = {
             "actor": actor_params, "bc": copy(bc_params),
@@ -158,12 +175,16 @@ class Agent:
         self._chunk = jax.jit(self._chunk_impl, static_argnames="train_actor", donate_argnums=0)
 
     # ---- acting -------------------------------------------------------------------------------------------------
-    def _act_impl(self, actor_params, bc_params, obs, key, deterministic: bool):
+    def _act_impl(self, actor_params, bc_params, obs, key, explore_std, deterministic: bool):
         mean, log_std = self.pi(actor_params, bc_params, obs)
+        if self.td3:
+            a = jnp.tanh(mean)
+            return a if deterministic else jnp.clip(a + explore_std * jax.random.normal(key, a.shape), -1.0, 1.0)
         return jnp.tanh(mean) if deterministic else sample_action(mean, log_std, key)[0]
 
     def act(self, obs: np.ndarray, key, deterministic: bool = False) -> np.ndarray:
-        return np.asarray(self._act(self.state[self.pol], self.state["bc"], jnp.asarray(obs), key, deterministic))
+        return np.asarray(self._act(self.state[self.pol], self.state["bc"], jnp.asarray(obs), key,
+                                    jnp.float32(self.explore_std), deterministic))
 
     def entropy(self, obs: np.ndarray, key) -> float:
         """-mean log pi(a|s), a ~ pi(.|s), of the current actor on these observations."""
@@ -207,7 +228,10 @@ class Agent:
 
         # critic
         mean_n, log_std_n = self.pi(s[self.pol], s["bc"], b["next_obs"])
-        a_n, logp_n = sample_action(mean_n, log_std_n, k_next)
+        if self.td3:  # target policy smoothing; no entropy
+            a_n, logp_n = td3_target_action(mean_n, k_next, float(f["td3_target_noise"]), float(f["td3_noise_clip"])), 0.0
+        else:
+            a_n, logp_n = sample_action(mean_n, log_std_n, k_next)
         q_next = self.critic.apply(s["target"], b["next_obs"], jnp.zeros_like(a_n) if awr else a_n)
         sub = jax.random.choice(k_sub, f["n_critics"], (f["critic_subset"],), replace=False)
         v_next = q_next[sub].min(0) - (alpha * logp_n if f["backup_entropy"] else 0.0)
@@ -245,8 +269,12 @@ class Agent:
         (lc, (q, gap)), g = jax.value_and_grad(critic_loss, has_aux=True)(s["critic"])
         upd, opt_c = self.opt_critic.update(g, s["opt_critic"], s["critic"])
         critic = optax.apply_updates(s["critic"], upd)
+        n_new = s["n_updates"] + 1
+        do = (n_new % f["actor_delay"]) == 0  # this update also moves the actor (and, in TD3 mode, the targets)
         target = optax.incremental_update(critic, s["target"], float(f["tau"]))
-        s = {**s, "critic": critic, "target": target, "opt_critic": opt_c, "key": key, "n_updates": s["n_updates"] + 1}
+        if self.td3:
+            target = jax.tree_util.tree_map(lambda new, old: jnp.where(do, new, old), target, s["target"])
+        s = {**s, "critic": critic, "target": target, "opt_critic": opt_c, "key": key, "n_updates": n_new}
         metrics = {"critic_loss": lc, "q_mean": q.mean(), "q_max": q.max(), "target_mean": y.mean(), "cql_gap": gap}
 
         # actor and temperature
@@ -274,7 +302,10 @@ class Agent:
 
         def actor_loss(ap):
             mean, log_std = self.pi(ap, s["bc"], obs_a)
-            a, logp = sample_action(mean, log_std, k_pi)
+            if self.td3:  # deterministic actor
+                a, logp = jnp.tanh(mean), jnp.zeros(mean.shape[:-1])
+            else:
+                a, logp = sample_action(mean, log_std, k_pi)
             qa = self.critic.apply(critic, obs, a).mean(0)
             dev = jnp.mean((jnp.tanh(mean) - mean_bc) ** 2, -1)
             bc_demo = jnp.sum(demo * jnp.mean((jnp.tanh(mean) - act) ** 2, -1)) / jnp.maximum(demo.sum(), 1.0)
@@ -291,7 +322,6 @@ class Agent:
         metrics.update(actor_loss=la, alpha=alpha, **aux)
         if not train_actor:
             return s, metrics
-        do = (s["n_updates"] % f["actor_delay"]) == 0
         upd, opt_a = self.opt_actor.update(g, s["opt_actor"], s["actor"])
         upd = jax.tree_util.tree_map(lambda u: jnp.where(do, u, 0.0), upd)
         opt_a = jax.tree_util.tree_map(lambda new, old: jnp.where(do, new, old), opt_a, s["opt_actor"])

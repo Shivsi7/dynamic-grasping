@@ -1,0 +1,4 @@
+# TD3+BC fine-tuning plans for scripts/orcd/ft.sbatch (one run per line: RUN_NAME KEY=VALUE ...; see docs/td3.md).
+# Fill in ft.bc_checkpoint (a policy directory with actor.npz) and ft.demos (make_rl_demos.py transitions).
+td3_ppo ft.td3=True ft.actor_delay=2 ft.q_norm=True ft.n_step=3 ft.bc_policy_weight=0.5 ft.bc_weight=0.5 ft.lr_actor=3e-5 ft.warmup_steps=100000 ft.utd=0.5 ft.td3_explore_std=0.1 ft.td3_explore_final=0.03 ft.n_envs=16 ft.remote_envs=48 ft.val_workers=8 ft.bc_checkpoint=CHANGEME ft.demos=CHANGEME
+td3_ppo_anchor0 ft.td3=True ft.actor_delay=2 ft.q_norm=True ft.n_step=3 ft.bc_policy_weight=0.0 ft.bc_weight=0.5 ft.lr_actor=3e-5 ft.warmup_steps=100000 ft.utd=0.5 ft.td3_explore_std=0.1 ft.td3_explore_final=0.03 ft.n_envs=16 ft.remote_envs=48 ft.val_workers=8 ft.bc_checkpoint=CHANGEME ft.demos=CHANGEME

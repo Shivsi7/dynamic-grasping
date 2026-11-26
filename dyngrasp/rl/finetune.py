@@ -1,4 +1,4 @@
-"""(D) SAC fine-tuning of the behaviour-cloned policy (agent.py) on asynchronous environments (vecenv.py).
+"""(D) SAC / TD3+BC fine-tuning of the behaviour-cloned policy (agent.py) on asynchronous environments (vecenv.py).
 
     finetune(run_dir, cfg)   # resumes from run_dir/ckpt if there is one (with the run's saved config.yaml)
 
@@ -13,6 +13,9 @@ validated actor is kept in vals/<steps>/, the best success rate (ties: fewer col
 
 Environments: ft.n_envs local processes and up to ft.remote_envs on other machines (scripts/env_workers.py, which
 connect to the address this run writes to workers.addr); the run goes on with whichever are connected.
+
+With ft.td3 the agent is TD3+BC (agent.py): the exploration noise ft.td3_explore_std decays linearly to
+ft.td3_explore_final over ft.td3_explore_steps environment steps (resumes continue the decay from the step count).
 
 SIGUSR1 / SIGTERM: checkpoint and return without DONE (run again to resume).  max_steps: checkpoint, DONE.
 
@@ -246,7 +249,7 @@ def finetune(run_dir, cfg: dict) -> str:
             demos = Buffer(len(d["rew"]))
             demos.add_arrays(d)
             print(f"demonstrations: {demos.size} rows from {f['demos']}", flush=True)
-        if f["target_entropy_bc_offset"] is not None:
+        if f["target_entropy_bc_offset"] is not None and not f["td3"]:
             if "bc_entropy" not in st:
                 x = (demos if demos is not None else buf).sample(rng, 4096)["obs"]
                 st["bc_entropy"] = agent.entropy(x, jax.random.PRNGKey(f["seed"]))
@@ -324,6 +327,9 @@ def finetune(run_dir, cfg: dict) -> str:
                     if cur.record(ep["level"], ep["outcome"]):
                         envs.set_level(cur.level)
                         print(f"curriculum: level {cur.level} at {st['steps']} steps", flush=True)
+            if f["td3"] and f["td3_explore_steps"] > 0:
+                x = min(1.0, st["steps"] / f["td3_explore_steps"])
+                agent.explore_std = f["td3_explore_std"] + (f["td3_explore_final"] - f["td3_explore_std"]) * x
             if ready:
                 act(np.array(ready))
             # learning: utd updates per collected step, in chunks of K
@@ -373,6 +379,8 @@ def finetune(run_dir, cfg: dict) -> str:
                     row["collisions_by"] = {c: hits.count(c) for c in sorted(set(hits))}
                     for term in episodes[0]["ep_terms"]:
                         row[f"term_{term}"] = float(np.mean([e["ep_terms"][term] for e in episodes]))
+                if f["td3"]:
+                    row["explore_std"] = agent.explore_std
                 row.update(metrics)
                 with (run_dir / "metrics.jsonl").open("a") as fh:
                     fh.write(json.dumps(row) + "\n")

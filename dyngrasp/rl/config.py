@@ -142,6 +142,15 @@ DEFAULTS = {
         "actor_ema": 0.0,  # > 0: act, validate and bootstrap with this EMA of the actor's parameters (BC's bc.ema)
         "init_log_std": None,  # set: the actor's log_std head starts as this constant (the BC head can be wild)
         "residual_scale": 0.0,  # > 0: frozen BC actor + this x tanh(a trained residual) before the tanh (agent.py)
+        # TD3+BC (agent.py): deterministic actor a = tanh(mean), no entropy term, twin-critic min target with
+        # target policy smoothing, actor and target networks updated every actor_delay critic updates.  Use with
+        # actor_delay=2, q_norm=True, n_step=3 and a BC anchor (bc_policy_weight or bc_weight), see docs/td3.md.
+        "td3": False,
+        "td3_explore_std": 0.1,  # Gaussian exploration noise on the action (after the tanh, clipped to [-1, 1]) ...
+        "td3_explore_final": 0.05,  # ... decayed linearly to this ...
+        "td3_explore_steps": 2_000_000,  # ... over this many environment steps (0: constant)
+        "td3_target_noise": 0.2,  # target policy smoothing: N(0, this) on the target action ...
+        "td3_noise_clip": 0.5,  # ... clipped to +- this
         "val_every": 250_000,  # environment steps between validations (and one at step 0)
         "val_workers": 8,
         "checkpoint_minutes": 15.0,
