@@ -16,7 +16,7 @@
 # B200/B300 nodes excluded: jax's cuBLAS 12.9 warns of silent data corruption on them (needs cuBLAS >= 13.2)
 #SBATCH --exclude=node5500-c1,node5501-c1,node5502-c1,node5600-c1,node5601-c1,node5602-c1,node5700-c1,node5701-c1,node5702-c1,node5800-c1,node5801-c1,node5802-c1,node5900-c1
 #SBATCH --signal=B:USR1@600
-#SBATCH -o /home/conchell/dyngrasp_rl/runs/.slurm/%x_%j.out
+#SBATCH -o /home/%u/dyngrasp_rl/runs/.slurm/%x_%j.out
 RUN=${1:?usage: sbatch train_preempt.sbatch RUN [SEED] [N_ENVS] [KEY=VALUE ...]}; SEED=${2:-0}; N_ENVS=${3:-$((SLURM_CPUS_PER_TASK - 2))}
 shift $(($# < 3 ? $# : 3))
 RUN_DIR=$HOME/dyngrasp_rl/runs/$RUN

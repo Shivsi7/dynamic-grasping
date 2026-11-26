@@ -4,7 +4,7 @@
 
 - Sync the repo (Mac, repo root): `rsync -az --delete --exclude={.venv,results,runs,__pycache__,.pytest_cache,.ruff_cache,.claude,.DS_Store} ./ orcd:dyngrasp_rl/repo/`
 - Rebuild the image (apptainer `--fakeroot`, ~5 min): `cd ~/dyngrasp_rl/repo/scripts/orcd && sbatch build_image.sbatch`. After changing deps, regenerate the lock with `pip freeze --exclude-editable` inside the image.
-- One-time setup: `mkdir -p ~/dyngrasp_rl/runs/.slurm && ln -sf ~/dyngrasp_rl/repo/scripts/orcd/train_*.sbatch ~/dyngrasp_rl/`
+- One-time setup (any account: the job scripts log to `/home/%u/dyngrasp_rl/...`, i.e. your own home): `mkdir -p ~/dyngrasp_rl/{runs,rl2,rl3}/.slurm && ln -sf ~/dyngrasp_rl/repo/scripts/orcd/train_*.sbatch ~/dyngrasp_rl/`
 - Submit on L40S (16 CPUs, 6 h): `sbatch ~/dyngrasp_rl/train_normal.sbatch RUN [SEED] [N_ENVS] [KEY=VALUE ...]`
 - Submit on preemptable (any GPU, 66 CPUs, 1 day, requeued on preemption): `sbatch [-c 32] ~/dyngrasp_rl/train_preempt.sbatch RUN ...`
 - Outputs go to `~/dyngrasp_rl/runs/RUN/`. Resubmitting the same RUN resumes it. SIGUSR1 arrives 10 min before the time limit.

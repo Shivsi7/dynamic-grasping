@@ -12,7 +12,7 @@
 #SBATCH -t 06:00:00
 #SBATCH --requeue
 #SBATCH --signal=B:USR1@600
-#SBATCH -o /home/conchell/dyngrasp_rl/runs/.slurm/%x_%j.out
+#SBATCH -o /home/%u/dyngrasp_rl/runs/.slurm/%x_%j.out
 RUN=${1:?usage: sbatch train_normal.sbatch RUN [SEED] [N_ENVS] [KEY=VALUE ...]}; SEED=${2:-0}; N_ENVS=${3:-$SLURM_CPUS_PER_TASK}
 shift $(($# < 3 ? $# : 3))
 RUN_DIR=$HOME/dyngrasp_rl/runs/$RUN

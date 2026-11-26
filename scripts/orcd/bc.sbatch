@@ -13,7 +13,7 @@
 #SBATCH --mem-per-cpu=3G
 #SBATCH -t 04:00:00
 #SBATCH --requeue
-#SBATCH -o /home/conchell/dyngrasp_rl/runs/.slurm/%x_%j.out
+#SBATCH -o /home/%u/dyngrasp_rl/runs/.slurm/%x_%j.out
 RUN_DIR=${1:?usage: sbatch bc.sbatch RUN_DIR DATASET [KEY=VALUE ...]}; DATA=${2:?dataset .npz}; shift 2
 CODE_DIR=${CODE_DIR:-$HOME/dyngrasp_rl/repo}
 echo "== $(date) job $SLURM_JOB_ID (restart ${SLURM_RESTART_COUNT:-0}) on $(hostname), $SLURM_CPUS_PER_TASK CPUs, code $CODE_DIR"

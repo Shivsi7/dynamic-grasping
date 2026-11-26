@@ -8,7 +8,7 @@
 #SBATCH --mem-per-cpu=1500M
 #SBATCH -t 12:00:00
 #SBATCH --requeue
-#SBATCH -o /home/conchell/dyngrasp_rl/rl2/.slurm/%x_%j.out
+#SBATCH -o /home/%u/dyngrasp_rl/rl2/.slurm/%x_%j.out
 CODE_DIR=${CODE_DIR:-$HOME/dyngrasp_rl/repo_rl}
 echo "== $(date) job $SLURM_JOB_ID on $(hostname), $SLURM_CPUS_PER_TASK CPUs, restart ${SLURM_RESTART_COUNT:-0}, code $CODE_DIR: $*"
 module load apptainer/1.5.2

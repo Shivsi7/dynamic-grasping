@@ -9,7 +9,7 @@
 #SBATCH -c 16
 #SBATCH --mem-per-cpu=4G
 #SBATCH -t 02:00:00
-#SBATCH -o /home/conchell/dyngrasp_rl/runs/.slurm/%x_%j.out
+#SBATCH -o /home/%u/dyngrasp_rl/runs/.slurm/%x_%j.out
 CODE_DIR=${CODE_DIR:-$HOME/dyngrasp_rl/repo}
 echo "== $(date) job $SLURM_JOB_ID on $(hostname), $SLURM_CPUS_PER_TASK CPUs, GPU ${CUDA_VISIBLE_DEVICES:-none}, code $CODE_DIR"
 echo "== $*"

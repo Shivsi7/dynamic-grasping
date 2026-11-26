@@ -16,7 +16,7 @@
 # B200/B300 nodes excluded: jax's cuBLAS 12.9 warns of silent data corruption on them (needs cuBLAS >= 13.2)
 #SBATCH --exclude=node5500-c1,node5501-c1,node5502-c1,node5600-c1,node5601-c1,node5602-c1,node5700-c1,node5701-c1,node5702-c1,node5800-c1,node5801-c1,node5802-c1,node5900-c1
 #SBATCH --signal=B:USR1@600
-#SBATCH -o /home/conchell/dyngrasp_rl/rl3/.slurm/%x_%j.out
+#SBATCH -o /home/%u/dyngrasp_rl/rl3/.slurm/%x_%j.out
 PLAN=${1:?usage: sbatch ppo.sbatch PLAN}
 CODE_DIR=${CODE_DIR:-$HOME/dyngrasp_rl/repo_rl}
 ROOT=$HOME/dyngrasp_rl/rl3

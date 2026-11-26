@@ -8,7 +8,7 @@
 #SBATCH --mem-per-cpu=3G
 #SBATCH -t 01:00:00
 #SBATCH --requeue
-#SBATCH -o /home/conchell/dyngrasp_rl/rl2/.slurm/%x_%j.out
+#SBATCH -o /home/%u/dyngrasp_rl/rl2/.slurm/%x_%j.out
 POLICY=${1:?usage: sbatch eval30.sbatch POLICY_DIR OUT [NAME]}; OUT=${2:?OUT}; NAME=${3:-$(basename "$OUT")}
 CODE_DIR=${CODE_DIR:-$HOME/dyngrasp_rl/repo_rl}
 echo "== $(date) job $SLURM_JOB_ID on $(hostname), code $CODE_DIR, policy $POLICY"
