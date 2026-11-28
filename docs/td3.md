@@ -75,3 +75,35 @@ the best validation, next to PPO's 42.7M.
 2. `bc_policy_weight` 0 / 0.5 / 2 (does the anchor matter, and how much is it holding back?).
 3. `n_step` 1 vs 3 (the flat-critic finding, now under TD3).
 4. `demo_fraction` 0 vs 0.5 (are the (C) transitions still useful once the policy is better than BC?).
+
+## Hypotheses, stated before the results
+
+Written 2026-11-27, before the first validation past warm-up. Each names the measurement that decides it.
+
+* **H1 (sample efficiency).** TD3+BC from the PPO b=1300 policy reaches PPO's validation success (0.86 on the 50
+  validation scenes under post-success grading) within 2M environment steps and exceeds it within 5M; PPO needed
+  42.7M steps from the BC policy. Measurement: validation success vs environment steps (`val.jsonl`), steps to
+  reach 0.86 and 0.90, at least 3 seeds, mean and 95% CI.
+* **H2 (the anchor).** Without the anchor (`bc_policy_weight=0`) validation success first drops below the starting
+  policy's (critic extrapolation off the data) before recovering, if it recovers; with the anchor it does not drop
+  below 0.80 at any validation. Measurement: the minimum validation success over the first 1M steps, both runs.
+* **H3 (where the gains are).** Improvements over PPO come mostly on the held-out mix (where 15 of PPO's 18
+  failures were collisions) and show as fewer collisions rather than fewer timeouts. Measurement: outcome counts
+  per scene family (dev / grids / held-out) and per failure type, on the 214 scenes, TD3 vs PPO.
+* **H4 (bootstrapping horizon).** 1-step critics under TD3 again correlate poorly with Monte-Carlo returns and the
+  1-step run learns slower than 3-step. Measurement: `rl_diag_q.py`-style correlation and validation curves.
+* **H5 (demonstrations).** Demonstrations in the batch (`demo_fraction=0.5`) speed up the first 1M steps and do
+  not hold the policy back afterwards. Measurement: validation curves for `demo_fraction` 0 vs 0.5.
+
+Checkpoint selection uses the Train-500 fresh scenes, never the 214 test scenes.
+
+## Observations log
+
+* **2026-11-27, first 7 min on a GPU before preemption** (`td3_ppo`, `td3_ppo_anchor0`, 136k steps each):
+  validation at step 0 (the PPO policy itself, post-success grading, fixed 1 ms latency): success 0.86,
+  collision 0.14. Throughput ~375 env steps/s per run with 64 environments, ~190 updates/s per run on a shared
+  GPU (utd 0.5 just kept up). **Exploration noise σ = 0.1 collapsed the online data**: episodes during warm-up
+  succeeded 7–8.5% with 60% collisions (cart 53, obstacle 64, floor 3 of the last 200), i.e. the buffer was
+  filling with failures of a policy the critics will never be asked to follow. Decision: hold the job, measure
+  success vs σ (`scripts/noise_sweep.py`) and restart fresh with a σ that keeps most of the success. PPO's own
+  learned σ was 0.02–0.04 in pre-tanh units, the scale to expect.
