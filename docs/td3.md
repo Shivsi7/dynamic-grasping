@@ -38,7 +38,7 @@ Lessons from the SAC fine-tuning attempt (commit history) baked into the default
 ```
 ft.td3=True ft.actor_delay=2 ft.q_norm=True ft.n_step=3 ft.n_critics=2 ft.critic_subset=2
 ft.bc_policy_weight=0.5 ft.bc_weight=0.5 ft.demo_fraction=0.5
-ft.td3_explore_std=0.1 ft.td3_explore_final=0.03 ft.td3_explore_steps=2000000
+ft.td3_explore_std=0.03 ft.td3_explore_final=0.01 ft.td3_explore_steps=2000000 ft.td3_target_noise=0.06 ft.td3_noise_clip=0.15
 ft.lr_actor=3e-5 ft.lr_critic=3e-4 ft.tau=0.005 ft.warmup_steps=100000 ft.utd=0.5
 ft.bc_checkpoint=<the PPO b=1300 policy directory> ft.demos=<make_rl_demos.py transitions>
 ```
@@ -51,6 +51,10 @@ ft.bc_checkpoint=<the PPO b=1300 policy directory> ft.demos=<make_rl_demos.py tr
   the drift pays.
 * Actor learning rate low (3e-5): the starting policy is already good; most of the first million steps are the
   critics catching up. Watch `q_mean` / `target_mean` for divergence and `critic_loss` for a plateau.
+* Exploration and target-smoothing noise are calibrated, not TD3's defaults (0.1 / 0.2 / 0.5 assume an action
+  scale where 0.1 is harmless). `scripts/noise_sweep.py` on the PPO policy, 24 validation scenes: success 0.83 at
+  σ=0, 0.83 / 0.88 / 0.79 at 0.01 / 0.02 / 0.03, 0.58 at 0.05, 0.17 at 0.1. So σ starts at 0.03 and decays to 0.01;
+  the target noise keeps TD3's 2x ratio (0.06) with its 5x clip (0.15).
 * `utd` 0.5 and `updates_per_call` 16 keep the GPU learner ahead of ~50 CPU environments; raise `utd` if
   `updates_per_s` is far above `steps_per_s`.
 
@@ -107,3 +111,7 @@ Checkpoint selection uses the Train-500 fresh scenes, never the 214 test scenes.
   filling with failures of a policy the critics will never be asked to follow. Decision: hold the job, measure
   success vs σ (`scripts/noise_sweep.py`) and restart fresh with a σ that keeps most of the success. PPO's own
   learned σ was 0.02–0.04 in pre-tanh units, the scale to expect.
+* **2026-11-28, noise sweep** (`noise_sweep.py`, PPO b=1300, 24 validation scenes, 1 ms latency, post-success):
+  success 0.833 / 0.833 / 0.875 / 0.792 / 0.583 / 0.167 at σ = 0 / 0.01 / 0.02 / 0.03 / 0.05 / 0.1 (collisions
+  0.17 / 0.13 / 0.08 / 0.13 / 0.21 / 0.50). Decision: σ 0.03 → 0.01, target noise 0.06, clip 0.15; the two σ=0.1
+  runs archived as `rl2/old_sigma0.1_*` and both plan lines restarted fresh.
